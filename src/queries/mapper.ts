@@ -10,7 +10,7 @@ import {
 } from "../types";
 import { parseEqFilter } from "./eq-filter";
 
-const newMappings = (startAlias = 0) =>
+export const newMappings = (startAlias = 0) =>
   ({
     select: new Set<string>(),
     json: [] as string[],
@@ -22,7 +22,7 @@ const newMappings = (startAlias = 0) =>
     alias: startAlias,
   } as MappingsType);
 
-const mappingsReducer = (m: Map<string, MappingsType>) =>
+export const mappingsReducer = (m: Map<string, MappingsType>) =>
   Array.from(m.values()).reduce(
     (
       {

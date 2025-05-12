@@ -1,4 +1,4 @@
-import { EntityManager } from "@mikro-orm/core";
+import { EntityManager, PostgreSqlDriver } from "@mikro-orm/postgresql";
 
 export const hello = (name: string): string => {
   return `Hello, ${name}!`;
@@ -15,5 +15,5 @@ export let logger: {
 };
 
 export let Database: {
-  em: EntityManager<any>;
+  em: EntityManager<PostgreSqlDriver>;
 };
