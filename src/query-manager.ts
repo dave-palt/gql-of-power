@@ -1,7 +1,7 @@
 import { GraphQLResolveInfo } from 'graphql';
 import graphqlFields from 'graphql-fields';
 import { getCustomFieldsFor } from './entities/gql-entity';
-import { GQLtoSQLMapper, mappingsReducer } from './queries/mapper';
+import { GQLtoSQLMapper, mappingsReducer } from './queries/gql-to-sql-mapper';
 import {
 	EntityMetadata,
 	Fields,

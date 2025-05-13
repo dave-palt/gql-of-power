@@ -28,7 +28,7 @@ registerEnumType(Sort, {
 	name: 'Sort2',
 });
 
-export function createGQLEntity<T extends Object>(
+export function createGQLTypes<T extends Object>(
 	classType: new () => T,
 	opts: Partial<FieldsSettings<T>>,
 	customFields?: CustomFieldsSettings<T>
@@ -50,30 +50,6 @@ export function createGQLEntity<T extends Object>(
 	}
 	Object.defineProperty(GQLEntity, 'name', { value: gqlEntityName });
 	TypeMap[gqlEntityName] = GQLEntity;
-
-	metadata.collectHandlerParamMetadata({
-		kind: 'arg',
-		name: 'filter1',
-		description: undefined,
-		methodName: 'testField',
-		index: 0,
-		getType: () => String,
-		target: GQLEntity,
-		typeOptions: { nullable: true },
-		validate: true,
-	});
-
-	metadata.collectHandlerParamMetadata({
-		kind: 'arg',
-		name: 'filter2',
-		description: undefined,
-		methodName: 'testField',
-		index: 1,
-		getType: () => String,
-		target: GQLEntity,
-		typeOptions: { nullable: true },
-		validate: true,
-	});
 
 	class GQLEntityFilterInput {
 		@Field(() => [GQLEntityFilterInput], { nullable: true })

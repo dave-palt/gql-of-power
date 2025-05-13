@@ -69,8 +69,8 @@ export class GQLtoSQLMapper {
 		customFields?: CustomFieldsSettings<T>
 		// orderBy?: Array<GQLEntityOrderByInputType<T>>
 	) => {
-		// const alias = `${startAlias}`;
-		logger.error('recursiveMap startAlias', startAlias, alias, gqlFilters);
+		// const alias = `a${startAlias}`;
+		logger.log('recursiveMap startAlias', startAlias, alias, gqlFilters);
 		const { properties, primaryKeys } = entityMetadata;
 
 		let aliasNumber = startAlias;
@@ -85,14 +85,7 @@ export class GQLtoSQLMapper {
 
 					const filter = __arguments.find((a: any) => a?.filter)?.filter?.value;
 					const pagination = __arguments.find((a: any) => a?.pagination)?.pagination?.value;
-					logger.error(
-						'__arguments ====> ',
-						__arguments,
-						'filter',
-						filter,
-						'pagination',
-						pagination
-					);
+					logger.log('__arguments ====> ', __arguments, 'filter', filter, 'pagination', pagination);
 					if (filter || pagination) {
 						const {
 							filterJoin,
@@ -131,19 +124,19 @@ export class GQLtoSQLMapper {
 			const gqlFieldName = (customFieldProps?.requires as string) ?? gqlFieldNameKey;
 
 			if (!fieldProps) {
-				logger.error(alias, gqlFieldName, 'not found in properties nor in customFields');
+				logger.log(alias, gqlFieldName, 'not found in properties nor in customFields');
 				return mappings;
 			}
 			const referenceField =
 				this.exists(fieldProps.type) && this.getMetadata<any, EntityMetadata<any>>(fieldProps.type);
 
-			// logger.error(gqlFieldName, 'fieldNames', fieldProps.fieldNames);
+			// logger.log(gqlFieldName, 'fieldNames', fieldProps.fieldNames);
 
 			const uniqueFieldNames = (fieldProps.fieldNames ?? []).map((f) => `${alias}.${f}`);
 
 			if (referenceField) {
 				const refAlias = `${fieldPrefix}_${alias}_${i}`;
-				// logger.error('referenceField', referenceField.name, fieldProps.reference);
+				// logger.log('referenceField', referenceField.name, fieldProps.reference);
 
 				if (
 					fieldProps.reference === ReferenceType.ONE_TO_MANY ||
@@ -152,7 +145,7 @@ export class GQLtoSQLMapper {
 					const referenceFieldProps = referenceField.properties[
 						fieldProps.mappedBy as keyof typeof referenceField.properties
 					] as EntityProperty;
-					// logger.error('referenceFieldProps', referenceField.name, referenceFieldProps.mappedBy);
+					// logger.log('referenceFieldProps', referenceField.name, referenceFieldProps.mappedBy);
 
 					const ons = referenceFieldProps.joinColumns;
 					const entityOns = referenceFieldProps.referencedColumnNames;
@@ -194,7 +187,7 @@ export class GQLtoSQLMapper {
 
 					aliasNumber = newAlias;
 
-					logger.error(
+					logger.log(
 						'recursiveMap - referenceField',
 						referenceField.name,
 						'where',
@@ -222,7 +215,7 @@ export class GQLtoSQLMapper {
 
 						const processedOrderBy = orderBy.reduce((acc, ob) => {
 							Object.keys(ob).forEach((k: string) => {
-								logger.error(
+								logger.log(
 									'recursiveMap - processedOrderBy',
 									k,
 									ob[k],
@@ -359,7 +352,7 @@ export class GQLtoSQLMapper {
 
 					mapping.join.push(leftOuterJoin);
 				} else {
-					logger.error(
+					logger.log(
 						'reference type',
 						fieldProps.reference,
 						'not handled for field',
@@ -371,14 +364,14 @@ export class GQLtoSQLMapper {
 				uniqueFieldNames.forEach((f) => mapping.select.add(f));
 				mapping.json.push(`'${gqlFieldName}', ${uniqueFieldNames.join(', ')}`);
 			} else {
-				logger.error('reference type', fieldProps.reference, 'not handled for field', gqlFieldName);
+				logger.log('reference type', fieldProps.reference, 'not handled for field', gqlFieldName);
 			}
 			return mappings;
 		}, new Map<string, MappingsType>());
 
 		res = gqlFilters.reduce((mappings, gqlFilter, _filterIndex) => {
 			const filterIndex = _filterIndex * 1_000_000;
-			logger.error('recursiveMap - gqlFilter PARENT', gqlFilter);
+			logger.log('recursiveMap - gqlFilter PARENT', gqlFilter);
 			Object.keys(gqlFilter).forEach((gqlFieldNameKey, fieldIndex) => {
 				if (
 					(gqlFieldNameKey === '_and' || gqlFieldNameKey === '_or' || gqlFieldNameKey === '_not') &&
@@ -387,10 +380,10 @@ export class GQLtoSQLMapper {
 					return;
 				}
 				const fieldPrefix = `${prefix ?? ''}_${filterIndex}_${fieldIndex}`;
-				logger.error('recursiveMap - gqlFilter', gqlFilter, gqlFieldNameKey, fieldPrefix);
-				logger.error('');
-				logger.error('');
-				logger.error('');
+				logger.log('recursiveMap - gqlFilter', gqlFilter, gqlFieldNameKey, fieldPrefix);
+				logger.log('');
+				logger.log('');
+				logger.log('');
 
 				// id_in, id_eq, id_ne, id_gt, id_gte, id_lt, id_lte, etc...
 				const fieldOperation = Object.keys(FieldOperations).find((k) =>
@@ -464,6 +457,7 @@ export class GQLtoSQLMapper {
 						join,
 						where: w,
 						values,
+						alias: newAlias,
 					} = mappingsReducer(
 						this.recursiveMap<T>(
 							entityMetadata,
@@ -475,6 +469,7 @@ export class GQLtoSQLMapper {
 							customFields
 						)
 					);
+					aliasNumber = newAlias;
 					if (!mappings.has(gqlFieldNameKey)) {
 						mappings.set(gqlFieldNameKey, newMappings());
 					}
@@ -485,6 +480,7 @@ export class GQLtoSQLMapper {
 						`( ${ClassOperations[gqlFieldNameKey as keyof typeof ClassOperations](w)} )`
 					);
 					mapping.values = { ...mapping.values, ...values };
+					mapping.alias = newAlias;
 					return;
 				}
 
@@ -513,10 +509,10 @@ export class GQLtoSQLMapper {
 
 				const gqlFieldName = (customFieldProps?.requires as string) ?? fieldNameKey;
 
-				logger.error('this ==>', gqlFieldNameKey, 'fieldNameKey', fieldNameKey);
+				logger.log('this ==>', gqlFieldNameKey, 'fieldNameKey', fieldNameKey);
 
 				if (!fieldNameKey) {
-					logger.error(alias, gqlFieldName, 'not found in properties nor in customFields');
+					logger.log(alias, gqlFieldName, 'not found in properties nor in customFields');
 					throw new Error(`${alias} ${gqlFieldName} not found in properties nor in customFields`);
 					return;
 				}
@@ -529,7 +525,7 @@ export class GQLtoSQLMapper {
 
 				if (referenceField) {
 					const refAlias = `${fieldPrefix ?? ''}_${alias}_${fieldPrefix}`;
-					logger.error('referenceField', referenceField.name, fieldProps.reference);
+					logger.log('referenceField', referenceField.name, fieldProps.reference);
 
 					if (
 						fieldProps.reference === ReferenceType.ONE_TO_MANY ||
@@ -538,7 +534,7 @@ export class GQLtoSQLMapper {
 						const referenceFieldProps = referenceField.properties[
 							fieldProps.mappedBy as keyof typeof referenceField.properties
 						] as EntityProperty;
-						// logger.error('referenceFieldProps', referenceField.name, referenceFieldProps.mappedBy);
+						// logger.log('referenceFieldProps', referenceField.name, referenceFieldProps.mappedBy);
 
 						const ons = referenceFieldProps.joinColumns;
 						const entityOns = referenceFieldProps.referencedColumnNames;
@@ -573,7 +569,7 @@ export class GQLtoSQLMapper {
 						mapping.alias = newAlias;
 						aliasNumber = newAlias;
 
-						logger.error('======>referenceField', gqlFieldName, join, where, values, filterValue);
+						logger.log('======>referenceField', gqlFieldName, join, where, values, filterValue);
 
 						if (
 							referenceField.tableName &&
@@ -672,7 +668,7 @@ export class GQLtoSQLMapper {
 							mapping.values = { ...mapping.values, ...values };
 						}
 					} else {
-						logger.error(
+						logger.log(
 							'reference type',
 							fieldProps.reference,
 							'not handled for field',
@@ -681,7 +677,7 @@ export class GQLtoSQLMapper {
 						);
 					}
 				} else {
-					logger.error(gqlFieldName, 'filterValue', filterValue);
+					logger.log(gqlFieldName, 'filterValue', filterValue);
 					// filters example: [{ id: 1 }] => { id: 1 }
 					const parsed = parseEqFilter(
 						filterValue,
@@ -695,9 +691,9 @@ export class GQLtoSQLMapper {
 						return;
 					}
 					const { fieldName: eqField, eqFilter, eqValue } = parsed;
-					logger.error(gqlFieldName, 'eqField', eqField);
-					logger.error(gqlFieldName, 'eqFilter', eqFilter);
-					logger.error(gqlFieldName, 'eqValue', eqValue);
+					logger.log(gqlFieldName, 'eqField', eqField);
+					logger.log(gqlFieldName, 'eqFilter', eqFilter);
+					logger.log(gqlFieldName, 'eqValue', eqValue);
 
 					mapping.where.push(
 						fieldOperation
@@ -713,12 +709,12 @@ export class GQLtoSQLMapper {
 		// 	Object.keys(ob).forEach((f) => {
 		// 		const m = newMappings();
 		// 		const orderBy = `${alias}.${f} ${ob[f as keyof GQLEntityOrderByInputType<T>]}`;
-		// 		logger.error('recursiveMap -> orderBy', orderBy);
+		// 		logger.log('recursiveMap -> orderBy', orderBy);
 		// 		[...res.entries()].forEach(([k, m]) => {
 		// 			if (!m.orderBy) {
 		// 				m.orderBy = [];
 		// 			}
-		// 			logger.error('recursiveMap -> orderBy added to', k);
+		// 			logger.log('recursiveMap -> orderBy added to', k);
 		// 			m.orderBy.push(orderBy);
 		// 		});
 		// 		res.set(f, m);

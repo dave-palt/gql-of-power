@@ -1,2 +1,2 @@
 export * from './eq-filter';
-export * from './mapper';
+export * from './gql-to-sql-mapper';
