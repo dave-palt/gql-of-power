@@ -17,14 +17,15 @@
   - [ ] organise things in classes
     - [x] GQLtoSQLMapper
     - [ ] QueryManager
-- [ ] resolved fields:
-  - [ ] define hidrater recursive class NOT a PRIORITY
-    - (doesn't work) ~~Object.assign array of custom field resolvers~~
-    - [ ] parse each custom field alongside the fields processing
-      - [ ] requires a function to "reduce" the result applying it to the result set
 - filter 1:m by attributes of array
   - [ ] filter on quantity (example: select author that have N books)
+- [ ] change `OR` conditions into single queries with `union all`
 
 # Future
 
 - [ ] ACL: access control list to add to an entity definition and applies the filters based on the @Context
+- [ ] resolved fields:
+  - (doesn't work) ~~Object.assign array of custom field resolvers~~
+  - [ ] define hidrater recursive class NOT a PRIORITY
+    - [ ] parse each custom field alongside the fields processing
+      - [ ] requires a function to "reduce" the result applying it to the result set
