@@ -22,6 +22,8 @@
     - (doesn't work) ~~Object.assign array of custom field resolvers~~
     - [ ] parse each custom field alongside the fields processing
       - [ ] requires a function to "reduce" the result applying it to the result set
+- filter 1:m by attributes of array
+  - [ ] filter on quantity (example: select author that have N books)
 
 # Future
 
