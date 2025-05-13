@@ -1,4 +1,4 @@
-- [ ] improve aliases using incremental number
+- [x] improve aliases using incremental number
 - [ ] resolved fields:
 
 - [ ] define hidrater recursive class

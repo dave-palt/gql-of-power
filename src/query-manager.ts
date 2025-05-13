@@ -1,7 +1,7 @@
 import { GraphQLResolveInfo } from 'graphql';
 import graphqlFields from 'graphql-fields';
 import { getCustomFieldsFor } from './entities/gql-entity';
-import { GQLtoSQLMapper, mappingsReducer } from './queries/gql-to-sql-mapper';
+import { Alias, GQLtoSQLMapper, mappingsReducer } from './queries/gql-to-sql-mapper';
 import {
 	EntityMetadata,
 	Fields,
@@ -30,25 +30,23 @@ export const getQueryResultsFor = async <K extends { _____name: string }, T>(
 
 	const customFields = getCustomFieldsFor(entity.name);
 
-	const alias = 'a0';
+	const alias = new Alias(0, 'a');
 	const metadata = getMetadata(entity.name) as EntityMetadata<T>;
-	logger.error('recursiveMap start');
+
 	const { select, json, filterJoin, join, where, values } = mappingsReducer(
-		mapper.recursiveMap<T>(
-			metadata,
-			fields,
-			0,
+		mapper.recursiveMap<T>({
+			entityMetadata: metadata,
 			alias,
-			filter ? [filter] : [],
-			undefined,
-			customFields
-		)
+			fields,
+			customFields,
+			gqlFilters: filter ? [filter] : [],
+		})
 	);
-	logger.error('recursiveMap done');
+
 	const orderByFields = (pagination?.orderBy ?? [])
 		.map((obs) =>
 			Object.keys(obs)
-				.map((ob) => `${alias}.${ob}`)
+				.map((ob) => `${alias.toString()}.${ob}`)
 				.flat()
 		)
 		.flat();
@@ -59,7 +57,7 @@ export const getQueryResultsFor = async <K extends { _____name: string }, T>(
 					Object.keys(obs)
 						.map((ob) =>
 							metadata.properties[ob as string & keyof T].fieldNames
-								.map((fn) => `${alias}.${fn} ${(obs as any)[ob]}`)
+								.map((fn) => `${alias.toString()}.${fn} ${(obs as any)[ob]}`)
 								.join(', ')
 						)
 						.filter((o) => o.length > 0)
@@ -71,11 +69,10 @@ export const getQueryResultsFor = async <K extends { _____name: string }, T>(
 	logger.error('orderByFields', orderByFields, 'select', select);
 	const selectFields = [...new Set(orderByFields.concat(Array.from(select)))];
 	const subQuery2 = `select ${selectFields.join(', ')} 
-            from ${metadata.tableName} as ${alias}
+            from ${metadata.tableName} as ${alias.toString()}
             ${filterJoin.join(' \n')}
                 where true 
-                ${where.length > 0 ? ' and ' : ''}
-                ${where.join(' and ')}
+                ${where.length > 0 ? ` and ( ${where.join(' and ')} )` : ''}
             ${orderBySQL}
                 ${pagination?.limit ? `limit :limit` : ``}
                 ${pagination?.offset ? `offset :offset` : ``}
@@ -87,7 +84,7 @@ export const getQueryResultsFor = async <K extends { _____name: string }, T>(
 	const res = (await executeQuery(
 		rawQuery(
 			`select ${selectFieldsSQL.join(', ')}
-            from (${subQuery2}) as ${alias}
+            from (${subQuery2}) as ${alias.toString()}
             ${join.join(' \n')}
             ${orderBySQL}
     `,

@@ -1,6 +1,7 @@
 import { Reference } from '@mikro-orm/core';
 import { Field } from 'type-graphql';
 import { ClassOperations, FieldOperations } from './operations';
+import { Alias } from './queries';
 
 export enum ReferenceType {
 	ONE_TO_ONE = '1:1',
@@ -93,12 +94,14 @@ export type GQLEntityPaginationInputType<T> = {
 export type MappingsType = {
 	select: Set<string>;
 	json: string[];
-	filterJoin: string[];
 	join: string[];
+	// TODO: convert into matrix [][] with an array for each _or condition
+	filterJoin: string[];
+	// TODO: convert into matrix [][] with an array for each _or condition
 	where: string[];
 	values: Record<string, any>;
 	limit?: number;
 	offset?: number;
 	orderBy: GQLEntityOrderByInputType<any>[];
-	alias: number;
+	latestAlias: Alias;
 };
