@@ -1,4 +1,3 @@
-import { Reference } from '@mikro-orm/core';
 import { Field } from 'type-graphql';
 import { ClassOperations, FieldOperations } from './operations';
 import { Alias } from './queries';
@@ -45,10 +44,6 @@ export type OrderByOptions = {
 	[x: string]: Sort;
 };
 
-export type Fields<T> = Partial<{
-	[key in string & keyof T]: NonNullable<T[key]> extends Reference<infer K> ? Fields<K> : {};
-}>;
-
 export type FieldSettings = {
 	type: NonNullable<Parameters<typeof Field>[0]>;
 	options?: Parameters<typeof Field>[1];
@@ -72,6 +67,47 @@ export type CustomFieldsSettings<T> = {
 		resolve: (obj: T) => any;
 	};
 };
+
+type GQLArgumentsFilterAndPagination<T> = {
+	__arguments: Array<
+		| {
+				filter: GQLEntityFilterInputFieldType<T>;
+		  }
+		| {
+				pagination: GQLEntityPaginationInputType<T>;
+		  }
+	>;
+};
+
+export type Fields<T> = Partial<{
+	[key in string & keyof NonNullable<T>]: NonNullable<NonNullable<T>[key]> extends Array<infer E>
+		? Fields<NonNullable<E>> & GQLArgumentsFilterAndPagination<NonNullable<E>>
+		: NonNullable<NonNullable<T>[key]> extends infer K
+		? K extends infer E
+			? 'getItems' extends keyof NonNullable<E>
+				? NonNullable<E>['getItems'] extends () => infer F
+					? F extends Array<infer G>
+						? Partial<
+								Fields<G> & {
+									[key in string & keyof typeof FieldOperations]?: Fields<NonNullable<G>>[];
+								} & GQLArgumentsFilterAndPagination<G>
+						  >
+						: {}
+					: {}
+				: 'getEntity' extends keyof NonNullable<K>
+				? NonNullable<K>['getEntity'] extends () => infer F
+					? Fields<NonNullable<F>> &
+							Partial<{
+								[Key in string & keyof F as `${Capitalize<Key>}`]: {
+									[key in string & keyof typeof FieldOperations]?: Fields<NonNullable<F>>[];
+								};
+							}> &
+							GQLArgumentsFilterAndPagination<F>
+					: Fields<NonNullable<K>>
+				: NonNullable<T>[key] & GQLArgumentsFilterAndPagination<NonNullable<T>[key]>
+			: Fields<NonNullable<NonNullable<T>[key]>>
+		: {};
+}>;
 
 export type GQLEntityFilterInputFieldType<T> = {
 	[key in string & keyof T]?: T[key];
