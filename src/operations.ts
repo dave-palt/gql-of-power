@@ -1,28 +1,30 @@
 export const ClassOperations = {
-	_and: ([l, ..._]: string[]) => `and (${l})`,
-	_or: ([l, ..._]: string[]) => `or (${l})`,
-	_not: ([l, ..._]: string[]) => `not (${l})`,
+	_and: ([l]: string[], [v]: string[]) => `and (${l})`,
+	_or: ([l]: string[], [v]: string[]) => `or (${l})`,
+	_not: ([l]: string[], [v]: string[]) => `not (${l})`,
 };
 export const FieldOperations = {
-	_and: ([l, ..._]: string[]) => `and (${l})`,
+	_and: ([l]: string[], [_]: string[]) => `and (${l})`,
 
-	_eq: ([l, r, ..._]: string[]) => `${l} = ${r}`,
-	_ne: ([l, r, ..._]: string[]) => `${l} ${r !== null && r !== 'null' ? '!=' : 'is not'} ${r}`,
-	_in: ([l, r, ..._]: string[]) => `${l} in (${r})`,
-	_nin: ([l, r, ..._]: string[]) => `${l} nin (${r})`,
-	_gt: ([l, r, ..._]: string[]) => `${l} gt ${r}`,
-	_gte: ([l, r, ..._]: string[]) => `${l} gte ${r}`,
-	_lt: ([l, r, ..._]: string[]) => `${l} lt ${r}`,
-	_lte: ([l, r, ..._]: string[]) => `${l} lte ${r}`,
-	_like: ([l, r, ..._]: string[]) => `${l} like ${r}`,
-	_re: ([l, r, ..._]: string[]) => `${l} re ${r}`,
-	_ilike: ([l, r, ..._]: string[]) => `${l} ilike ${r}`,
-	_fulltext: ([l, r, ..._]: string[]) => `${l} fulltext ${r}`,
-	_overlap: ([l, r, ..._]: string[]) => `${l} overlap ${r}`,
-	_contains: ([l, r, ..._]: string[]) => `${l} contains ${r}`,
-	_contained: ([l, r, ..._]: string[]) => `${l} contained ${r}`,
-	_between: ([l, r1, r2, ..._]: string[]) => `${l} between ${r1} and ${r2}`,
-	_exists: ([l, ..._]: string[]) => `exists ${l}`,
+	_eq: ([l, r]: string[], [_, rv]: string[]) =>
+		`${l} ${rv !== null && rv !== 'null' ? `= ${r}` : 'is null'}`,
+	_ne: ([l, r]: string[], [_, rv]: string[]) =>
+		`${l} ${rv !== null && rv !== 'null' ? `!= ${r}` : 'is not null'}`,
+	_in: ([l, r]: string[], []: string[]) => `${l} in (${r})`,
+	_nin: ([l, r]: string[], []: string[]) => `${l} nin (${r})`,
+	_gt: ([l, r]: string[], []: string[]) => `${l} gt ${r}`,
+	_gte: ([l, r]: string[], []: string[]) => `${l} gte ${r}`,
+	_lt: ([l, r]: string[], []: string[]) => `${l} lt ${r}`,
+	_lte: ([l, r]: string[], []: string[]) => `${l} lte ${r}`,
+	_like: ([l, r]: string[], []: string[]) => `${l} like ${r}`,
+	_re: ([l, r]: string[], []: string[]) => `${l} re ${r}`,
+	_ilike: ([l, r]: string[], []: string[]) => `${l} ilike ${r}`,
+	_fulltext: ([l, r]: string[], []: string[]) => `${l} fulltext ${r}`,
+	_overlap: ([l, r]: string[], []: string[]) => `${l} overlap ${r}`,
+	_contains: ([l, r]: string[], []: string[]) => `${l} contains ${r}`,
+	_contained: ([l, r]: string[], []: string[]) => `${l} contained ${r}`,
+	_between: ([l, r1, r2]: string[], []: string[]) => `${l} between ${r1} and ${r2}`,
+	_exists: ([l]: string[], []: string[]) => `exists ${l}`,
 };
 
 export const Operations = { ...ClassOperations, ...FieldOperations };
