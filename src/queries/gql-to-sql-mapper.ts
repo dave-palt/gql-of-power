@@ -200,6 +200,7 @@ export class GQLtoSQLMapper {
 					properties[customFieldProps?.requires as keyof EntityMetadata<T>['properties']];
 
 				const gqlFieldName = (customFieldProps?.requires as string) ?? gqlFieldNameKey;
+				logger.log('=> recursiveMap fields, gqlFieldName', gqlFieldName);
 
 				if (!fieldProps) {
 					logger.log(
@@ -405,7 +406,9 @@ export class GQLtoSQLMapper {
 								offset
 							);
 
-							mapping.select.add(`${fieldProps.fieldNames.join(', ')}`);
+							mapping.select.add(
+								`${fieldProps.fieldNames.map((fn) => `${alias}.${fn}`).join(', ')}`
+							);
 							mapping.json.push(`'${gqlFieldName}', ${refAlias}.value`);
 
 							const selectFields = [
@@ -855,7 +858,7 @@ export class GQLtoSQLMapper {
 										? fieldProps.fieldNames[0]
 										: gqlFieldName,
 									latestAlias.toString(),
-									`:${valueAlias.toString()}`
+									valueAlias.toString()
 								);
 								if (!parsed) {
 									return;
@@ -881,7 +884,7 @@ export class GQLtoSQLMapper {
 									? fieldProps.fieldNames[0]
 									: gqlFieldName,
 								latestAlias.toString(),
-								`:${valueAlias.toString()}`
+								valueAlias.toString()
 							);
 							if (!parsed) {
 								return;

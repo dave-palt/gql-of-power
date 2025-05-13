@@ -1,6 +1,7 @@
 # General
 
 - [ ] improve logging
+- [ ] write readme
 
 ## Components
 
@@ -13,13 +14,15 @@
 
 - [x] improve aliases using incremental number
 - [x] define agnostic orm-framework metadata extractor functions and types
-- [ ] better function names
+- [ ] Refactor
+  - [ ] improve function names
   - [ ] organise things in classes
     - [x] GQLtoSQLMapper
     - [ ] QueryManager
 - filter 1:m by attributes of array
   - [ ] filter on quantity (example: select author that have N books)
 - [ ] change `OR` conditions into single queries with `union all`
+- [ ] reduce load on DB by not using json but string concat and `string_agg` + `JSON.parse()` of the result string
 
 # Future
 
