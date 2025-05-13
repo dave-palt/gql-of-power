@@ -18,11 +18,15 @@ export const getQueryResultsFor = async <K extends { _____name: string }, T>(
 	filter?: GQLEntityFilterInputFieldType<T>,
 	pagination?: Partial<GQLEntityPaginationInputType<T>>
 ): Promise<K[]> => {
-	logger.error('getQueryResultsFor', entity.name);
+	const logName = 'GetQueryResultsFor - ' + entity.name;
+	logger.time(logName);
+	logger.timeLog(logName);
 	if (!entity || !entity.name) {
+		logger.timeEnd(logName);
 		throw new Error(`Entity ${entity} not compatible`);
 	}
 	if (!exists(entity.name)) {
+		logger.timeEnd(logName);
 		throw new Error(`Entity ${entity.name} not found in metadata`);
 	}
 	const mapper = new GQLtoSQLMapper({ exists, getMetadata, rawQuery, executeQuery });
@@ -81,22 +85,21 @@ export const getQueryResultsFor = async <K extends { _____name: string }, T>(
 	const selectFieldsSQL = Array.from(orderByFields);
 	selectFieldsSQL.push(`jsonb_build_object(${json.join('\n, ')}) as val`);
 
-	const res = (await executeQuery(
-		rawQuery(
-			`select ${selectFieldsSQL.join(', ')}
-            from (${subQuery2}) as ${alias.toString()}
-            ${join.join(' \n')}
-            ${orderBySQL}
-    `,
-			{
-				...values,
-				limit: 3000,
-				...(pagination?.limit ? { limit: pagination.limit } : {}),
-				...(pagination?.offset ? { offset: pagination.offset } : {}),
-			}
-		)
-	)) as Array<{ val: T }>;
-	logger.error('res', res.length);
+	const querySQL = `select ${selectFieldsSQL.join(', ')}
+	from (${subQuery2}) as ${alias.toString()}
+	${join.join(' \n')}
+	${orderBySQL}
+    `;
+	const bindings = {
+		...values,
+		limit: 3000,
+		...(pagination?.limit ? { limit: pagination.limit } : {}),
+		...(pagination?.offset ? { offset: pagination.offset } : {}),
+	};
+	logger.timeLog(logName, 'input processed, query created');
+	const res = (await executeQuery(rawQuery(querySQL, bindings))) as Array<{ val: T }>;
+
+	logger.timeLog(logName, 'found', res.length, 'results');
 	const mapped = res.map(({ val }) => {
 		// for (const key of customFieldsKeys) {
 		// 	const conf = (customFields as any)[key];
@@ -109,6 +112,8 @@ export const getQueryResultsFor = async <K extends { _____name: string }, T>(
 
 		return val as any as K;
 	});
-	logger.error('mapped finished');
+
+	logger.timeLog(logName, res.length, 'results mapped');
+	logger.timeEnd(logName);
 	return mapped;
 };
