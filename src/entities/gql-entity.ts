@@ -42,11 +42,6 @@ export function createGQLTypes<T extends Object>(
 
 	class GQLEntity {
 		_____name = gqlEntityName;
-
-		@Field(() => String, { nullable: true })
-		testField(): String {
-			return '';
-		}
 	}
 	Object.defineProperty(GQLEntity, 'name', { value: gqlEntityName });
 	TypeMap[gqlEntityName] = GQLEntity;
