@@ -818,27 +818,29 @@ export class GQLtoSQLMapper {
 						const ops = [
 							...(fieldOperation ? [{ fieldOperation, filterValue } as any] : []),
 						].concat(
-							Object.keys(FieldOperations).reduce(
-								(ops, op) => {
-									if (op in filterValue) {
-										const filterActualValue = filterValue[
-											op as keyof typeof filterValue
-										] as GQLEntityFilterInputFieldType<T>;
-										if (filterActualValue === undefined) {
+							typeof filterValue === 'object'
+								? Object.keys(FieldOperations).reduce(
+										(ops, op) => {
+											if (op in filterValue) {
+												const filterActualValue = filterValue[
+													op as keyof typeof filterValue
+												] as GQLEntityFilterInputFieldType<T>;
+												if (filterActualValue === undefined) {
+													return ops;
+												}
+												ops.push({
+													fieldOperation: op as string & keyof typeof FieldOperations,
+													filterValue: filterActualValue,
+												});
+											}
 											return ops;
-										}
-										ops.push({
-											fieldOperation: op as string & keyof typeof FieldOperations,
-											filterValue: filterActualValue,
-										});
-									}
-									return ops;
-								},
-								[] as Array<{
-									fieldOperation: string & keyof typeof FieldOperations;
-									filterValue: any;
-								}>
-							)
+										},
+										[] as Array<{
+											fieldOperation: string & keyof typeof FieldOperations;
+											filterValue: any;
+										}>
+								  )
+								: []
 						);
 
 						if (ops.length > 0) {
@@ -847,6 +849,7 @@ export class GQLtoSQLMapper {
 							logger.log(gqlFieldName, 'processing field by operations', ...ops);
 							ops.forEach(({ fieldOperation, filterValue }) => {
 								const valueAlias = latestAlias.nextValue();
+								logger.info('===<< fieldOperation', valueAlias.toString());
 								// filters example: [{ id: 1 }] => { id: 1 }
 								if (filterValue === undefined) {
 									return;
@@ -877,6 +880,7 @@ export class GQLtoSQLMapper {
 							logger.log(gqlFieldName, 'processing field by equals');
 							// filters example: [{ id: 1 }] => { id: 1 }
 							const valueAlias = latestAlias.nextValue();
+							logger.info('===<< fieldOperation', valueAlias.toString());
 							const parsed = parseFilter(
 								'_eq',
 								filterValue,
