@@ -73,14 +73,16 @@ export function createGQLTypes<T extends Object>(
 	});
 	TypeMap[gqlEntityName + 'OrderBy'] = GQLEntityOrderBy;
 
-	// const fieldsResolverTypeName = getGQLEntityFieldResolverName(gqlEntityName);
-	// @Resolver(() => GQLEntity)
-	// class GQLEntityFieldsResolver {}
-	// Object.defineProperty(GQLEntityFieldsResolver, 'name', { value: fieldsResolverTypeName });
-	// TypeMap[fieldsResolverTypeName] = GQLEntityFieldsResolver;
-
 	if (customFields) {
 		CustomFieldsMap[gqlEntityName] = customFields;
+
+		const fieldsResolverTypeName = getGQLEntityFieldResolverName(gqlEntityName);
+		class GQLEntityFieldsResolver {
+			[key: string]: Function;
+		}
+		Object.defineProperty(GQLEntityFieldsResolver, 'name', { value: fieldsResolverTypeName });
+		TypeMap[fieldsResolverTypeName] = GQLEntityFieldsResolver;
+
 		logger.info('CustomFieldsMap', gqlEntityName, customFields);
 
 		for (const fieldName of Object.keys(customFields) as (keyof typeof opts &
@@ -90,49 +92,53 @@ export function createGQLTypes<T extends Object>(
 			if (!fieldOptions) {
 				continue;
 			}
-			// const resolve = fieldOptions?.resolve;
 
-			// metadata.collectClassFieldMetadata({
-			// 	target: GQLEntity,
-			// 	name: fieldName,
-			// 	schemaName: fieldName,
-			// 	getType: fieldOptions.type,
-			// 	// options: {
-			// 	// 	...fieldOptions.options,
-			// 	// 	...(fieldOptions.array ? { array: true, arrayDepth: 1 } : {}),
-			// 	// },
-			// 	typeOptions: {
-			// 		...(fieldOptions.array ? { array: true, arrayDepth: 1 } : {}),
-			// 		...fieldOptions.options,
-			// 	},
-			// 	complexity: undefined,
-			// 	description: fieldName,
-			// 	deprecationReason: undefined,
-			// });
+			metadata.collectClassFieldMetadata({
+				target: GQLEntity,
+				name: fieldName,
+				schemaName: fieldName,
+				getType: fieldOptions.type,
+				typeOptions: {
+					...(fieldOptions.array ? { array: true, arrayDepth: 1 } : {}),
+					...fieldOptions.options,
+				},
+				complexity: undefined,
+				description: fieldName,
+				deprecationReason: undefined,
+			});
 
-			// // Field(fieldOptions.type, { name: fieldName })(GQLEntity, fieldName);
+			const resolve = fieldOptions?.resolve;
+			if (!resolve) {
+				continue;
+			}
 
-			// (GQLEntityFieldsResolver as any)[fieldName + 'Resolver'] = resolve;
-			// logger.info(fieldName + 'Resolver', (GQLEntityFieldsResolver as any)[fieldName + 'Resolver']);
+			GQLEntityFieldsResolver.prototype[fieldName] = () => ({ id: 1 });
+			resolve && Object.defineProperty(GQLEntityFieldsResolver, fieldName, resolve);
 
-			// logger.info('GQLEntityFieldsResolver with field resolver property', GQLEntityFieldsResolver);
-			// metadata.collectFieldResolverMetadata({
-			// 	kind: 'external',
-			// 	complexity: undefined,
-			// 	target: GQLEntityFieldsResolver,
-			// 	methodName: fieldName + 'Resolver',
-			// 	schemaName: fieldName + 'Resolver',
-			// 	description: fieldName + 'Resolver',
-			// 	deprecationReason: undefined,
-			// 	getType: fieldOptions.type,
-			// 	getObjectType: () => GQLEntity,
-			// 	typeOptions: {
-			// 		...(fieldOptions.array ? { array: true, arrayDepth: 1 } : {}),
-			// 		...fieldOptions.options,
-			// 	},
-			// });
+			// // logger.info('GQLEntityFieldsResolver with field resolver property', GQLEntityFieldsResolver);
+			metadata.collectFieldResolverMetadata({
+				kind: 'external',
+				complexity: undefined,
+				target: GQLEntityFieldsResolver,
+				methodName: fieldName,
+				schemaName: fieldName,
+				description: fieldName,
+				deprecationReason: undefined,
+				getType: fieldOptions.type,
+				getObjectType: () => GQLEntity,
+				typeOptions: {
+					...(fieldOptions.array ? { array: true, arrayDepth: 1 } : {}),
+					...fieldOptions.options,
+				},
+			});
 		}
+
+		metadata.collectResolverClassMetadata({
+			target: GQLEntityFieldsResolver,
+			getObjectType: () => GQLEntity,
+		});
 	}
+
 	InputType(gqlEntityName + 'OrderBy')(GQLEntityOrderBy);
 
 	const paginationTypeName = `${gqlEntityName}PaginationInput`;

@@ -60,6 +60,7 @@ export type RelatedFieldSettings<T> = FieldBaseSettings & {
 	 * Example: the custom field is for Account and requires crmAccountId => 'crmAccountId'
 	 */
 	requires?: (string & keyof T) | Array<string & keyof T>;
+	resolve?: (...any: any) => any;
 };
 
 export type FieldsSettings<T> = {

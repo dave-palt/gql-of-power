@@ -1,4 +1,4 @@
-import { ClassOperations, FieldOperations } from '../operations';
+import { ClassOperations, FieldOperations, Operations } from '../operations';
 import {
 	CustomFieldsSettings,
 	EntityMetadata,
@@ -11,7 +11,6 @@ import {
 	ReferenceType,
 } from '../types';
 import { logger } from '../variables';
-import { parseFilter } from './eq-filter';
 
 export const newMappings = (latestAlias = new Alias(0, 'a')) =>
 	({
@@ -25,6 +24,12 @@ export const newMappings = (latestAlias = new Alias(0, 'a')) =>
 		latestAlias,
 	} as MappingsType);
 
+const isPrimitive = (filterValue: any): filterValue is string | number | boolean | bigint =>
+	typeof filterValue === 'bigint' ||
+	typeof filterValue === 'boolean' ||
+	typeof filterValue === 'number' ||
+	typeof filterValue === 'string' ||
+	typeof filterValue === 'symbol';
 export const mappingsReducer = (m: Map<string, MappingsType>) =>
 	Array.from(m.values()).reduce(
 		(
@@ -118,22 +123,17 @@ export class GQLtoSQLMapper {
 		entityMetadata,
 		fields,
 		alias,
-		// _alias,
 		gqlFilters,
 		prefix,
 		customFields,
-	}: // orderBy
-	{
+	}: {
 		entityMetadata: EntityMetadata<T>;
 		fields?: Fields<T> | any;
 		alias: Alias;
-		// _alias: string,
 		gqlFilters?: Array<GQLEntityFilterInputFieldType<T>>;
 		prefix?: string;
 		customFields?: CustomFieldsSettings<T>;
-		// orderBy?: Array<GQLEntityOrderByInputType<T>>
 	}) => {
-		// const alias = `a${alias}`;
 		logger.log('');
 		logger.log('');
 		logger.log('');
@@ -203,13 +203,6 @@ export class GQLtoSQLMapper {
 				logger.log('=> recursiveMap fields, gqlFieldName', gqlFieldName);
 
 				if (!fieldProps) {
-					logger.log(
-						mapping.latestAlias.toString(),
-						gqlFieldName,
-						customFieldProps?.requires,
-						'not found in properties nor in customFields',
-						properties[customFieldProps?.requires as keyof EntityMetadata<T>['properties']]
-					);
 					if (customFieldProps?.requires) {
 						const requires =
 							customFieldProps.requires instanceof Array
@@ -264,7 +257,7 @@ export class GQLtoSQLMapper {
 
 						if (ons.length !== entityOns.length) {
 							throw new Error(
-								`joins with different number of columns ${ons.length} !== ${entityOns.length} on ${referenceFieldProps.name}`
+								`joins with different number of columns ${ons.length} !== ${entityOns.length} on ${referenceFieldProps.name}. Entity: ${referenceField.name}, Table: ${referenceField.tableName}`
 							);
 						}
 
@@ -378,6 +371,11 @@ export class GQLtoSQLMapper {
 						const childAlias = mapping.latestAlias;
 						const refAlias = childAlias.toString();
 
+						if (fieldProps.fieldNames.length !== referenceField.primaryKeys.length) {
+							throw new Error(
+								`Mismatch in lengths: fieldProps.fieldNames (${fieldProps.fieldNames.length}) and referenceField.primaryKeys (${referenceField.primaryKeys.length}) must have the same length.`
+							);
+						}
 						if (fieldProps.fieldNames.length && referenceField.tableName) {
 							const ons = referenceField.primaryKeys;
 							const entityOns = fieldProps.fieldNames;
@@ -570,12 +568,12 @@ export class GQLtoSQLMapper {
 						const sqlParam = `op${mapping.latestAlias}`;
 						if (fieldValue instanceof Array && fieldNameBeforeOperation in properties) {
 							mapping.where.push(
-								FieldOperations[fieldOperation as keyof typeof FieldOperations](
-									[
-										properties[fieldNameBeforeOperation as keyof typeof properties].fieldNames[0],
-										...fieldValue.map((_, i) => `:${sqlParam}_${i}`),
-									],
-									['', ...fieldValue.map((_, i) => `:${sqlParam}_${i}`)]
+								...properties[fieldNameBeforeOperation as keyof typeof properties].fieldNames.map(
+									(fieldName) =>
+										FieldOperations[fieldOperation as keyof typeof FieldOperations](
+											[fieldName, ...fieldValue.map((_, i) => `:${sqlParam}_${i}`)],
+											['', ...fieldValue.map((_, i) => `:${sqlParam}_${i}`)]
+										)
 								)
 							);
 							mapping.values = {
@@ -602,9 +600,11 @@ export class GQLtoSQLMapper {
 								);
 							}
 							mapping.where.push(
-								FieldOperations[fieldOperation as keyof typeof FieldOperations](
-									[fieldNames?.[0], `:${sqlParam}`],
-									['', fieldValue]
+								...fieldNames.map((fieldName) =>
+									FieldOperations[fieldOperation as keyof typeof FieldOperations](
+										[fieldName, `:${sqlParam}`],
+										['', fieldValue]
+									)
 								)
 							);
 							mapping.values = {
@@ -617,7 +617,7 @@ export class GQLtoSQLMapper {
 
 					const filterValue = gqlFilter[
 						gqlFieldNameKey as keyof GQLEntityFilterInputFieldType<T>
-					] as GQLEntityFilterInputFieldType<T>;
+					] as GQLEntityFilterInputFieldType<T> | string | number | boolean;
 
 					if (gqlFieldNameKey in ClassOperations || fieldOperation) {
 						const childAlias = latestAlias.next();
@@ -823,104 +823,18 @@ export class GQLtoSQLMapper {
 							logger.log(
 								'reference type',
 								fieldProps.reference,
-								'not handled for field',
-								gqlFieldName,
-								'with referenceField'
+								'not handled, field',
+								gqlFieldName
 							);
 						}
-					} else {
-						logger.log(gqlFieldName, 'filterValue', filterValue);
-
-						// id: { _eq: 1, _ne: 2 }
-						// id: { _eq: 1, _ne: 2, _in: [1, 2] }
-						const ops = [
-							...(fieldOperation ? [{ fieldOperation, filterValue } as any] : []),
-						].concat(
-							typeof filterValue === 'object'
-								? Object.keys(FieldOperations).reduce(
-										(ops, op) => {
-											if (op in filterValue) {
-												const filterActualValue = filterValue[
-													op as keyof typeof filterValue
-												] as GQLEntityFilterInputFieldType<T>;
-												if (filterActualValue === undefined) {
-													return ops;
-												}
-												ops.push({
-													fieldOperation: op as string & keyof typeof FieldOperations,
-													filterValue: filterActualValue,
-												});
-											}
-											return ops;
-										},
-										[] as Array<{
-											fieldOperation: string & keyof typeof FieldOperations;
-											filterValue: any;
-										}>
-								  )
-								: []
-						);
-
-						if (ops.length > 0) {
-							// id: { _eq: 1, _ne: 2 }
-							// id: { _eq: 1, _ne: 2, _in: [1, 2] }
-							logger.log(gqlFieldName, 'processing field by operations', ...ops);
-							ops.forEach(({ fieldOperation, filterValue }) => {
-								const valueAlias = latestAlias.nextValue();
-								logger.info('===<< fieldOperation', valueAlias.toString());
-								// filters example: [{ id: 1 }] => { id: 1 }
-								if (filterValue === undefined) {
-									return;
-								}
-								const parsed = parseFilter(
-									fieldOperation,
-									filterValue,
-									fieldProps.fieldNames && fieldProps.fieldNames.length > 0
-										? fieldProps.fieldNames[0]
-										: gqlFieldName,
-									latestAlias.toString(),
-									valueAlias.toString()
-								);
-								if (!parsed) {
-									return;
-								}
-								const { fieldName: eqField, eqFilter, eqValue } = parsed;
-								logger.log(gqlFieldName, 'latestAlias', latestAlias.toString());
-								logger.log(gqlFieldName, 'valueAlias', valueAlias.toString());
-								logger.log(gqlFieldName, 'eqField', eqField);
-								logger.log(gqlFieldName, 'eqFilter', eqFilter);
-								logger.log(gqlFieldName, 'eqValue', eqValue);
-
-								mapping.where.push(eqFilter);
-								mapping.values = { ...mapping.values, ...eqValue };
-							});
-						} else {
-							logger.log(gqlFieldName, 'processing field by equals');
-							// filters example: [{ id: 1 }] => { id: 1 }
-							const valueAlias = latestAlias.nextValue();
-							logger.info('===<< fieldOperation', valueAlias.toString());
-							const parsed = parseFilter(
-								'_eq',
-								filterValue,
-								fieldProps.fieldNames && fieldProps.fieldNames.length > 0
-									? fieldProps.fieldNames[0]
-									: gqlFieldName,
-								latestAlias.toString(),
-								valueAlias.toString()
-							);
-							if (!parsed) {
-								return;
-							}
-							const { fieldName: eqField, eqFilter, eqValue } = parsed;
-							logger.log(gqlFieldName, 'latestAlias', latestAlias.toString());
-							logger.log(gqlFieldName, 'valueAlias', valueAlias.toString());
-							logger.log(gqlFieldName, 'eqField', eqField);
-							logger.log(gqlFieldName, 'eqFilter', eqFilter);
-							logger.log(gqlFieldName, 'eqValue', eqValue);
-
-							mapping.where.push(eqFilter);
-							mapping.values = { ...mapping.values, ...eqValue };
-						}
+					} else if (filterValue !== undefined) {
+						this.applyFilterValue<T>({
+							filterValue,
+							fieldOperation,
+							gqlFieldName,
+							latestAlias,
+							mapping,
+						});
 					}
 				});
 				return { mappings, latestAlias: alias.update(latestAlias) };
@@ -944,4 +858,122 @@ export class GQLtoSQLMapper {
 		// });
 		return res.mappings;
 	};
+
+	/**
+	 * Applies filter values to the query based on the provided parameters.
+	 *
+	 * This method handles both primitive values and filter objects, generating
+	 * appropriate SQL query conditions based on the operation and value type.
+	 *
+	 * @template T - The type of entity being filtered
+	 *
+	 * @param options - Object containing filter parameters
+	 * @param options.filterValue - The value to filter by, which can be a primitive or a filter object
+	 * @param options.fieldOperation - The operation to apply (e.g., '_eq', '_gt', etc.). Optional for primitive values
+	 * @param options.gqlFieldName - The GraphQL field name being filtered
+	 * @param options.latestAlias - The latest alias used in the SQL query
+	 * @param options.mapping - The mapping configuration for the field
+	 *
+	 * @example
+	 * // For primitive values:
+	 * // { id_eq: 1 } or { id: 1 }
+	 *
+	 * // For filter objects:
+	 * // { Id: { _eq: 1 } }
+	 *
+	 * @returns {void}
+	 */
+	protected applyFilterValue<T>({
+		filterValue,
+		fieldOperation,
+		gqlFieldName,
+		latestAlias,
+		mapping,
+	}: {
+		filterValue: string | number | boolean | GQLEntityFilterInputFieldType<T>;
+		fieldOperation: string | undefined;
+		gqlFieldName: string;
+		latestAlias: Alias;
+		mapping: MappingsType;
+	}): void {
+		const filterValueIsPrimitive = isPrimitive(filterValue);
+
+		if (filterValueIsPrimitive) {
+			/**
+			 * Example:
+			 *
+			 * `{ id_eq: 1 }`
+			 *
+			 * `{ id: 1 }`
+			 */
+			const op = fieldOperation ?? ('_eq' as keyof typeof FieldOperations);
+			this.applyFilterOperation({
+				fieldOperation: op as keyof typeof FieldOperations,
+				filterValue,
+				fieldName: gqlFieldName,
+				latestAlias: latestAlias,
+				mapping,
+			});
+		} else if (!filterValueIsPrimitive) {
+			/**
+			 * Example:
+			 *
+			 * `{ Id: { _eq: 1 } }`
+			 */
+			for (const op of Object.keys(FieldOperations)) {
+				if (op in filterValue) {
+					const filterActualValue = filterValue[op as keyof typeof filterValue] as any;
+					if (filterActualValue === undefined || !isPrimitive(filterActualValue)) {
+						continue;
+					}
+					this.applyFilterOperation({
+						fieldOperation: op as string & keyof typeof FieldOperations,
+						filterValue: filterActualValue,
+						fieldName: gqlFieldName,
+						latestAlias: latestAlias,
+						mapping,
+					});
+				}
+			}
+		}
+	}
+
+	/**
+	 * Applies a filter operation to a field based on the provided parameters.
+	 *
+	 * @param options - The options for the filter operation
+	 * @param options.fieldOperation - The operation to apply, must be a key of Operations or FieldOperations
+	 * @param options.fieldName - The name of the field to filter on
+	 * @param options.filterValue - The value to filter against, can be string, number, boolean, or bigint
+	 * @param options.latestAlias - The current alias object for the table
+	 * @param options.mapping - The mapping object that holds where clauses and values
+	 *
+	 * @protected
+	 */
+	protected applyFilterOperation({
+		fieldOperation,
+		filterValue,
+		latestAlias,
+		fieldName,
+		mapping,
+	}: {
+		fieldOperation: (string & keyof typeof Operations) | (string & keyof typeof FieldOperations);
+		fieldName: string;
+		filterValue: string | number | boolean | bigint;
+		latestAlias: Alias;
+		mapping: MappingsType;
+	}) {
+		const filterFieldWithAlias = `${latestAlias.toString()}.${fieldName}`;
+		const filterParameterName = `${latestAlias.nextValue()}_${fieldName}`;
+
+		const where = Operations[fieldOperation](
+			[filterFieldWithAlias, ':' + filterParameterName],
+			['_', filterValue]
+		);
+		const value = { [filterParameterName]: filterValue };
+
+		logger.log(fieldName, 'applyFilterOperation where', where, 'values', value);
+		mapping.where.push(where);
+		mapping.values = { ...mapping.values, ...value };
+	}
 }
