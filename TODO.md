@@ -27,9 +27,7 @@
 # Future
 
 - [ ] ACL: access control list to add to an entity definition and applies the filters based on the @Context
-- [ ] resolved fields:
+- [*] resolved fields:
   - (doesn't work) ~~Object.assign array of custom field resolvers~~
-  - [ ] maybe returning the field with a random value will trigger a field resolver?
-  - [ ] define hidrater recursive class NOT a PRIORITY
-    - [ ] parse each custom field alongside the fields processing
-      - [ ] requires a function to "reduce" the result applying it to the result set
+  - [x] maybe returning the field with a random value will trigger a field resolver
+    - [ ] add automatic FieldResolver
