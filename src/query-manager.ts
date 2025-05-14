@@ -1,6 +1,6 @@
 import { GraphQLResolveInfo } from 'graphql';
 import graphqlFields from 'graphql-fields';
-import { getCustomFieldsFor } from './entities/gql-entity';
+import { getCustomFieldsFor, getGQLEntityNameFor } from './entities/gql-entity';
 import { Alias, GQLtoSQLMapper, mappingsReducer } from './queries/gql-to-sql-mapper';
 import {
 	EntityMetadata,
@@ -32,10 +32,12 @@ export const getQueryResultsFor = async <K extends { _____name: string }, T>(
 	const mapper = new GQLtoSQLMapper({ exists, getMetadata, rawQuery, executeQuery });
 	const fields = graphqlFields(info, {}, { processArguments: true }) as Fields<T>;
 
-	const customFields = getCustomFieldsFor(entity.name);
+	const customFields = getCustomFieldsFor(getGQLEntityNameFor(entity));
 
 	const alias = new Alias(0, 'a');
 	const metadata = getMetadata(entity.name) as EntityMetadata<T>;
+
+	logger.timeLog(logName, 'customFields', customFields);
 
 	const { select, json, filterJoin, join, where, values } = mappingsReducer(
 		mapper.recursiveMap<T>({
@@ -83,7 +85,7 @@ export const getQueryResultsFor = async <K extends { _____name: string }, T>(
     `;
 
 	const selectFieldsSQL = Array.from(orderByFields);
-	selectFieldsSQL.push(`jsonb_build_object(${json.join('\n, ')}) as val`);
+	selectFieldsSQL.push(`jsonb_build_object(${json.join('\n, ')}, 'test', null) as val`);
 
 	const querySQL = `select ${selectFieldsSQL.join(', ')}
 	from (${subQuery2}) as ${alias.toString()}

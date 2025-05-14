@@ -17,12 +17,18 @@ import {
 	RelatedFieldSettings,
 	Sort,
 } from '../types';
+import { logger } from '../variables';
 
 const TypeMap: { [key: string]: any } = {};
 const CachedTypeNames: Record<any, string> = {};
 
 const CustomFieldsMap: Record<string, CustomFieldsSettings<any>> = {};
 export const getCustomFieldsFor = (name: string) => CustomFieldsMap[name] ?? {};
+export const getGQLEntityNameFor = <T>(classType: new () => T) => `${classType.name}2`;
+export const getGQLEntityFieldResolverName = (gqlEntityName: string) =>
+	`${gqlEntityName}FieldsResolver`;
+export const getGQLEntityFieldResolverNameFor = <T extends Object>(classType: new () => T) =>
+	getGQLEntityFieldResolverName(getGQLEntityNameFor(classType));
 
 registerEnumType(Sort, {
 	name: 'Sort2',
@@ -36,7 +42,7 @@ export function createGQLTypes<T extends Object>(
 ) {
 	const metadata = getMetadataStorage();
 
-	const gqlEntityName = `${classType.name}2`;
+	const gqlEntityName = getGQLEntityNameFor(classType);
 
 	const fields = Object.keys(opts) as (keyof typeof opts)[];
 
@@ -67,8 +73,15 @@ export function createGQLTypes<T extends Object>(
 	});
 	TypeMap[gqlEntityName + 'OrderBy'] = GQLEntityOrderBy;
 
+	// const fieldsResolverTypeName = getGQLEntityFieldResolverName(gqlEntityName);
+	// @Resolver(() => GQLEntity)
+	// class GQLEntityFieldsResolver {}
+	// Object.defineProperty(GQLEntityFieldsResolver, 'name', { value: fieldsResolverTypeName });
+	// TypeMap[fieldsResolverTypeName] = GQLEntityFieldsResolver;
+
 	if (customFields) {
 		CustomFieldsMap[gqlEntityName] = customFields;
+		logger.info('CustomFieldsMap', gqlEntityName, customFields);
 
 		for (const fieldName of Object.keys(customFields) as (keyof typeof opts &
 			keyof typeof customFields)[]) {
@@ -77,45 +90,47 @@ export function createGQLTypes<T extends Object>(
 			if (!fieldOptions) {
 				continue;
 			}
-			const resolve = fieldOptions?.resolve;
-			Object.defineProperty(GQLEntity, fieldName, {
-				value: resolve,
-			});
+			// const resolve = fieldOptions?.resolve;
 
-			const getType =
-				'relatedEntityName' in fieldOptions
-					? () => {
-							const inputType = fieldOptions.type() as any;
-							const cachedTypeName = CachedTypeNames[inputType];
-							if (!cachedTypeName) {
-								const objectType = metadata.objectTypes.find(
-									(ot) => ot.target === fieldOptions.type()
-								);
-								const typeName = objectType?.name ?? inputType.name;
+			// metadata.collectClassFieldMetadata({
+			// 	target: GQLEntity,
+			// 	name: fieldName,
+			// 	schemaName: fieldName,
+			// 	getType: fieldOptions.type,
+			// 	// options: {
+			// 	// 	...fieldOptions.options,
+			// 	// 	...(fieldOptions.array ? { array: true, arrayDepth: 1 } : {}),
+			// 	// },
+			// 	typeOptions: {
+			// 		...(fieldOptions.array ? { array: true, arrayDepth: 1 } : {}),
+			// 		...fieldOptions.options,
+			// 	},
+			// 	complexity: undefined,
+			// 	description: fieldName,
+			// 	deprecationReason: undefined,
+			// });
 
-								CachedTypeNames[inputType] = typeName;
-							}
-							return TypeMap[CachedTypeNames[inputType]] || fieldOptions.type();
-					  }
-					: fieldOptions.type;
+			// // Field(fieldOptions.type, { name: fieldName })(GQLEntity, fieldName);
 
-			const customField = {
-				target: GQLEntity,
-				name: fieldName,
-				schemaName: fieldName,
-				getType,
-				options: {
-					...fieldOptions.options,
-					...(fieldOptions.array ? { array: true, arrayDepth: 1 } : {}),
-				},
-				typeOptions: {
-					...(fieldOptions.array ? { array: true, arrayDepth: 1 } : {}),
-					...fieldOptions.options,
-				},
-			} as any;
-			metadata.collectClassFieldMetadata(customField);
+			// (GQLEntityFieldsResolver as any)[fieldName + 'Resolver'] = resolve;
+			// logger.info(fieldName + 'Resolver', (GQLEntityFieldsResolver as any)[fieldName + 'Resolver']);
 
-			Field(getType, { name: fieldName })(GQLEntity, fieldName);
+			// logger.info('GQLEntityFieldsResolver with field resolver property', GQLEntityFieldsResolver);
+			// metadata.collectFieldResolverMetadata({
+			// 	kind: 'external',
+			// 	complexity: undefined,
+			// 	target: GQLEntityFieldsResolver,
+			// 	methodName: fieldName + 'Resolver',
+			// 	schemaName: fieldName + 'Resolver',
+			// 	description: fieldName + 'Resolver',
+			// 	deprecationReason: undefined,
+			// 	getType: fieldOptions.type,
+			// 	getObjectType: () => GQLEntity,
+			// 	typeOptions: {
+			// 		...(fieldOptions.array ? { array: true, arrayDepth: 1 } : {}),
+			// 		...fieldOptions.options,
+			// 	},
+			// });
 		}
 	}
 	InputType(gqlEntityName + 'OrderBy')(GQLEntityOrderBy);
@@ -174,7 +189,7 @@ type TypeGQLMetadataStorage = ReturnType<typeof getMetadataStorage>;
 
 type FieldParameter = Parameters<TypeGQLMetadataStorage['collectClassFieldMetadata']>[0];
 export function createGQLEntityFields<T, K>(
-	fieldOptions: FieldSettings | RelatedFieldSettings,
+	fieldOptions: FieldSettings | RelatedFieldSettings<T>,
 	fieldName: string,
 	GQLEntity: new () => T,
 	metadata: TypeGQLMetadataStorage,
@@ -349,7 +364,11 @@ export function createGQLEntityFields<T, K>(
 		} as FieldParameter;
 		metadata.collectClassFieldMetadata(fieldFilter);
 
-		if (fieldOptions.array && 'relatedEntityName' in fieldOptions) {
+		if (
+			fieldOptions.array &&
+			'relatedEntityName' in fieldOptions &&
+			fieldOptions.relatedEntityName
+		) {
 			const relatedEntityName =
 				fieldOptions.relatedEntityName[0].toUpperCase() +
 				fieldOptions.relatedEntityName.slice(1) +

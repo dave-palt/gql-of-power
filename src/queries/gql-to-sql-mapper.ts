@@ -204,10 +204,22 @@ export class GQLtoSQLMapper {
 
 				if (!fieldProps) {
 					logger.log(
-						mapping.latestAlias,
+						mapping.latestAlias.toString(),
 						gqlFieldName,
-						'not found in properties nor in customFields'
+						customFieldProps?.requires,
+						'not found in properties nor in customFields',
+						properties[customFieldProps?.requires as keyof EntityMetadata<T>['properties']]
 					);
+					if (customFieldProps?.requires) {
+						const requires =
+							customFieldProps.requires instanceof Array
+								? customFieldProps.requires
+								: [customFieldProps.requires];
+						requires.forEach((req) => {
+							mapping.select.add(latestAlias.toString() + '.' + req);
+						});
+					}
+					mapping.json.push(`'${gqlFieldName}', null`);
 					return { mappings, latestAlias };
 				}
 				const referenceField =
@@ -558,10 +570,13 @@ export class GQLtoSQLMapper {
 						const sqlParam = `op${mapping.latestAlias}`;
 						if (fieldValue instanceof Array && fieldNameBeforeOperation in properties) {
 							mapping.where.push(
-								FieldOperations[fieldOperation as keyof typeof FieldOperations]([
-									properties[fieldNameBeforeOperation as keyof typeof properties].fieldNames[0],
-									...fieldValue.map((_, i) => `:${sqlParam}_${i}`),
-								])
+								FieldOperations[fieldOperation as keyof typeof FieldOperations](
+									[
+										properties[fieldNameBeforeOperation as keyof typeof properties].fieldNames[0],
+										...fieldValue.map((_, i) => `:${sqlParam}_${i}`),
+									],
+									['', ...fieldValue.map((_, i) => `:${sqlParam}_${i}`)]
+								)
 							);
 							mapping.values = {
 								...mapping.values,
@@ -587,10 +602,10 @@ export class GQLtoSQLMapper {
 								);
 							}
 							mapping.where.push(
-								FieldOperations[fieldOperation as keyof typeof FieldOperations]([
-									fieldNames?.[0],
-									`:${sqlParam}`,
-								])
+								FieldOperations[fieldOperation as keyof typeof FieldOperations](
+									[fieldNames?.[0], `:${sqlParam}`],
+									['', fieldValue]
+								)
 							);
 							mapping.values = {
 								...mapping.values,
@@ -631,7 +646,10 @@ export class GQLtoSQLMapper {
 
 						mapping.filterJoin.push(...join);
 						mapping.where.push(
-							`( ${ClassOperations[gqlFieldNameKey as keyof typeof ClassOperations](w)} )`
+							`( ${ClassOperations[gqlFieldNameKey as keyof typeof ClassOperations](w, [
+								'',
+								...w,
+							])} )`
 						);
 						mapping.values = { ...mapping.values, ...values };
 

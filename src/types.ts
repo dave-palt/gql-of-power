@@ -1,4 +1,4 @@
-import { Field } from 'type-graphql';
+import { Field, FieldResolver } from 'type-graphql';
 import { ClassOperations, FieldOperations } from './operations';
 import { Alias } from './queries';
 
@@ -43,29 +43,30 @@ export enum Sort {
 export type OrderByOptions = {
 	[x: string]: Sort;
 };
-
-export type FieldSettings = {
-	type: NonNullable<Parameters<typeof Field>[0]>;
-	options?: Parameters<typeof Field>[1];
+export type FieldBaseSettings = {
 	generateFilter?: boolean;
 	array?: boolean;
+	relatedEntityName?: string;
 };
-export type RelatedFieldSettings = FieldSettings & {
-	relatedEntityName: string;
+export type FieldSettings = FieldBaseSettings & {
+	type: NonNullable<Parameters<typeof Field>[0]>;
+	options?: Parameters<typeof Field>[1];
+};
+export type RelatedFieldSettings<T> = FieldBaseSettings & {
+	type: NonNullable<Parameters<typeof FieldResolver>[0]>;
+	options?: Parameters<typeof FieldResolver>[1];
+	/**
+	 * Required field to resolve the custom field.
+	 * Example: the custom field is for Account and requires crmAccountId => 'crmAccountId'
+	 */
+	requires?: (string & keyof T) | Array<string & keyof T>;
 };
 
 export type FieldsSettings<T> = {
-	[key in string & keyof T]: FieldSettings | RelatedFieldSettings;
+	[key in string & keyof T]: FieldSettings;
 };
 export type CustomFieldsSettings<T> = {
-	[key in Exclude<string, keyof T>]: (FieldSettings | RelatedFieldSettings) & {
-		/**
-		 * Required field to resolve the custom field.
-		 * Example: the custom field is for Account and requires crmAccountId => 'crmAccountId'
-		 */
-		requires?: (string & keyof T) | Array<string & keyof T>;
-		resolve: (obj: T) => any;
-	};
+	[key in Exclude<string, keyof T>]: RelatedFieldSettings<T>;
 };
 
 type GQLArgumentsFilterAndPagination<T> = {
