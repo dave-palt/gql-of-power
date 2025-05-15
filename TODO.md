@@ -2,13 +2,14 @@
 
 - [ ] improve logging
 - [ ] write readme
+- [ ] build and publish on npm
 
 ## Components
 
-### GQL to SQL
+### GQL to SQL mapper
 
 - [x] field params to add filtering and pagination
-- [ ] fix joined filters inside fields
+- [x] fix joined filters inside fields
 
 ## Improvements
 
