@@ -85,7 +85,7 @@ export const getQueryResultsFor = async <K extends { _____name: string }, T>(
     `;
 
 	const selectFieldsSQL = Array.from(orderByFields);
-	selectFieldsSQL.push(`jsonb_build_object(${json.join('\n, ')}, 'test', null) as val`);
+	selectFieldsSQL.push(`jsonb_build_object(${json.join('\n, ')}) as val`);
 
 	const querySQL = `select ${selectFieldsSQL.join(', ')}
 	from (${subQuery2}) as ${alias.toString()}

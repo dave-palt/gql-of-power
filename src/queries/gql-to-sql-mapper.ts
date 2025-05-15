@@ -30,6 +30,7 @@ const isPrimitive = (filterValue: any): filterValue is string | number | boolean
 	typeof filterValue === 'number' ||
 	typeof filterValue === 'string' ||
 	typeof filterValue === 'symbol';
+
 export const mappingsReducer = (m: Map<string, MappingsType>) =>
 	Array.from(m.values()).reduce(
 		(
@@ -61,7 +62,7 @@ export const mappingsReducer = (m: Map<string, MappingsType>) =>
 	);
 
 export class Alias {
-	private child?: Alias;
+	private children: Alias[] = [];
 	private nextAlias: number;
 	private valueAlias?: Alias;
 	constructor(private alias: number, private prefix?: string, private parent?: Alias) {
@@ -70,7 +71,7 @@ export class Alias {
 	private incrementNext() {
 		this.nextAlias = this.alias + 1;
 		this.parent?.incrementNext();
-		// this.child?.incrementNext();
+		// this.children.forEach((child) => child.incrementNext());
 	}
 	/**
 	 *
@@ -80,11 +81,21 @@ export class Alias {
 	public next(prefix?: string) {
 		this.parent?.incrementNext();
 		const child = new Alias(this.nextAlias, prefix ?? this.prefix, this);
-		this.child = child;
+		this.children.push(child);
 		return child;
+	}
+	public concat(...str: string[]) {
+		return `${this.prefix ?? ''}${this.alias} - ${str.join(' ')}`;
 	}
 	public toString() {
 		return `${this.prefix ?? ''}${this.alias}`;
+	}
+	public toValue(value: string) {
+		return `${this.prefix ?? ''}${this.alias}.${value}`;
+	}
+
+	public toChildAlias(childAlias: string) {
+		return `${this.prefix ?? ''}${this.alias}_${childAlias}`;
 	}
 
 	public pick(other: Alias) {
@@ -102,12 +113,17 @@ export class Alias {
 			// this updates the alias of the values so in case of an _or: [ id: 1, id: 2 ] we have an alias for each value
 			this.valueAlias.update(other.valueAlias);
 		}
+		this.parent?.update(other);
+		// this.children.forEach((child) => child !== other && child.update(other));
 		return this;
 	}
 
-	public nextValue() {
+	public nextValue(prefix: string = 'v') {
 		// initialise value alias with new alias or next one
-		this.valueAlias = this.valueAlias?.next() ?? new Alias(0, 'v');
+		this.valueAlias =
+			this.valueAlias?.next(this.toChildAlias(prefix)) ?? new Alias(0, this.toChildAlias(prefix));
+		this.parent?.update(this);
+		// this.children.forEach((child) => child.update(this));
 		return this.valueAlias;
 	}
 }
@@ -134,150 +150,106 @@ export class GQLtoSQLMapper {
 		prefix?: string;
 		customFields?: CustomFieldsSettings<T>;
 	}) => {
-		logger.log('');
-		logger.log('');
-		logger.log('');
-		logger.log('==>>> recursiveMap startAlias', alias.toString());
+		const logPrefix = alias.concat('GQLtoSQLMapper - recursiveMap');
+		logger.log(logPrefix, 'start');
 		const { properties, primaryKeys } = entityMetadata;
 
-		let res = [...new Set(Object.keys(fields ?? {}))].reduce(
-			({ mappings, latestAlias }, gqlFieldNameKey, i) => {
-				// const fieldPrefix = `${prefix ?? ''}_${i}`;
-				if (gqlFieldNameKey.startsWith('__')) {
-					if (gqlFieldNameKey === '__arguments') {
-						const __arguments = fields[gqlFieldNameKey];
+		let res = [...new Set(Object.keys(fields ?? {}))]
+			.sort((f1, f2) => (f1.startsWith('__') ? -1 : f2.startsWith('__') ? 1 : 0))
+			.reduce(
+				({ mappings, latestAlias }, gqlFieldNameKey) => {
+					if (gqlFieldNameKey.startsWith('__')) {
+						if (gqlFieldNameKey === '__arguments') {
+							const __arguments = fields[gqlFieldNameKey];
 
-						// const nextAlias = latestAlias.next();
-						const m = newMappings(latestAlias);
+							// const nextAlias = latestAlias.next();
+							const m = newMappings(latestAlias);
 
-						const filter = __arguments.find((a: any) => a?.filter)?.filter?.value;
-						const pagination = __arguments.find((a: any) => a?.pagination)?.pagination?.value;
+							const filter = __arguments.find((a: any) => a?.filter)?.filter?.value;
+							const pagination = __arguments.find((a: any) => a?.pagination)?.pagination?.value;
 
-						logger.log(
-							'__arguments ====> ',
-							__arguments,
-							'filter',
-							filter,
-							'pagination',
-							pagination
+							if (filter || pagination) {
+								const {
+									filterJoin,
+									where: w,
+									values,
+								} = mappingsReducer(
+									this.recursiveMap({
+										entityMetadata,
+										alias: m.latestAlias,
+										gqlFilters: [filter],
+									})
+								);
+								m.filterJoin.push(...filterJoin);
+								m.where.push(...w);
+								m.values = { ...m.values, ...values };
+								m.limit = pagination?.limit;
+								m.offset = pagination?.offset;
+								m.orderBy.push(...(pagination?.orderBy ?? []));
+							} else {
+								// m.__arguments = __arguments;
+							}
+							mappings.set(gqlFieldNameKey, m);
+							logger.log('GQLtoSQLMapper - __arguments for', m);
+						}
+						return { mappings, latestAlias };
+					}
+					const mapping = this.getFieldMapping(mappings, gqlFieldNameKey, latestAlias);
+
+					const customFieldProps = customFields?.[gqlFieldNameKey as keyof CustomFieldsSettings<T>];
+
+					const fieldProps =
+						properties[gqlFieldNameKey as keyof EntityMetadata<T>['properties']] ??
+						properties[customFieldProps?.requires as keyof EntityMetadata<T>['properties']];
+
+					const gqlFieldName = (customFieldProps?.requires as string) ?? gqlFieldNameKey;
+					logger.log('=> recursiveMap fields, gqlFieldName', gqlFieldName, mapping);
+
+					if (!fieldProps) {
+						if (customFieldProps?.requires) {
+							const requires =
+								customFieldProps.requires instanceof Array
+									? customFieldProps.requires
+									: [customFieldProps.requires];
+							requires.forEach((req) => {
+								mapping.select.add(latestAlias.toString() + '.' + req);
+							});
+						}
+						mapping.json.push(`'${gqlFieldName}', null`);
+						return { mappings, latestAlias };
+					}
+					const referenceField =
+						this.exists(fieldProps.type) &&
+						this.getMetadata<any, EntityMetadata<any>>(fieldProps.type);
+
+					if (referenceField) {
+						console.log(
+							'referenceField latest alias',
+							mapping.latestAlias.toString(),
+							latestAlias.toString()
 						);
-
-						if (filter || pagination) {
-							const {
-								filterJoin,
-								where: w,
-								values,
-							} = mappingsReducer(
-								this.recursiveMap({
-									entityMetadata,
-									alias: m.latestAlias,
-									gqlFilters: [filter],
-								})
-							);
-							m.filterJoin.push(...filterJoin);
-							m.where.push(...w);
-							m.values = { ...m.values, ...values };
-							m.limit = pagination?.limit;
-							m.offset = pagination?.offset;
-							m.orderBy = pagination?.orderBy;
-						} else {
-							// m.__arguments = __arguments;
-						}
-						mappings.set(gqlFieldNameKey, m);
-					}
-					return { mappings, latestAlias };
-				}
-				if (!mappings.has(gqlFieldNameKey)) {
-					// const nextAlias = latestAlias.next();
-					mappings.set(gqlFieldNameKey, newMappings(latestAlias));
-				}
-				const mapping = mappings.get(gqlFieldNameKey) ?? newMappings(latestAlias.next());
-
-				const customFieldProps = customFields?.[gqlFieldNameKey as keyof CustomFieldsSettings<T>];
-
-				const fieldProps =
-					properties[gqlFieldNameKey as keyof EntityMetadata<T>['properties']] ??
-					properties[customFieldProps?.requires as keyof EntityMetadata<T>['properties']];
-
-				const gqlFieldName = (customFieldProps?.requires as string) ?? gqlFieldNameKey;
-				logger.log('=> recursiveMap fields, gqlFieldName', gqlFieldName);
-
-				if (!fieldProps) {
-					if (customFieldProps?.requires) {
-						const requires =
-							customFieldProps.requires instanceof Array
-								? customFieldProps.requires
-								: [customFieldProps.requires];
-						requires.forEach((req) => {
-							mapping.select.add(latestAlias.toString() + '.' + req);
-						});
-					}
-					mapping.json.push(`'${gqlFieldName}', null`);
-					return { mappings, latestAlias };
-				}
-				const referenceField =
-					this.exists(fieldProps.type) &&
-					this.getMetadata<any, EntityMetadata<any>>(fieldProps.type);
-
-				// logger.log(gqlFieldName, 'fieldNames', fieldProps.fieldNames);
-
-				const uniqueFieldNames = (fieldProps.fieldNames ?? []).map(
-					(f) => `${mapping.latestAlias}.${f}`
-				);
-
-				if (referenceField) {
-					console.log(
-						'referenceField latest alias',
-						mapping.latestAlias.toString(),
-						latestAlias.toString()
-					);
-					mapping.latestAlias = mapping.latestAlias.next('f');
-					console.log(
-						'referenceField latest alias next',
-						mapping.latestAlias.toString(),
-						latestAlias.toString()
-					);
-					// const refAlias = `${fieldPrefix}_${alias}_${i}`;
-					const alias = latestAlias.toString();
-					const childAlias = mapping.latestAlias;
-					const refAlias = childAlias.toString();
-					// logger.log('referenceField', referenceField.name, fieldProps.reference);
-
-					if (
-						fieldProps.reference === ReferenceType.ONE_TO_MANY ||
-						fieldProps.reference === ReferenceType.ONE_TO_ONE
-					) {
-						const referenceFieldProps = referenceField.properties[
-							fieldProps.mappedBy as keyof typeof referenceField.properties
-						] as EntityProperty;
-						// logger.log('referenceFieldProps', referenceField.name, referenceFieldProps.mappedBy);
-
-						const ons = referenceFieldProps.joinColumns;
-						const entityOns = referenceFieldProps.referencedColumnNames;
-
-						if (ons.length !== entityOns.length) {
-							throw new Error(
-								`joins with different number of columns ${ons.length} !== ${entityOns.length} on ${referenceFieldProps.name}. Entity: ${referenceField.name}, Table: ${referenceField.tableName}`
-							);
-						}
-
-						const where = entityOns
-							.map((o, i) => {
-								return `${alias}.${o} = ${refAlias}.${ons[i]}`;
-							})
-							.join(', ');
+						mapping.latestAlias = mapping.latestAlias.next('f');
+						console.log(
+							'referenceField latest alias next',
+							mapping.latestAlias.toString(),
+							latestAlias.toString()
+						);
+						// const refAlias = `${fieldPrefix}_${alias}_${i}`;
+						const alias = latestAlias.toString();
+						const childAlias = mapping.latestAlias;
+						const refAlias = childAlias.toString();
+						// logger.log('referenceField', referenceField.name, fieldProps.reference);
 
 						const {
 							select,
 							json,
 							join,
+							where: whereWithValues,
+							values,
 							filterJoin,
-							where: fieldWhere,
-							values: fieldWhereValues,
 							limit,
 							offset,
 							orderBy,
-							// latestAlias: childAlias,
 						} = mappingsReducer(
 							this.recursiveMap({
 								entityMetadata: referenceField,
@@ -285,431 +257,18 @@ export class GQLtoSQLMapper {
 								alias: childAlias,
 							})
 						);
-
 						logger.log(
-							'recursiveMap - referenceField',
+							'GQLtoSQLMapper - recursiveMap - referenceField',
 							referenceField.name,
-							'where',
-							fieldWhere,
-							'values',
-							fieldWhereValues,
+							'filterJoin',
+							filterJoin,
 							'limit',
 							limit,
 							'offset',
 							offset,
 							'orderBy',
-							orderBy
+							mapping.orderBy
 						);
-						if (referenceField.tableName && where.length > 0) {
-							mapping.json.push(`'${gqlFieldName}', ${refAlias}.value`);
-
-							const jsonSelect =
-								fieldProps.reference === ReferenceType.ONE_TO_ONE
-									? `jsonb_build_object(${json.join(', ')})`
-									: `coalesce(json_agg(jsonb_build_object(${json.join(', ')})), '[]'::json)`;
-
-							const onFields = Array.from(
-								new Set(ons.map((on) => `${refAlias}.${on}`).concat(Array.from(select)))
-							);
-
-							const processedOrderBy = orderBy.reduce((acc, ob) => {
-								Object.keys(ob).forEach((k: string) => {
-									logger.log(
-										'recursiveMap - processedOrderBy',
-										k,
-										ob[k],
-										(referenceField as any).properties[k]
-									);
-									if (k in referenceField.properties) {
-										acc.push(
-											...referenceField.properties[
-												k as keyof typeof referenceField.properties
-											].fieldNames.map((fn) => `${refAlias}.${fn} ${(ob as any)[k]}`)
-										);
-									}
-								});
-								return acc;
-							}, [] as string[]);
-
-							logger.log(
-								'many to one',
-								referenceField.name,
-								'filterJoin',
-								filterJoin,
-								'fieldWhere',
-								fieldWhere,
-								'fieldWhereValues',
-								fieldWhereValues,
-								limit,
-								offset
-							);
-							const orderBySQL =
-								processedOrderBy.length > 0 ? ` order by ${processedOrderBy.join(', ')} ` : '';
-
-							const fromSQL = `${orderBySQL ? '( select * from ' : ''}${referenceField.tableName}${
-								orderBySQL ? ` as ${refAlias} ${orderBySQL} )` : ''
-							}`;
-							const leftOuterJoin = `left outer join lateral (
-                                select ${jsonSelect} as value from (
-                                    select ${onFields.join(', ')} 
-                                        from ${fromSQL} as ${refAlias}
-                                    ${filterJoin.join(' \n')}
-                                    where ${where}
-                                    ${fieldWhere.length > 0 ? ' and ' : ''} 
-                                    ${fieldWhere.join(' and ')}
-                                    ${limit && !isNaN(limit) ? `limit ${limit}` : ''}
-                                    ${offset && !isNaN(offset) ? `offset ${offset}` : ''}
-                            ) as ${refAlias} 
-                            ${join.join(' \n')}
-                            ) as ${refAlias} on true`.replaceAll(/[ \n\t]+/gi, ' ');
-
-							mapping.values = { ...mapping.values, ...fieldWhereValues };
-							mapping.join.push(leftOuterJoin);
-						}
-					} else if (fieldProps.reference === ReferenceType.MANY_TO_ONE) {
-						const alias = latestAlias.toString();
-						const childAlias = mapping.latestAlias;
-						const refAlias = childAlias.toString();
-
-						if (fieldProps.fieldNames.length !== referenceField.primaryKeys.length) {
-							throw new Error(
-								`Mismatch in lengths: fieldProps.fieldNames (${fieldProps.fieldNames.length}) and referenceField.primaryKeys (${referenceField.primaryKeys.length}) must have the same length.`
-							);
-						}
-						if (fieldProps.fieldNames.length && referenceField.tableName) {
-							const ons = referenceField.primaryKeys;
-							const entityOns = fieldProps.fieldNames;
-
-							const where = entityOns
-								.map((o, i) => {
-									return `${alias}.${o} = ${refAlias}.${ons[i]}`;
-								})
-								.join(', ');
-
-							const {
-								select,
-								json,
-								join,
-								where: w,
-								values,
-								filterJoin,
-								limit,
-								offset,
-							} = mappingsReducer(
-								this.recursiveMap({
-									entityMetadata: referenceField,
-									fields: fields[gqlFieldName],
-									alias: childAlias,
-								})
-							);
-
-							logger.log(
-								'many to one',
-								referenceField.name,
-								'where',
-								w,
-								'values',
-								values,
-								'filterJoin',
-								filterJoin,
-								limit,
-								offset
-							);
-
-							mapping.select.add(
-								`${fieldProps.fieldNames.map((fn) => `${alias}.${fn}`).join(', ')}`
-							);
-							mapping.json.push(`'${gqlFieldName}', ${refAlias}.value`);
-
-							const selectFields = [
-								...new Set(ons.map((on) => `${refAlias}.${on}`).concat(Array.from(select))),
-							];
-							const leftOuterJoin = `left outer join lateral (
-                                select jsonb_build_object(${json.join(', ')}) as value from (
-                                    select ${selectFields.join(', ')} from ${
-								referenceField.tableName
-							} as ${refAlias}
-                                    where ${where}
-									${w.length > 0 ? ` and ( ${w.join(' and ')} )` : ''}
-                            ) as ${refAlias}
-                            ${join.join(' \n')}
-                            ) as ${refAlias} on true`.replaceAll(/[ \n\t]+/gi, ' ');
-
-							mapping.join.push(leftOuterJoin);
-							mapping.values = { ...mapping.values, ...values };
-						}
-					} else if (fieldProps.reference === ReferenceType.MANY_TO_MANY) {
-						const alias = latestAlias.toString();
-						const childAlias = mapping.latestAlias;
-						const refAlias = childAlias.toString();
-
-						const ons = referenceField.primaryKeys;
-
-						const {
-							select,
-							json,
-							join,
-							where: w,
-							values,
-						} = mappingsReducer(
-							this.recursiveMap({
-								entityMetadata: referenceField,
-								fields: fields[gqlFieldName],
-								alias: childAlias,
-							})
-						);
-
-						const where = primaryKeys.map((o, i) => {
-							return `${alias}.${o} = ${fieldProps.joinColumns[i]}`;
-						});
-
-						mapping.json.push(`'${gqlFieldName}', ${refAlias}.value`);
-
-						const selectFields = [
-							...new Set(ons.map((on) => `${refAlias}.${on}`).concat(Array.from(select))),
-						];
-						const leftOuterJoin = `left outer join lateral (
-                            select coalesce(json_agg(jsonb_build_object(${json.join(
-															', '
-														)})), '[]'::json) as value from (
-                                select ${selectFields.join(', ')} 
-                                    from ${referenceField.tableName} 
-                                where (${referenceField.primaryKeys.join(', ')}) in (
-                                    select ${fieldProps.inverseJoinColumns.join(', ')} 
-                                        from ${fieldProps.pivotTable}
-										${w.length > 0 ? ` and ( ${w.join(' and ')} )` : ''}
-                                    where ${where}
-                                )
-                        ) as ${refAlias}
-                        ${join.join(' \n')}
-                        ) as ${refAlias} on true`.replaceAll(/[ \n\t]+/gi, ' ');
-
-						mapping.join.push(leftOuterJoin);
-						mapping.values = { ...mapping.values, ...values };
-					} else {
-						logger.log(
-							'reference type',
-							fieldProps.reference,
-							'not handled for field',
-							gqlFieldName,
-							'with referenceField'
-						);
-					}
-
-					return { mappings, latestAlias: latestAlias.update(mapping.latestAlias) };
-				} else if (uniqueFieldNames.length > 0) {
-					uniqueFieldNames.forEach((f) => mapping.select.add(f));
-					mapping.json.push(`'${gqlFieldName}', ${uniqueFieldNames.join(', ')}`);
-				} else {
-					logger.log('reference type', fieldProps.reference, 'not handled for field', gqlFieldName);
-				}
-				return { mappings, latestAlias };
-			},
-			{ mappings: new Map<string, MappingsType>(), latestAlias: alias }
-		);
-
-		logger.log(
-			'==>>> recursiveMap fields processed!! processing gql filters',
-			res.latestAlias.toString(),
-			typeof gqlFilters,
-			typeof gqlFilters?.reduce
-		);
-		res = (gqlFilters ?? []).reduce(
-			({ mappings, latestAlias }, gqlFilter) => {
-				// logger.log('recursiveMap - gqlFilter PARENT', gqlFilter);
-				Object.keys(gqlFilter).forEach((gqlFieldNameKey) => {
-					if (
-						gqlFieldNameKey === '_and' ||
-						gqlFieldNameKey === '_or' ||
-						gqlFieldNameKey === '_not'
-					) {
-						const filters = gqlFilter[gqlFieldNameKey];
-						if (typeof filters !== 'object') {
-							return;
-						}
-						if (!mappings.has(gqlFieldNameKey)) {
-							mappings.set(gqlFieldNameKey, newMappings(latestAlias));
-						}
-						const mapping = mappings.get(gqlFieldNameKey) ?? newMappings(latestAlias);
-						const mapped = this.recursiveMap({
-							entityMetadata,
-							gqlFilters: filters,
-							alias: latestAlias,
-						});
-						mapped.forEach((m) => console.log('mapped', m.values, 'for filters', filters));
-						const { join, filterJoin, where: w, values } = mappingsReducer(mapped);
-						mapping.filterJoin.push(...filterJoin);
-						mapping.join.push(...join);
-						mapping.where.push(`( ${w.join(` ${gqlFieldNameKey.slice(1)} `)} )`);
-						mapping.values = { ...mapping.values, ...values };
-						return;
-					}
-					// const fieldPrefix = `${prefix ?? ''}_${filterIndex}_${fieldIndex}`;
-					// logger.log('recursiveMap - gqlFilter', gqlFilter, gqlFieldNameKey, fieldPrefix);
-
-					// id_in, id_eq, id_ne, id_gt, id_gte, id_lt, id_lte, etc...
-					const fieldOperation = Object.keys(FieldOperations).find((k) =>
-						gqlFieldNameKey.endsWith(k)
-					);
-					logger.log('=>>>>>>field', gqlFieldNameKey);
-					if (fieldOperation) {
-						const exists = mappings.has(gqlFieldNameKey);
-						if (!exists) {
-							// const childAlias = latestAlias.next();
-							mappings.set(gqlFieldNameKey, newMappings(latestAlias));
-						}
-						const mapping = mappings.get(gqlFieldNameKey) ?? newMappings();
-
-						const fieldNameBeforeOperation = gqlFieldNameKey.slice(0, -fieldOperation.length);
-						const fieldValue = gqlFilter[
-							gqlFieldNameKey as keyof GQLEntityFilterInputFieldType<T>
-						] as any;
-
-						const sqlParam = `op${mapping.latestAlias}`;
-						if (fieldValue instanceof Array && fieldNameBeforeOperation in properties) {
-							mapping.where.push(
-								...properties[fieldNameBeforeOperation as keyof typeof properties].fieldNames.map(
-									(fieldName) =>
-										FieldOperations[fieldOperation as keyof typeof FieldOperations](
-											[fieldName, ...fieldValue.map((_, i) => `:${sqlParam}_${i}`)],
-											['', ...fieldValue.map((_, i) => `:${sqlParam}_${i}`)]
-										)
-								)
-							);
-							mapping.values = {
-								...mapping.values,
-								...fieldValue.reduce((acc, v, i) => {
-									acc[`${sqlParam}_${i}`] = v;
-									return acc;
-								}, {} as Record<string, any>),
-							};
-						} else {
-							logger.log(
-								'fieldValue',
-								fieldValue,
-								'fieldNameBeforeOperation',
-								fieldNameBeforeOperation,
-								'property',
-								(properties as any)?.[fieldNameBeforeOperation as keyof typeof properties]
-							);
-							const fieldNames =
-								properties[fieldNameBeforeOperation as keyof typeof properties]?.fieldNames;
-							if (!fieldNames) {
-								throw new Error(
-									'fieldNames not found in properties for field ' + fieldNameBeforeOperation
-								);
-							}
-							mapping.where.push(
-								...fieldNames.map((fieldName) =>
-									FieldOperations[fieldOperation as keyof typeof FieldOperations](
-										[fieldName, `:${sqlParam}`],
-										['', fieldValue]
-									)
-								)
-							);
-							mapping.values = {
-								...mapping.values,
-								[sqlParam]: fieldValue,
-							};
-						}
-						return;
-					}
-
-					const filterValue = gqlFilter[
-						gqlFieldNameKey as keyof GQLEntityFilterInputFieldType<T>
-					] as GQLEntityFilterInputFieldType<T> | string | number | boolean;
-
-					if (gqlFieldNameKey in ClassOperations || fieldOperation) {
-						const childAlias = latestAlias.next();
-
-						const whereOperationFilterValue = gqlFilter[
-							gqlFieldNameKey as keyof GQLEntityFilterInputFieldType<T>
-						] as GQLEntityFilterInputFieldType<T>[];
-						const {
-							join,
-							where: w,
-							values,
-						} = mappingsReducer(
-							this.recursiveMap<T>({
-								entityMetadata,
-								fields: [],
-								alias: childAlias,
-								gqlFilters: whereOperationFilterValue,
-								customFields,
-							})
-						);
-
-						if (!mappings.has(gqlFieldNameKey)) {
-							mappings.set(gqlFieldNameKey, newMappings(latestAlias));
-						}
-						const mapping = mappings.get(gqlFieldNameKey) ?? newMappings(latestAlias);
-
-						mapping.filterJoin.push(...join);
-						mapping.where.push(
-							`( ${ClassOperations[gqlFieldNameKey as keyof typeof ClassOperations](w, [
-								'',
-								...w,
-							])} )`
-						);
-						mapping.values = { ...mapping.values, ...values };
-
-						return;
-					}
-
-					const lowercasedFirstFieldNameKey =
-						gqlFieldNameKey[0].toLowerCase() + gqlFieldNameKey.slice(1);
-
-					// we look for the props of the field as is, if not found we look for the lowercased first letter
-					const customFieldProps =
-						customFields?.[gqlFieldNameKey as keyof CustomFieldsSettings<T>] ??
-						customFields?.[lowercasedFirstFieldNameKey as keyof CustomFieldsSettings<T>];
-
-					// find the first compatible field name
-					const fieldProps =
-						properties[gqlFieldNameKey as keyof EntityMetadata<T>['properties']] ??
-						properties[lowercasedFirstFieldNameKey as keyof EntityMetadata<T>['properties']] ??
-						properties[customFieldProps?.requires as keyof EntityMetadata<T>['properties']];
-
-					// fieldNameToUse: id => id, Id => id, CustomField => CustomField (?) last one is not tested
-					const fieldNameKey = fieldProps
-						? properties[gqlFieldNameKey as keyof EntityMetadata<T>['properties']]
-							? gqlFieldNameKey
-							: properties[lowercasedFirstFieldNameKey as keyof EntityMetadata<T>['properties']]
-							? lowercasedFirstFieldNameKey
-							: null
-						: null;
-
-					const gqlFieldName = (customFieldProps?.requires as string) ?? fieldNameKey;
-
-					logger.log('this ==>', gqlFieldNameKey, 'fieldNameKey', fieldNameKey);
-
-					if (!fieldNameKey) {
-						logger.log(
-							latestAlias.toString(),
-							gqlFieldName,
-							'not found in properties nor in customFields'
-						);
-						throw new Error(
-							`${latestAlias.toString()} ${gqlFieldName} not found in properties nor in customFields`
-						);
-						return;
-					}
-
-					if (!mappings.has(fieldNameKey)) {
-						const childAlias = latestAlias.next();
-						mappings.set(fieldNameKey, newMappings(childAlias));
-					}
-					const mapping = mappings.get(fieldNameKey) ?? newMappings();
-					const referenceField = this.exists(fieldProps.type) && this.getMetadata(fieldProps.type);
-
-					if (referenceField) {
-						const alias = latestAlias.toString();
-						const childAlias = mapping.latestAlias;
-						const refAlias = childAlias.toString();
-
-						// const refAlias = `${fieldPrefix ?? ''}_${alias}_${fieldPrefix}`;
-						logger.log('referenceField', referenceField.name, fieldProps.reference);
-
 						if (
 							fieldProps.reference === ReferenceType.ONE_TO_MANY ||
 							fieldProps.reference === ReferenceType.ONE_TO_ONE
@@ -724,123 +283,251 @@ export class GQLtoSQLMapper {
 
 							if (ons.length !== entityOns.length) {
 								throw new Error(
-									`joins with different number of columns ${ons.length} !== ${entityOns.length} on ${referenceFieldProps.name}`
+									`joins with different number of columns ${ons.length} !== ${entityOns.length} on ${referenceFieldProps.name}. Entity: ${referenceField.name}, Table: ${referenceField.tableName}`
 								);
 							}
 
-							const onSQL = entityOns
+							const where = entityOns
 								.map((o, i) => {
 									return `${alias}.${o} = ${refAlias}.${ons[i]}`;
 								})
 								.join(', ');
 
-							const { join, where, values } = mappingsReducer(
+							const {
+								select,
+								json,
+								join,
+								filterJoin,
+								where: fieldWhere,
+								values: fieldWhereValues,
+								limit,
+								offset,
+								orderBy,
+								// latestAlias: childAlias,
+							} = mappingsReducer(
 								this.recursiveMap({
 									entityMetadata: referenceField,
+									fields: fields[gqlFieldName],
 									alias: childAlias,
-									gqlFilters: [filterValue],
 								})
 							);
 
-							logger.log('======>referenceField', gqlFieldName, join, where, values, filterValue);
+							logger.log(
+								'recursiveMap - referenceField',
+								referenceField.name,
+								'where',
+								fieldWhere,
+								'values',
+								fieldWhereValues,
+								'limit',
+								limit,
+								'offset',
+								offset,
+								'orderBy',
+								orderBy
+							);
+							if (referenceField.tableName && where.length > 0) {
+								mapping.json.push(`'${gqlFieldName}', ${refAlias}.value`);
 
-							if (
-								referenceField.tableName &&
-								onSQL.length > 0 &&
-								(where.length > 0 || join.length > 0)
-							) {
-								// apply a filter join only if either we filter for or we have a join
-								const innerJoin = `inner join lateral (
-                                select ${refAlias}.* 
-                                    from ${referenceField.tableName} as ${refAlias}
-                                    ${join.join(' \n')}
-                                where ${onSQL} 
-                                ${where.length > 0 ? ' and ' : ''}
-                                ${where.join(' and ')}
-		                    ) as ${refAlias} on true`.replaceAll(/[ \n\t]+/gi, ' ');
+								const jsonSelect =
+									fieldProps.reference === ReferenceType.ONE_TO_ONE
+										? `jsonb_build_object(${json.join(', ')})`
+										: `coalesce(json_agg(jsonb_build_object(${json.join(', ')})), '[]'::json)`;
 
-								mapping.filterJoin.push(innerJoin);
-								mapping.values = { ...mapping.values, ...values };
+								const onFields = Array.from(
+									new Set(ons.map((on) => `${refAlias}.${on}`).concat(Array.from(select)))
+								);
+
+								const processedOrderBy = orderBy.reduce((acc, ob) => {
+									Object.keys(ob).forEach((k: string) => {
+										logger.log(
+											'recursiveMap - processedOrderBy',
+											k,
+											ob[k],
+											(referenceField as any).properties[k]
+										);
+										if (k in referenceField.properties) {
+											acc.push(
+												...referenceField.properties[
+													k as keyof typeof referenceField.properties
+												].fieldNames.map((fn) => `${refAlias}.${fn} ${(ob as any)[k]}`)
+											);
+										}
+									});
+									return acc;
+								}, [] as string[]);
+
+								logger.log(
+									'many to one',
+									referenceField.name,
+									'filterJoin',
+									filterJoin,
+									'fieldWhere',
+									fieldWhere,
+									'fieldWhereValues',
+									fieldWhereValues,
+									limit,
+									offset
+								);
+								const orderBySQL =
+									processedOrderBy.length > 0 ? ` order by ${processedOrderBy.join(', ')} ` : '';
+
+								const fromSQL = `${orderBySQL ? '( select * from ' : ''}${
+									referenceField.tableName
+								}${orderBySQL ? ` as ${refAlias} ${orderBySQL} )` : ''}`;
+								const leftOuterJoin = `left outer join lateral (
+                                select ${jsonSelect} as value from (
+                                    select ${onFields.join(', ')} 
+                                        from ${fromSQL} as ${refAlias}
+                                    ${filterJoin.join(' \n')}
+                                    where ${where}
+                                    ${fieldWhere.length > 0 ? ' and ' : ''} 
+                                    ${fieldWhere.join(' and ')}
+                                    ${limit && !isNaN(limit) ? `limit ${limit}` : ''}
+                                    ${offset && !isNaN(offset) ? `offset ${offset}` : ''}
+                            ) as ${refAlias} 
+                            ${join.join(' \n')}
+                            ) as ${refAlias} on true`.replaceAll(/[ \n\t]+/gi, ' ');
+
+								mapping.values = { ...mapping.values, ...fieldWhereValues };
+								mapping.join.push(leftOuterJoin);
 							}
 						} else if (fieldProps.reference === ReferenceType.MANY_TO_ONE) {
+							const alias = latestAlias.toString();
+							const childAlias = mapping.latestAlias;
+							const refAlias = childAlias.toString();
+
+							if (fieldProps.fieldNames.length !== referenceField.primaryKeys.length) {
+								throw new Error(
+									`Mismatch in lengths: fieldProps.fieldNames (${fieldProps.fieldNames.length}) and referenceField.primaryKeys (${referenceField.primaryKeys.length}) must have the same length.`
+								);
+							}
 							if (fieldProps.fieldNames.length && referenceField.tableName) {
 								const ons = referenceField.primaryKeys;
 								const entityOns = fieldProps.fieldNames;
 
-								const onSQL = entityOns
+								const where = entityOns
 									.map((o, i) => {
 										return `${alias}.${o} = ${refAlias}.${ons[i]}`;
 									})
 									.join(', ');
 
-								const { join, where, values, filterJoin } = mappingsReducer(
+								const {
+									select,
+									json,
+									join,
+									where: w,
+									values,
+									filterJoin,
+									limit,
+									offset,
+								} = mappingsReducer(
 									this.recursiveMap({
 										entityMetadata: referenceField,
+										fields: fields[gqlFieldName],
 										alias: childAlias,
-										gqlFilters: [filterValue],
 									})
 								);
-								logger.log('========filterJoin', filterJoin);
 
-								if (onSQL.length > 0 && (where.length > 0 || join.length > 0)) {
-									const innerJoin = `inner join lateral (
-                                select ${refAlias}.* from ${referenceField.tableName} as ${refAlias}
-                                    ${join.join(' \n')}
-                                where ${onSQL} and ${where.join(' and ')}
-		                    ) as ${refAlias} on true`.replaceAll(/[ \n\t]+/gi, ' ');
-									mapping.join.push(innerJoin);
-									mapping.values = { ...mapping.values, ...values };
-								}
-							}
-						} else if (fieldProps.reference === ReferenceType.MANY_TO_MANY) {
-							const { where, join, values } = mappingsReducer(
-								this.recursiveMap({
-									entityMetadata: referenceField,
-									alias: childAlias,
-									gqlFilters: [filterValue],
-								})
-							);
+								logger.log(
+									'many to one',
+									referenceField.name,
+									'where',
+									w,
+									'values',
+									values,
+									'filterJoin',
+									filterJoin,
+									limit,
+									offset
+								);
 
-							const onSQL = primaryKeys.map((o, i) => {
-								return `${alias}.${o} = ${fieldProps.joinColumns[i]}`;
-							});
-							if (onSQL.length > 0 && (where.length > 0 || join.length > 0)) {
-								const innerJoin = `left outer join lateral (
-		                        select ${refAlias}.*
-		                            from ${referenceField.tableName}
-                                    where (${referenceField.primaryKeys.join(', ')}) in (
-                                        select ${fieldProps.inverseJoinColumns.join(', ')}
-		                                from ${fieldProps.pivotTable}
-                                        ${join.join(' \n')}
-		                            where ${onSQL} and ${where.join(' and ')}
-		                        )
-		                ) as ${refAlias} on true`.replaceAll(/[ \n\t]+/gi, ' ');
+								mapping.select.add(
+									`${fieldProps.fieldNames.map((fn) => `${alias}.${fn}`).join(', ')}`
+								);
+								mapping.json.push(`'${gqlFieldName}', ${refAlias}.value`);
 
-								mapping.filterJoin.push(innerJoin);
+								const selectFields = [
+									...new Set(ons.map((on) => `${refAlias}.${on}`).concat(Array.from(select))),
+								];
+								const leftOuterJoin = `left outer join lateral (
+                                select jsonb_build_object(${json.join(', ')}) as value from (
+                                    select ${selectFields.join(', ')} from ${
+									referenceField.tableName
+								} as ${refAlias}
+                                    where ${where}
+									${w.length > 0 ? ` and ( ${w.join(' and ')} )` : ''}
+                            ) as ${refAlias}
+                            ${join.join(' \n')}
+                            ) as ${refAlias} on true`.replaceAll(/[ \n\t]+/gi, ' ');
+
+								mapping.join.push(leftOuterJoin);
 								mapping.values = { ...mapping.values, ...values };
 							}
+						} else if (fieldProps.reference === ReferenceType.MANY_TO_MANY) {
+							this.mapFieldManyToMany<T>(
+								referenceField,
+								primaryKeys,
+								fieldProps,
+								latestAlias,
+								childAlias,
+								select,
+								whereWithValues,
+								join,
+								json,
+								mapping,
+								gqlFieldName,
+								values,
+								limit,
+								offset,
+								orderBy
+							);
 						} else {
 							logger.log(
 								'reference type',
 								fieldProps.reference,
-								'not handled, field',
-								gqlFieldName
+								'not handled for field',
+								gqlFieldName,
+								'with referenceField',
+								limit,
+								offset
 							);
 						}
-					} else if (filterValue !== undefined) {
-						this.applyFilterValue<T>({
-							filterValue,
-							fieldOperation,
-							gqlFieldName,
-							latestAlias,
-							mapping,
-						});
+
+						return { mappings, latestAlias };
+					} else if (fieldProps.fieldNames.length > 0) {
+						this.processFieldNames(fieldProps.fieldNames, mapping, gqlFieldName);
+					} else {
+						logger.log(
+							'reference type',
+							fieldProps.reference,
+							'not handled for field',
+							gqlFieldName
+						);
 					}
+					return { mappings, latestAlias };
+				},
+				{ mappings: new Map<string, MappingsType>(), latestAlias: alias }
+			);
+
+		logger.log(logPrefix, 'fields processed');
+		res = (gqlFilters ?? []).reduce(
+			({ mappings, latestAlias }, gqlFilter) => {
+				Object.keys(gqlFilter ?? {}).forEach((gqlFieldNameKey) => {
+					this.processFilterKey(
+						entityMetadata,
+						mappings,
+						latestAlias,
+						gqlFieldNameKey,
+						gqlFilter,
+						customFields
+					);
 				});
 				return { mappings, latestAlias: alias.update(latestAlias) };
 			},
 			{ mappings: res.mappings, latestAlias: alias.update(res.latestAlias) }
 		);
+		logger.log(logPrefix, 'filters processed');
 		// (orderBy ?? []).map((ob) => {
 		// 	Object.keys(ob).forEach((f) => {
 		// 		const m = newMappings();
@@ -856,8 +543,659 @@ export class GQLtoSQLMapper {
 		// 		res.set(f, m);
 		// 	});
 		// });
+		logger.log(logPrefix, 'end');
+		logger.log('');
 		return res.mappings;
 	};
+
+	protected mapFieldManyToMany<T>(
+		referenceField: EntityMetadata<any>,
+		primaryKeys: string[],
+		fieldProps: { [key in string & keyof T]: EntityProperty }[string & keyof T],
+		latestAlias: Alias,
+		childAlias: Alias,
+		select: Set<string>,
+		whereWithValues: string[],
+		join: string[],
+		json: string[],
+		mapping: MappingsType,
+		gqlFieldName: string,
+		values: Record<string, any>,
+		limit?: number,
+		offset?: number,
+		orderBy?: GQLEntityOrderByInputType<any>[]
+	) {
+		const ons = fieldProps.joinColumns;
+		if (primaryKeys.length !== ons.length) {
+			throw new Error(
+				`m:m joins with different number of columns ${primaryKeys.length} !== ${ons.length} on table ${referenceField.tableName}`
+			);
+		}
+		if (referenceField.primaryKeys.length !== fieldProps.inverseJoinColumns.length) {
+			throw new Error(
+				`m:m joins with different number of columns ${referenceField.primaryKeys.length} !== ${fieldProps.inverseJoinColumns.length} on reference ${referenceField.tableName}.${fieldProps.pivotTable}`
+			);
+		}
+
+		const pivotTableWhereSQL = primaryKeys.map((o, i) => {
+			return `${latestAlias.toValue(o)} = ${fieldProps.pivotTable}.${ons[i]}`;
+		});
+
+		const selectFields = [
+			...select,
+			// ...new Set(ons.map((on) => `${childAlias.toValue(on)}`).concat(Array.from(select))),
+		];
+		logger.log(
+			'GQLtoSQLMapper - mapFieldManyToMany selectFields',
+			selectFields,
+			limit,
+			offset,
+			orderBy
+		);
+		logger.log('GQLtoSQLMapper - mapFieldManyToMany', pivotTableWhereSQL, whereWithValues, join);
+		if (pivotTableWhereSQL.length > 0) {
+			const pivotTableSQL = `select ${fieldProps.inverseJoinColumns.join(', ')} 
+													from ${fieldProps.pivotTable}
+												where ${pivotTableWhereSQL.join(' and ')}`;
+
+			const refAlias = childAlias.toString();
+			const leftOuterJoin = `left outer join lateral (
+			select coalesce(json_agg(jsonb_build_object(${json.join(', ')})), '[]'::json) as value 
+				from (
+					select ${selectFields.join(', ')} 
+						from ${referenceField.tableName} as ${refAlias}
+					where (${referenceField.primaryKeys.join(', ')})
+						in (${pivotTableSQL})
+						${whereWithValues.length > 0 ? ` and ( ${whereWithValues.join(' and ')} )` : ''}
+						${
+							orderBy && orderBy.length > 0
+								? ` order by ${orderBy
+										.map((o) =>
+											Object.keys(o ?? {})
+												.map((column) => `${childAlias.toValue(column)} ${o[column]}`)
+												.join(', ')
+										)
+										.join(', ')}`
+								: ''
+						}
+					${limit && !isNaN(limit) ? `limit ${limit}` : ''}
+					${offset && !isNaN(offset) ? `offset ${offset}` : ''}
+				) as ${refAlias}
+				${join.join(' \n')}
+		) as ${refAlias} on true`.replaceAll(/[ \n\t]+/gi, ' ');
+
+			mapping.json.push(`'${gqlFieldName}', ${childAlias.toValue('value')}`);
+			mapping.join.push(leftOuterJoin);
+			mapping.values = { ...mapping.values, ...values };
+		} else {
+			mapping.json.push(`'${gqlFieldName}', null`);
+		}
+	}
+
+	private getFieldMapping(
+		mappings: Map<string, MappingsType>,
+		gqlFieldNameKey: string,
+		latestAlias: Alias
+	) {
+		const m = mappings.get(gqlFieldNameKey);
+		if (m) {
+			m.latestAlias.update(latestAlias);
+			return m;
+		}
+		const newMapping = newMappings(latestAlias);
+		mappings.set(gqlFieldNameKey, newMapping);
+		return newMapping;
+	}
+
+	protected processFieldNames(fieldNames: string[], mapping: MappingsType, gqlFieldName: string) {
+		if (fieldNames.length <= 0) {
+			logger.warn('GQLtoSQLMapper - processFieldNames: fieldNames is empty', gqlFieldName);
+			return;
+		}
+		fieldNames.length > 1 &&
+			logger.warn(gqlFieldName, 'has multiple fieldNames:', fieldNames, 'taking first only');
+
+		const fieldNameWithAlias = mapping.latestAlias.toValue(fieldNames[0]);
+
+		mapping.select.add(fieldNameWithAlias);
+		mapping.json.push(`'${gqlFieldName}', ${fieldNameWithAlias}`);
+	}
+
+	protected processFilterKey<T>(
+		entityMetadata: EntityMetadata<T>,
+		mappings: Map<string, MappingsType>,
+		latestAlias: Alias,
+		gqlFieldNameKey: string,
+		gqlFilter: GQLEntityFilterInputFieldType<T>,
+		customFields?: CustomFieldsSettings<T>
+	) {
+		const { properties, primaryKeys } = entityMetadata;
+		if (gqlFieldNameKey === '_and' || gqlFieldNameKey === '_or' || gqlFieldNameKey === '_not') {
+			logger.log(
+				'GQLtoSQLMapper - ClassOperations: processing initial if',
+				gqlFieldNameKey,
+				gqlFilter
+			);
+			this.processClassOperation(entityMetadata, gqlFilter, gqlFieldNameKey, mappings, latestAlias);
+			return;
+		}
+		const filterValue = gqlFilter[gqlFieldNameKey as keyof GQLEntityFilterInputFieldType<T>] as
+			| GQLEntityFilterInputFieldType<T>
+			| string
+			| number
+			| boolean;
+		logger.log('GQLtoSQLMapper - processing key', gqlFieldNameKey, 'value', filterValue);
+
+		// id_in, id_eq, id_ne, id_gt, id_gte, id_lt, id_lte, etc...
+		const fieldOperation = Object.keys(FieldOperations).find((k) => gqlFieldNameKey.endsWith(k));
+		if (fieldOperation) {
+			// { id_eq: 1 }
+			this.mapFieldOperation<T>(
+				mappings,
+				gqlFieldNameKey,
+				latestAlias,
+				fieldOperation,
+				filterValue as any,
+				properties
+			);
+			logger.log(
+				'GQLtoSQLMapper - FieldOperation: processed',
+				gqlFieldNameKey,
+				fieldOperation,
+				'filterValue',
+				filterValue,
+				'latestAlias',
+				latestAlias.toString(),
+				'mapping',
+				mappings.get(gqlFieldNameKey)
+			);
+		} else {
+			// this one should be covered above
+			// if (gqlFieldNameKey in ClassOperations) {
+			// 	logger.log(
+			// 		'GQLtoSQLMapper - ClassOperations: processing inside else',
+			// 		gqlFieldNameKey,
+			// 		gqlFilter
+			// 	);
+			// 	const childAlias = latestAlias.next();
+
+			// 	const whereOperationFilterValue = gqlFilter[
+			// 		gqlFieldNameKey as keyof GQLEntityFilterInputFieldType<T>
+			// 	] as GQLEntityFilterInputFieldType<T>[];
+			// 	const {
+			// 		join,
+			// 		where: w,
+			// 		values,
+			// 	} = mappingsReducer(
+			// 		this.recursiveMap<T>({
+			// 			entityMetadata,
+			// 			fields: [],
+			// 			alias: childAlias,
+			// 			gqlFilters: whereOperationFilterValue,
+			// 			customFields,
+			// 		})
+			// 	);
+
+			// 	if (!mappings.has(gqlFieldNameKey)) {
+			// 		mappings.set(gqlFieldNameKey, newMappings(latestAlias));
+			// 	}
+			// 	const mapping = mappings.get(gqlFieldNameKey) ?? newMappings(latestAlias);
+
+			// 	mapping.filterJoin.push(...join);
+			// 	mapping.where.push(
+			// 		`( ${ClassOperations[gqlFieldNameKey as keyof typeof ClassOperations](w, [
+			// 			'',
+			// 			...w,
+			// 		])} )`
+			// 	);
+			// 	mapping.values = { ...mapping.values, ...values };
+
+			// 	return;
+			// }
+
+			const lowercasedFirstFieldNameKey =
+				gqlFieldNameKey[0].toLowerCase() + gqlFieldNameKey.slice(1);
+
+			// we look for the props of the field as is, if not found we look for the lowercased first letter
+			const customFieldProps =
+				customFields?.[gqlFieldNameKey as keyof CustomFieldsSettings<T>] ??
+				customFields?.[lowercasedFirstFieldNameKey as keyof CustomFieldsSettings<T>];
+
+			// find the first compatible field name
+			const fieldProps =
+				properties[gqlFieldNameKey as keyof EntityMetadata<T>['properties']] ??
+				properties[lowercasedFirstFieldNameKey as keyof EntityMetadata<T>['properties']] ??
+				properties[customFieldProps?.requires as keyof EntityMetadata<T>['properties']];
+
+			// fieldNameToUse: id => id, Id => id, CustomField => CustomField (?) last one is not tested
+			const fieldNameKey = fieldProps
+				? properties[gqlFieldNameKey as keyof EntityMetadata<T>['properties']]
+					? gqlFieldNameKey
+					: properties[lowercasedFirstFieldNameKey as keyof EntityMetadata<T>['properties']]
+					? lowercasedFirstFieldNameKey
+					: null
+				: null;
+
+			const gqlFieldName = (customFieldProps?.requires as string) ?? fieldNameKey;
+
+			logger.log(
+				'GQLtoSQLMapper field ==>',
+				gqlFieldNameKey,
+				'fieldNameKey',
+				fieldNameKey,
+				'property',
+				properties[gqlFieldNameKey as keyof EntityMetadata<T>['properties']],
+				'property of lowercased',
+				properties[lowercasedFirstFieldNameKey as keyof EntityMetadata<T>['properties']]
+			);
+
+			if (!fieldNameKey) {
+				logger.log(
+					latestAlias.toString(),
+					gqlFieldName,
+					'not found in properties nor in customFields'
+				);
+				throw new Error(
+					`${latestAlias.toString()} ${gqlFieldName} not found in properties nor in customFields`
+				);
+			}
+
+			const mapping = this.getChildAliasMapping(mappings, fieldNameKey, latestAlias);
+
+			const referenceField = this.exists(fieldProps.type) && this.getMetadata(fieldProps.type);
+
+			if (referenceField) {
+				const alias = latestAlias.toString();
+				const childAlias = mapping.latestAlias;
+				const refAlias = childAlias.toString();
+
+				// const refAlias = `${fieldPrefix ?? ''}_${alias}_${fieldPrefix}`;
+				logger.log('referenceField', referenceField.name, fieldProps.reference);
+
+				const {
+					join,
+					where: whereWithValues,
+					values,
+					filterJoin,
+				} = mappingsReducer(
+					this.recursiveMap({
+						entityMetadata: referenceField,
+						alias: childAlias,
+						gqlFilters: [filterValue],
+					})
+				);
+				if (
+					fieldProps.reference === ReferenceType.ONE_TO_MANY ||
+					fieldProps.reference === ReferenceType.ONE_TO_ONE
+				) {
+					this.mapFilterOneToX<T>(
+						referenceField,
+						fieldProps,
+						alias,
+						refAlias,
+						gqlFieldName,
+						whereWithValues,
+						join,
+						filterJoin,
+						values,
+						filterValue,
+						mapping
+					);
+				} else if (fieldProps.reference === ReferenceType.MANY_TO_ONE) {
+					this.mapFilterManyToOne<T>(
+						fieldProps,
+						referenceField,
+						alias,
+						refAlias,
+						whereWithValues,
+						join,
+						filterJoin,
+						mapping,
+						values
+					);
+				} else if (fieldProps.reference === ReferenceType.MANY_TO_MANY) {
+					this.mapFilterManyToMany<T>(
+						fieldProps,
+						primaryKeys,
+						referenceField,
+						alias,
+						whereWithValues,
+						join,
+						filterJoin,
+						refAlias,
+						mapping,
+						values
+					);
+				} else {
+					logger.warn('reference type', fieldProps.reference, 'not handled, field', gqlFieldName);
+				}
+			} else if (filterValue !== undefined) {
+				// filterValue = { id: 1 } OR { otherField: 2 }
+
+				/**
+				 * `[id]` OR `[other_field]` or whatever the fields names are
+				 */
+				const fieldNames =
+					properties[fieldNameKey as keyof EntityMetadata<T>['properties']].fieldNames;
+
+				fieldNames.forEach((fieldName) => {
+					this.applyFilterValue<T>({
+						filterValue,
+						fieldOperation: '_eq',
+						fieldName,
+						latestAlias,
+						mapping,
+					});
+				});
+				logger.log(
+					'GQLtoSQLMapper - ClassOperations: value _eq',
+					gqlFieldName,
+					'field names',
+					fieldNames,
+					'filterValue',
+					filterValue,
+					'latestAlias',
+					latestAlias.toString(),
+					'mapping',
+					mapping
+				);
+			}
+
+			latestAlias.update(mapping.latestAlias);
+		}
+	}
+	protected getChildAliasMapping(
+		mappings: Map<string, MappingsType>,
+		fieldNameKey: string,
+		latestAlias: Alias
+	) {
+		const m = mappings.get(fieldNameKey);
+		if (m) {
+			m.latestAlias.update(latestAlias);
+			return m;
+		}
+
+		const childAlias = latestAlias.next();
+		const mapping = newMappings(childAlias);
+		mappings.set(fieldNameKey, mapping);
+		return mapping;
+	}
+
+	/** 
+	There is a big flaw right now regarding how we are handling these conditions.
+	If we are doing an _or or a _not and we have join conditions,
+	currently these conditions are probably working in _and instead.
+	
+	To solve this the join should be applied in `left outer`
+	and the values in OR should be applied to the final `where` clause.
+	*/
+	protected processClassOperation<T>(
+		entityMetadata: EntityMetadata<T>,
+		gqlFilter: GQLEntityFilterInputFieldType<T>,
+		gqlFieldNameKey: string & keyof typeof ClassOperations,
+		mappings: Map<string, MappingsType>,
+		latestAlias: Alias
+	) {
+		const filters = gqlFilter[gqlFieldNameKey];
+		if (typeof filters !== 'object') {
+			return;
+		}
+		if (!mappings.has(gqlFieldNameKey)) {
+			mappings.set(gqlFieldNameKey, newMappings(latestAlias));
+		}
+		const mapping = mappings.get(gqlFieldNameKey) ?? newMappings(latestAlias);
+
+		const { join, filterJoin, where, values } = mappingsReducer(
+			this.recursiveMap({
+				entityMetadata,
+				gqlFilters: filters,
+				alias: latestAlias,
+			})
+		);
+
+		logger.log(
+			'GQLtoSQLMapper - ClassOperations: processed',
+			gqlFieldNameKey,
+			'join',
+			join,
+			'filterJoin',
+			filterJoin,
+			'where',
+			where,
+			'values',
+			values
+		);
+		mapping.filterJoin.push(...filterJoin);
+		mapping.join.push(...join);
+		where.length > 0 && mapping.where.push(`( ${where.join(` ${gqlFieldNameKey.slice(1)} `)} )`);
+		mapping.values = { ...mapping.values, ...values };
+	}
+
+	protected mapFieldOperation<T>(
+		mappings: Map<string, MappingsType>,
+		gqlFieldNameKey: string,
+		latestAlias: Alias,
+		fieldOperation: string,
+		fieldValue: any,
+		properties: { [key in string & keyof T]: EntityProperty }
+	) {
+		const exists = mappings.has(gqlFieldNameKey);
+		if (!exists) {
+			// const childAlias = latestAlias.next();
+			mappings.set(gqlFieldNameKey, newMappings(latestAlias));
+		}
+		const mapping = mappings.get(gqlFieldNameKey) ?? newMappings(latestAlias);
+
+		const fieldNameBeforeOperation = gqlFieldNameKey.slice(0, -fieldOperation.length);
+		// const fieldValue = gqlFilter[gqlFieldNameKey as keyof GQLEntityFilterInputFieldType<T>] as any;
+
+		const sqlParam = `op${mapping.latestAlias.toString()}`;
+		if (fieldValue instanceof Array && fieldNameBeforeOperation in properties) {
+			mapping.where.push(
+				...properties[fieldNameBeforeOperation as keyof typeof properties].fieldNames.map(
+					(fieldName) =>
+						FieldOperations[fieldOperation as keyof typeof FieldOperations](
+							[
+								mapping.latestAlias.next().toValue(fieldName),
+								...fieldValue.map((_, i) => `:${sqlParam}_${i}`),
+							],
+							['', ...fieldValue.map((_, i) => `:${sqlParam}_${i}`)]
+						)
+				)
+			);
+			mapping.values = {
+				...mapping.values,
+				...fieldValue.reduce((acc, v, i) => {
+					acc[`${sqlParam}_${i}`] = v;
+					return acc;
+				}, {} as Record<string, any>),
+			};
+		} else {
+			logger.log(
+				'GQLtoSQLMapper - mapFieldOperation: fieldValue',
+				fieldValue,
+				'fieldNameBeforeOperation',
+				fieldNameBeforeOperation,
+				'property',
+				(properties as any)?.[fieldNameBeforeOperation as keyof typeof properties]
+			);
+			const fieldNames =
+				properties[fieldNameBeforeOperation as keyof typeof properties]?.fieldNames;
+			if (!fieldNames) {
+				throw new Error('fieldNames not found in properties for field ' + fieldNameBeforeOperation);
+			}
+			mapping.where.push(
+				...fieldNames.map((fieldName) =>
+					FieldOperations[fieldOperation as keyof typeof FieldOperations](
+						[mapping.latestAlias.toValue(fieldName), `:${sqlParam}`],
+						['', fieldValue]
+					)
+				)
+			);
+			mapping.values = {
+				...mapping.values,
+				[sqlParam]: fieldValue,
+			};
+		}
+	}
+
+	protected mapFilterManyToMany<T>(
+		fieldProps: { [key in string & keyof T]: EntityProperty }[string & keyof T],
+		primaryKeys: string[],
+		referenceField: EntityMetadata<unknown>,
+		alias: string,
+		whereWithValues: string[],
+		join: string[],
+		filterJoin: string[],
+		refAlias: string,
+		mapping: MappingsType,
+		values: Record<string, any>
+	) {
+		const ons = fieldProps.joinColumns;
+		if (primaryKeys.length !== ons.length) {
+			throw new Error(
+				`m:m joins with different number of columns ${primaryKeys.length} !== ${ons.length} on table ${referenceField.tableName}`
+			);
+		}
+		if (referenceField.primaryKeys.length !== fieldProps.inverseJoinColumns.length) {
+			throw new Error(
+				`m:m joins with different number of columns ${referenceField.primaryKeys.length} !== ${fieldProps.inverseJoinColumns.length} on reference ${referenceField.tableName}.${fieldProps.pivotTable}`
+			);
+		}
+
+		const pivotTableWhereSQL = primaryKeys.map((o, i) => {
+			return `${alias}.${o} = ${fieldProps.pivotTable}.${ons[i]}`;
+		});
+		if (
+			pivotTableWhereSQL.length > 0 &&
+			(filterJoin.length > 0 || whereWithValues.length > 0 || join.length > 0)
+		) {
+			const pivotTableSQL = `select ${fieldProps.inverseJoinColumns.join(', ')} 
+									from ${fieldProps.pivotTable}
+                                        ${join.join(' \n')}
+									where ${pivotTableWhereSQL.join(' and ')} 
+									${whereWithValues.length > 0 ? ` and ${whereWithValues.join(' and ')}` : ''}`.replaceAll(
+				/[ \n\t]+/gi,
+				' '
+			);
+
+			const innerJoin = `inner join lateral (
+		                        select ${refAlias}.*
+		                            from ${referenceField.tableName} as ${refAlias}
+                                    where (${referenceField.primaryKeys.join(', ')}) 
+										in (${pivotTableSQL})
+									${filterJoin.join(' \n')}
+		                ) as ${refAlias} on true`.replaceAll(/[ \n\t]+/gi, ' ');
+
+			mapping.filterJoin.push(innerJoin);
+			mapping.values = { ...mapping.values, ...values };
+		}
+	}
+
+	protected mapFilterManyToOne<T>(
+		fieldProps: { [key in string & keyof T]: EntityProperty }[string & keyof T],
+		referenceField: EntityMetadata<unknown>,
+		alias: string,
+		refAlias: string,
+		whereWithValues: string[],
+		join: string[],
+		filterJoin: string[],
+		mapping: MappingsType,
+		values: Record<string, any>
+	) {
+		if (fieldProps.fieldNames.length && referenceField.tableName) {
+			const referenceFieldProps = referenceField.properties[
+				fieldProps.mappedBy as keyof typeof referenceField.properties
+			] as EntityProperty;
+
+			const ons = referenceField.primaryKeys;
+			const entityOns = fieldProps.fieldNames;
+
+			if (ons.length !== entityOns.length) {
+				throw new Error(
+					`m:1 join with different number of columns ${ons.length} !== ${entityOns.length} on ${referenceFieldProps.name}`
+				);
+			}
+
+			const whereSQL = entityOns
+				.map((o, i) => {
+					return `${alias}.${o} = ${refAlias}.${ons[i]}`;
+				})
+				.join(', ');
+
+			logger.log('========filterJoin', filterJoin);
+
+			if (
+				whereSQL.length > 0 &&
+				(filterJoin.length > 0 || whereWithValues.length > 0 || join.length > 0)
+			) {
+				const innerJoin = `inner join lateral (
+                                select ${refAlias}.* from ${referenceField.tableName} as ${refAlias}
+									${filterJoin.join(' \n')}
+                                    ${join.join(' \n')}
+                                where ${whereSQL} 
+								${whereWithValues.length > 0 ? `and ${whereWithValues.join(' and ')}` : ''}
+		                    ) as ${refAlias} on true`.replaceAll(/[ \n\t]+/gi, ' ');
+				mapping.filterJoin.push(innerJoin);
+				mapping.values = { ...mapping.values, ...values };
+			}
+		}
+	}
+
+	protected mapFilterOneToX<T>(
+		referenceField: EntityMetadata<unknown>,
+		fieldProps: { [key in string & keyof T]: EntityProperty }[string & keyof T],
+		alias: string,
+		refAlias: string,
+		gqlFieldName: string,
+		whereWithValues: string[],
+		join: string[],
+		filterJoin: string[],
+		values: Record<string, any>,
+		filterValue: string | number | boolean | GQLEntityFilterInputFieldType<T>,
+		mapping: MappingsType
+	) {
+		const referenceFieldProps = referenceField.properties[
+			fieldProps.mappedBy as keyof typeof referenceField.properties
+		] as EntityProperty;
+		// logger.log('referenceFieldProps', referenceField.name, referenceFieldProps.mappedBy);
+		const ons = referenceFieldProps.joinColumns;
+		const entityOns = referenceFieldProps.referencedColumnNames;
+
+		if (ons.length !== entityOns.length) {
+			throw new Error(
+				`1:* joins with different number of columns ${ons.length} !== ${entityOns.length} on ${referenceFieldProps.name}`
+			);
+		}
+
+		const whereSQL = entityOns
+			.map((o, i) => {
+				return `${alias}.${o} = ${refAlias}.${ons[i]}`;
+			})
+			.join(', ');
+
+		logger.log('======>referenceField', gqlFieldName, join, whereWithValues, values, filterValue);
+
+		if (
+			referenceField.tableName &&
+			whereSQL.length > 0 &&
+			(filterJoin.length > 0 || whereWithValues.length > 0 || join.length > 0)
+		) {
+			// apply a filter join only if either we filter for or we have a join
+			const innerJoin = `inner join lateral (
+                                select ${refAlias}.* 
+                                    from ${referenceField.tableName} as ${refAlias}
+									${filterJoin.join(' \n')}
+                                    ${join.join(' \n')}
+                                where ${whereSQL} 
+                                ${whereWithValues.length > 0 ? ' and ' : ''}
+                                ${whereWithValues.join(' and ')}
+		                    ) as ${refAlias} on true`.replaceAll(/[ \n\t]+/gi, ' ');
+
+			mapping.filterJoin.push(innerJoin);
+			mapping.values = { ...mapping.values, ...values };
+		}
+	}
 
 	/**
 	 * Applies filter values to the query based on the provided parameters.
@@ -870,7 +1208,7 @@ export class GQLtoSQLMapper {
 	 * @param options - Object containing filter parameters
 	 * @param options.filterValue - The value to filter by, which can be a primitive or a filter object
 	 * @param options.fieldOperation - The operation to apply (e.g., '_eq', '_gt', etc.). Optional for primitive values
-	 * @param options.gqlFieldName - The GraphQL field name being filtered
+	 * @param options.fieldName - The GraphQL field name being filtered
 	 * @param options.latestAlias - The latest alias used in the SQL query
 	 * @param options.mapping - The mapping configuration for the field
 	 *
@@ -886,13 +1224,13 @@ export class GQLtoSQLMapper {
 	protected applyFilterValue<T>({
 		filterValue,
 		fieldOperation,
-		gqlFieldName,
+		fieldName,
 		latestAlias,
 		mapping,
 	}: {
 		filterValue: string | number | boolean | GQLEntityFilterInputFieldType<T>;
-		fieldOperation: string | undefined;
-		gqlFieldName: string;
+		fieldOperation: string & keyof typeof FieldOperations;
+		fieldName: string;
 		latestAlias: Alias;
 		mapping: MappingsType;
 	}): void {
@@ -910,7 +1248,7 @@ export class GQLtoSQLMapper {
 			this.applyFilterOperation({
 				fieldOperation: op as keyof typeof FieldOperations,
 				filterValue,
-				fieldName: gqlFieldName,
+				fieldName,
 				latestAlias: latestAlias,
 				mapping,
 			});
@@ -929,7 +1267,7 @@ export class GQLtoSQLMapper {
 					this.applyFilterOperation({
 						fieldOperation: op as string & keyof typeof FieldOperations,
 						filterValue: filterActualValue,
-						fieldName: gqlFieldName,
+						fieldName,
 						latestAlias: latestAlias,
 						mapping,
 					});
