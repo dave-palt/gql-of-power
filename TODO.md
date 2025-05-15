@@ -14,13 +14,16 @@
 
 - [x] improve aliases using incremental number
 - [x] define agnostic orm-framework metadata extractor functions and types
+
+  - [ ] improve types
+
 - Refactor
 
   - [ ] improve function names
     - [ ] fields
     - [x] filters
-  - [ ] organise things in classes
-    - [x] GQLtoSQLMapper
+  - [WIP] organise things in classes
+    - [*] GQLtoSQLMapper
       - [WIP] refactor mapper functions
     - [ ] QueryManager
 
