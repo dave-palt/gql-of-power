@@ -29,6 +29,8 @@ export const getGQLEntityFieldResolverName = (gqlEntityName: string) =>
 	`${gqlEntityName}FieldsResolver`;
 export const getGQLEntityFieldResolverNameFor = <T extends Object>(classType: new () => T) =>
 	getGQLEntityFieldResolverName(getGQLEntityNameFor(classType));
+export const getGQLEntityTypeFor = <T extends Object, K>(classType: new () => T) =>
+	getGQLEntityFieldResolverName(TypeMap[getGQLEntityNameFor(classType)]);
 
 registerEnumType(Sort, {
 	name: 'Sort2',
@@ -76,12 +78,12 @@ export function createGQLTypes<T extends Object>(
 	if (customFields) {
 		CustomFieldsMap[gqlEntityName] = customFields;
 
-		const fieldsResolverTypeName = getGQLEntityFieldResolverName(gqlEntityName);
-		class GQLEntityFieldsResolver {
-			[key: string]: Function;
-		}
-		Object.defineProperty(GQLEntityFieldsResolver, 'name', { value: fieldsResolverTypeName });
-		TypeMap[fieldsResolverTypeName] = GQLEntityFieldsResolver;
+		// const fieldsResolverTypeName = getGQLEntityFieldResolverName(gqlEntityName);
+		// class GQLEntityFieldsResolver {
+		// 	[key: string]: Function;
+		// }
+		// Object.defineProperty(GQLEntityFieldsResolver, 'name', { value: fieldsResolverTypeName });
+		// TypeMap[fieldsResolverTypeName] = GQLEntityFieldsResolver;
 
 		logger.info('CustomFieldsMap', gqlEntityName, customFields);
 
@@ -107,36 +109,36 @@ export function createGQLTypes<T extends Object>(
 				deprecationReason: undefined,
 			});
 
-			const resolve = fieldOptions?.resolve;
-			if (!resolve) {
-				continue;
-			}
+			// const resolve = fieldOptions?.resolve;
+			// if (!resolve) {
+			// 	continue;
+			// }
 
-			GQLEntityFieldsResolver.prototype[fieldName] = () => ({ id: 1 });
-			resolve && Object.defineProperty(GQLEntityFieldsResolver, fieldName, resolve);
+			// GQLEntityFieldsResolver.prototype[fieldName] = () => ({ id: 1 });
+			// resolve && Object.defineProperty(GQLEntityFieldsResolver, fieldName, resolve);
 
 			// // logger.info('GQLEntityFieldsResolver with field resolver property', GQLEntityFieldsResolver);
-			metadata.collectFieldResolverMetadata({
-				kind: 'external',
-				complexity: undefined,
-				target: GQLEntityFieldsResolver,
-				methodName: fieldName,
-				schemaName: fieldName,
-				description: fieldName,
-				deprecationReason: undefined,
-				getType: fieldOptions.type,
-				getObjectType: () => GQLEntity,
-				typeOptions: {
-					...(fieldOptions.array ? { array: true, arrayDepth: 1 } : {}),
-					...fieldOptions.options,
-				},
-			});
+			// metadata.collectFieldResolverMetadata({
+			// 	kind: 'external',
+			// 	complexity: undefined,
+			// 	target: GQLEntityFieldsResolver,
+			// 	methodName: fieldName,
+			// 	schemaName: fieldName,
+			// 	description: fieldName,
+			// 	deprecationReason: undefined,
+			// 	getType: fieldOptions.type,
+			// 	getObjectType: () => GQLEntity,
+			// 	typeOptions: {
+			// 		...(fieldOptions.array ? { array: true, arrayDepth: 1 } : {}),
+			// 		...fieldOptions.options,
+			// 	},
+			// });
 		}
 
-		metadata.collectResolverClassMetadata({
-			target: GQLEntityFieldsResolver,
-			getObjectType: () => GQLEntity,
-		});
+		// metadata.collectResolverClassMetadata({
+		// 	target: GQLEntityFieldsResolver,
+		// 	getObjectType: () => GQLEntity,
+		// });
 	}
 
 	InputType(gqlEntityName + 'OrderBy')(GQLEntityOrderBy);
@@ -188,6 +190,9 @@ export function createGQLTypes<T extends Object>(
 		GQLEntityFilterInput: GQLEntityFilterInput as any as GQLEntityFilterInputFieldType<T>,
 		GQLEntityPaginationInputField:
 			GQLEntityPaginationInputField as any as GQLEntityPaginationInputType<T>,
+		/**
+		 * this can be used alongside `getGQLEntityTypeFor` to get the type of the entity, not sure it will be ever needed
+		 */
 		gqlEntityName,
 	};
 }
