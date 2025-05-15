@@ -21,22 +21,23 @@
     - [x] filters
   - [ ] organise things in classes
     - [x] GQLtoSQLMapper
+      - [WIP] refactor mapper functions
     - [ ] QueryManager
 
 - 1:1 example: select author by person
 
-  - [ ] filter results based on condition
-  - [ ] field contains only records based on condition
+  - [x] filter results based on condition
+  - [x] field contains only records based on condition
 
 - 1:m example: select author by books
 
-  - [ ] filter results based on condition
-  - [ ] field contains only records based on condition
+  - [x] filter results based on condition
+  - [x] field contains only records based on condition
 
 - m:1 example: select books by author
 
-  - [ ] filter results based on condition
-  - [ ] field contains only records based on condition
+  - [x] filter results based on condition
+  - [x] field contains only records based on condition
 
 - m:m example: select books by revisors
 
