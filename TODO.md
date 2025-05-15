@@ -11,6 +11,13 @@
 - [x] field params to add filtering and pagination
 - [x] fix joined filters inside fields
 
+## Key limitations
+
+- [ ] change `OR` conditions into single queries with `union all`
+  - [ ] `OR` filtering works only for columns in the same table
+- [ ] reduce load on DB by not using json but string concat and `string_agg` + `JSON.parse()` of the result string
+- [ ] order by reference table ( query authors order by latest book publication date)
+
 ## Improvements
 
 - [x] improve aliases using incremental number
@@ -47,10 +54,6 @@
 
   - [x] by attributes of array
   - [x] filter on quantity (example: select author that have N books)
-
-- [ ] change `OR` conditions into single queries with `union all`
-- [ ] reduce load on DB by not using json but string concat and `string_agg` + `JSON.parse()` of the result string
-- [ ] order by reference table ( query authors order by latest book publication date)
 
 # Future
 
