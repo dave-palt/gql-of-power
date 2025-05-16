@@ -94,7 +94,7 @@ export class Alias {
 		return `${this.prefix ?? ''}${this.alias}.${value}`;
 	}
 
-	public toChildAlias(childAlias: string) {
+	public toChildAlias(childAlias: string | number) {
 		return `${this.prefix ?? ''}${this.alias}_${childAlias}`;
 	}
 
@@ -224,21 +224,19 @@ export class GQLtoSQLMapper {
 
 					if (referenceField) {
 						console.log(
-							'referenceField latest alias',
+							'GQLtoSQLMapper - recursiveMap - referenceField latest alias',
 							mapping.latestAlias.toString(),
 							latestAlias.toString()
 						);
-						mapping.latestAlias = mapping.latestAlias.next('f');
+						const childAlias = mapping.latestAlias.next('f');
+
 						console.log(
-							'referenceField latest alias next',
+							'GQLtoSQLMapper - recursiveMap - referenceField latest alias next',
 							mapping.latestAlias.toString(),
-							latestAlias.toString()
+							latestAlias.toString(),
+							childAlias.toString()
 						);
-						// const refAlias = `${fieldPrefix}_${alias}_${i}`;
-						const alias = latestAlias.toString();
-						const childAlias = mapping.latestAlias;
-						const refAlias = childAlias.toString();
-						// logger.log('referenceField', referenceField.name, fieldProps.reference);
+						// const childAlias = mapping.latestAlias;
 
 						const {
 							select,
@@ -250,6 +248,7 @@ export class GQLtoSQLMapper {
 							limit,
 							offset,
 							orderBy,
+							latestAlias: newAlias,
 						} = mappingsReducer(
 							this.recursiveMap({
 								entityMetadata: referenceField,
@@ -289,36 +288,32 @@ export class GQLtoSQLMapper {
 
 							const where = entityOns
 								.map((o, i) => {
-									return `${alias}.${o} = ${refAlias}.${ons[i]}`;
+									return `${mapping.latestAlias.toValue(o)} = ${childAlias.toValue(ons[i])}`;
 								})
-								.join(', ');
+								.join(' and ');
 
-							const {
-								select,
-								json,
-								join,
-								filterJoin,
-								where: fieldWhere,
-								values: fieldWhereValues,
-								limit,
-								offset,
-								orderBy,
-								// latestAlias: childAlias,
-							} = mappingsReducer(
-								this.recursiveMap({
-									entityMetadata: referenceField,
-									fields: fields[gqlFieldName],
-									alias: childAlias,
-								})
+							logger.log(
+								'GQLtoSQLMapper - mapFieldOneToX: whereSQL',
+								referenceField.name,
+								'alias',
+								alias.toString(), //17
+								'childAlias',
+								childAlias.toString(), //18
+								'mapping latestAlias',
+								mapping.latestAlias.toString(), //17
+								'latestAlias',
+								latestAlias.toString(), //17
+								'newAlias',
+								newAlias.toString(), // -1
+								whereWithValues
 							);
-
 							logger.log(
 								'recursiveMap - referenceField',
 								referenceField.name,
 								'where',
-								fieldWhere,
+								whereWithValues,
 								'values',
-								fieldWhereValues,
+								values,
 								'limit',
 								limit,
 								'offset',
@@ -327,7 +322,7 @@ export class GQLtoSQLMapper {
 								orderBy
 							);
 							if (referenceField.tableName && where.length > 0) {
-								mapping.json.push(`'${gqlFieldName}', ${refAlias}.value`);
+								mapping.json.push(`'${gqlFieldName}', ${childAlias.toValue('value')}`);
 
 								const jsonSelect =
 									fieldProps.reference === ReferenceType.ONE_TO_ONE
@@ -335,7 +330,7 @@ export class GQLtoSQLMapper {
 										: `coalesce(json_agg(jsonb_build_object(${json.join(', ')})), '[]'::json)`;
 
 								const onFields = Array.from(
-									new Set(ons.map((on) => `${refAlias}.${on}`).concat(Array.from(select)))
+									new Set(ons.map((on) => `${childAlias.toValue(on)}`).concat(Array.from(select)))
 								);
 
 								const processedOrderBy = orderBy.reduce((acc, ob) => {
@@ -350,7 +345,7 @@ export class GQLtoSQLMapper {
 											acc.push(
 												...referenceField.properties[
 													k as keyof typeof referenceField.properties
-												].fieldNames.map((fn) => `${refAlias}.${fn} ${(ob as any)[k]}`)
+												].fieldNames.map((fn) => `${childAlias.toValue(fn)} ${(ob as any)[k]}`)
 											);
 										}
 									});
@@ -363,40 +358,36 @@ export class GQLtoSQLMapper {
 									'filterJoin',
 									filterJoin,
 									'fieldWhere',
-									fieldWhere,
-									'fieldWhereValues',
-									fieldWhereValues,
+									whereWithValues,
+									'values',
+									values,
 									limit,
 									offset
 								);
 								const orderBySQL =
 									processedOrderBy.length > 0 ? ` order by ${processedOrderBy.join(', ')} ` : '';
 
-								const fromSQL = `${orderBySQL ? '( select * from ' : ''}${
+								const fromSQL = `${orderBySQL ? '( select * from ' : ''}"${
 									referenceField.tableName
-								}${orderBySQL ? ` as ${refAlias} ${orderBySQL} )` : ''}`;
+								}"${orderBySQL ? ` as ${childAlias.toString()} ${orderBySQL} )` : ''}`;
 								const leftOuterJoin = `left outer join lateral (
                                 select ${jsonSelect} as value from (
                                     select ${onFields.join(', ')} 
-                                        from ${fromSQL} as ${refAlias}
+                                        from ${fromSQL} as ${childAlias.toString()}
                                     ${filterJoin.join(' \n')}
-                                    where ${where}
-                                    ${fieldWhere.length > 0 ? ' and ' : ''} 
-                                    ${fieldWhere.join(' and ')}
+                                    where ${where} 
+                                    ${whereWithValues.length > 0 ? ' and ' : ''} 
+                                    ${whereWithValues.join(' and ')}
                                     ${limit && !isNaN(limit) ? `limit ${limit}` : ''}
                                     ${offset && !isNaN(offset) ? `offset ${offset}` : ''}
-                            ) as ${refAlias} 
+                            ) as ${childAlias.toString()} 
                             ${join.join(' \n')}
-                            ) as ${refAlias} on true`.replaceAll(/[ \n\t]+/gi, ' ');
+                            ) as ${childAlias.toString()} on true`.replaceAll(/[ \n\t]+/gi, ' ');
 
-								mapping.values = { ...mapping.values, ...fieldWhereValues };
+								mapping.values = { ...mapping.values, ...values };
 								mapping.join.push(leftOuterJoin);
 							}
 						} else if (fieldProps.reference === ReferenceType.MANY_TO_ONE) {
-							const alias = latestAlias.toString();
-							const childAlias = mapping.latestAlias;
-							const refAlias = childAlias.toString();
-
 							if (fieldProps.fieldNames.length !== referenceField.primaryKeys.length) {
 								throw new Error(
 									`Mismatch in lengths: fieldProps.fieldNames (${fieldProps.fieldNames.length}) and referenceField.primaryKeys (${referenceField.primaryKeys.length}) must have the same length.`
@@ -408,32 +399,35 @@ export class GQLtoSQLMapper {
 
 								const where = entityOns
 									.map((o, i) => {
-										return `${alias}.${o} = ${refAlias}.${ons[i]}`;
+										return `${latestAlias.toValue(o)} = ${childAlias.toValue(ons[i])}`;
 									})
-									.join(', ');
+									.join(' and ');
 
-								const {
-									select,
-									json,
-									join,
-									where: w,
-									values,
-									filterJoin,
-									limit,
-									offset,
-								} = mappingsReducer(
-									this.recursiveMap({
-										entityMetadata: referenceField,
-										fields: fields[gqlFieldName],
-										alias: childAlias,
-									})
-								);
+								// const {
+								// 	select,
+								// 	json,
+								// 	join,
+								// 	where: w,
+								// 	values,
+								// 	filterJoin,
+								// 	limit,
+								// 	offset,
+								// } = mappingsReducer(
+								// 	this.recursiveMap({
+								// 		entityMetadata: referenceField,
+								// 		fields: fields[gqlFieldName],
+								// 		alias: childAlias,
+								// 	})
+								// );
 
 								logger.log(
-									'many to one',
+									'GQLtoSQLMapper - mapFieldManyToOne: whereSQL',
 									referenceField.name,
+									childAlias.toString(),
+									mapping.latestAlias.toString(),
+									latestAlias.toString(),
 									'where',
-									w,
+									whereWithValues,
 									'values',
 									values,
 									'filterJoin',
@@ -443,23 +437,23 @@ export class GQLtoSQLMapper {
 								);
 
 								mapping.select.add(
-									`${fieldProps.fieldNames.map((fn) => `${alias}.${fn}`).join(', ')}`
+									`${fieldProps.fieldNames.map((fn) => latestAlias.toValue(fn)).join(', ')}`
 								);
-								mapping.json.push(`'${gqlFieldName}', ${refAlias}.value`);
+								mapping.json.push(`'${gqlFieldName}', ${childAlias.toValue('value')}`);
 
 								const selectFields = [
-									...new Set(ons.map((on) => `${refAlias}.${on}`).concat(Array.from(select))),
+									...new Set(ons.map((on) => childAlias.toValue(on)).concat(Array.from(select))),
 								];
 								const leftOuterJoin = `left outer join lateral (
                                 select jsonb_build_object(${json.join(', ')}) as value from (
-                                    select ${selectFields.join(', ')} from ${
+                                    select ${selectFields.join(', ')} from "${
 									referenceField.tableName
-								} as ${refAlias}
+								}" as ${childAlias.toString()}
                                     where ${where}
-									${w.length > 0 ? ` and ( ${w.join(' and ')} )` : ''}
-                            ) as ${refAlias}
+									${whereWithValues.length > 0 ? ` and ( ${whereWithValues.join(' and ')} )` : ''}
+                            ) as ${childAlias.toString()}
                             ${join.join(' \n')}
-                            ) as ${refAlias} on true`.replaceAll(/[ \n\t]+/gi, ' ');
+                            ) as ${childAlias.toString()} on true`.replaceAll(/[ \n\t]+/gi, ' ');
 
 								mapping.join.push(leftOuterJoin);
 								mapping.values = { ...mapping.values, ...values };
@@ -603,7 +597,7 @@ export class GQLtoSQLMapper {
 			select coalesce(json_agg(jsonb_build_object(${json.join(', ')})), '[]'::json) as value 
 				from (
 					select ${selectFields.join(', ')} 
-						from ${referenceField.tableName} as ${refAlias}
+						from "${referenceField.tableName}" as ${refAlias}
 					where (${referenceField.primaryKeys.join(', ')})
 						in (${pivotTableSQL})
 						${whereWithValues.length > 0 ? ` and ( ${whereWithValues.join(' and ')} )` : ''}
@@ -648,6 +642,7 @@ export class GQLtoSQLMapper {
 	}
 
 	protected processFieldNames(fieldNames: string[], mapping: MappingsType, gqlFieldName: string) {
+		logger.info('GQLtoSQLMapper - processFieldNames', fieldNames, gqlFieldName);
 		if (fieldNames.length <= 0) {
 			logger.warn('GQLtoSQLMapper - processFieldNames: fieldNames is empty', gqlFieldName);
 			return;
@@ -989,27 +984,38 @@ export class GQLtoSQLMapper {
 		const fieldNameBeforeOperation = gqlFieldNameKey.slice(0, -fieldOperation.length);
 		// const fieldValue = gqlFilter[gqlFieldNameKey as keyof GQLEntityFilterInputFieldType<T>] as any;
 
-		const sqlParam = `op${mapping.latestAlias.toString()}`;
-		if (fieldValue instanceof Array && fieldNameBeforeOperation in properties) {
+		// const sqlParam = `op${mapping.latestAlias.toString()}`;
+		const nextValue = mapping.latestAlias.nextValue('op');
+		if (
+			fieldValue instanceof Array &&
+			fieldNameBeforeOperation in properties &&
+			(fieldOperation as keyof typeof FieldOperations) !== '_in' &&
+			(fieldOperation as keyof typeof FieldOperations) !== '_nin'
+			// (fieldOperation as keyof typeof FieldOperations) !== '_between' &&
+		) {
 			mapping.where.push(
 				...properties[fieldNameBeforeOperation as keyof typeof properties].fieldNames.map(
-					(fieldName) =>
-						FieldOperations[fieldOperation as keyof typeof FieldOperations](
-							[
-								mapping.latestAlias.next().toValue(fieldName),
-								...fieldValue.map((_, i) => `:${sqlParam}_${i}`),
-							],
-							['', ...fieldValue.map((_, i) => `:${sqlParam}_${i}`)]
-						)
+					(fieldName, i) => {
+						const nextValueSQL = nextValue.next();
+						const values = fieldValue.map(
+							(fv, i) => {
+								const nextValueAlias = nextValueSQL.nextValue();
+								mapping.values[nextValueAlias.toChildAlias(i)] = fv;
+								return ':' + nextValueAlias.toChildAlias(i);
+							},
+							{
+								keys: [] as string[],
+								values: [] as any[],
+							}
+						);
+
+						return FieldOperations[fieldOperation as keyof typeof FieldOperations](
+							[mapping.latestAlias.toValue(fieldName), ...values],
+							['', ...fieldValue]
+						);
+					}
 				)
 			);
-			mapping.values = {
-				...mapping.values,
-				...fieldValue.reduce((acc, v, i) => {
-					acc[`${sqlParam}_${i}`] = v;
-					return acc;
-				}, {} as Record<string, any>),
-			};
 		} else {
 			logger.log(
 				'GQLtoSQLMapper - mapFieldOperation: fieldValue',
@@ -1027,15 +1033,12 @@ export class GQLtoSQLMapper {
 			mapping.where.push(
 				...fieldNames.map((fieldName) =>
 					FieldOperations[fieldOperation as keyof typeof FieldOperations](
-						[mapping.latestAlias.toValue(fieldName), `:${sqlParam}`],
+						[mapping.latestAlias.toValue(fieldName), `:${nextValue.toChildAlias(1)}`],
 						['', fieldValue]
 					)
 				)
 			);
-			mapping.values = {
-				...mapping.values,
-				[sqlParam]: fieldValue,
-			};
+			mapping.values[nextValue.toChildAlias(1)] = fieldValue;
 		}
 	}
 
@@ -1081,7 +1084,7 @@ export class GQLtoSQLMapper {
 
 			const innerJoin = `inner join lateral (
 		                        select ${refAlias}.*
-		                            from ${referenceField.tableName} as ${refAlias}
+		                            from "${referenceField.tableName}" as ${refAlias}
                                     where (${referenceField.primaryKeys.join(', ')}) 
 										in (${pivotTableSQL})
 									${filterJoin.join(' \n')}
@@ -1123,14 +1126,17 @@ export class GQLtoSQLMapper {
 				})
 				.join(', ');
 
-			logger.log('========filterJoin', filterJoin);
+			logger.log('GQLtoSQLMapper - mapFilterManyToOne: whereSQL', alias.toString(), whereSQL);
+			// logger.log('========filterJoin', filterJoin);
 
 			if (
 				whereSQL.length > 0 &&
 				(filterJoin.length > 0 || whereWithValues.length > 0 || join.length > 0)
 			) {
 				const innerJoin = `inner join lateral (
-                                select ${refAlias}.* from ${referenceField.tableName} as ${refAlias}
+                                select ${refAlias}.* from "${
+					referenceField.tableName
+				}" as ${refAlias}
 									${filterJoin.join(' \n')}
                                     ${join.join(' \n')}
                                 where ${whereSQL} 
@@ -1174,6 +1180,7 @@ export class GQLtoSQLMapper {
 			})
 			.join(', ');
 
+		logger.log('GQLtoSQLMapper - mapFilterManyToX: whereSQL', alias.toString(), whereSQL);
 		logger.log('======>referenceField', gqlFieldName, join, whereWithValues, values, filterValue);
 
 		if (
@@ -1184,7 +1191,7 @@ export class GQLtoSQLMapper {
 			// apply a filter join only if either we filter for or we have a join
 			const innerJoin = `inner join lateral (
                                 select ${refAlias}.* 
-                                    from ${referenceField.tableName} as ${refAlias}
+                                    from "${referenceField.tableName}" as ${refAlias}
 									${filterJoin.join(' \n')}
                                     ${join.join(' \n')}
                                 where ${whereSQL} 

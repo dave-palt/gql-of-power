@@ -24,13 +24,15 @@ const CachedTypeNames: Record<any, string> = {};
 
 const CustomFieldsMap: Record<string, CustomFieldsSettings<any>> = {};
 export const getCustomFieldsFor = (name: string) => CustomFieldsMap[name] ?? {};
-export const getGQLEntityNameFor = <T>(classType: new () => T) => `${classType.name}2`;
+export const getGQLEntityNameFor = (name: string) => `${name}2`;
+export const getGQLEntityNameForClass = <T>(classType: new () => T) =>
+	getGQLEntityNameFor(classType.name);
 export const getGQLEntityFieldResolverName = (gqlEntityName: string) =>
 	`${gqlEntityName}FieldsResolver`;
 export const getGQLEntityFieldResolverNameFor = <T extends Object>(classType: new () => T) =>
-	getGQLEntityFieldResolverName(getGQLEntityNameFor(classType));
+	getGQLEntityFieldResolverName(getGQLEntityNameForClass(classType));
 export const getGQLEntityTypeFor = <T extends Object, K>(classType: new () => T) =>
-	getGQLEntityFieldResolverName(TypeMap[getGQLEntityNameFor(classType)]);
+	getGQLEntityFieldResolverName(TypeMap[getGQLEntityNameForClass(classType)]);
 
 registerEnumType(Sort, {
 	name: 'Sort2',
@@ -44,7 +46,7 @@ export function createGQLTypes<T extends Object>(
 ) {
 	const metadata = getMetadataStorage();
 
-	const gqlEntityName = getGQLEntityNameFor(classType);
+	const gqlEntityName = getGQLEntityNameForClass(classType);
 
 	const fields = Object.keys(opts) as (keyof typeof opts)[];
 
@@ -194,6 +196,7 @@ export function createGQLTypes<T extends Object>(
 		 * this can be used alongside `getGQLEntityTypeFor` to get the type of the entity, not sure it will be ever needed
 		 */
 		gqlEntityName,
+		relatedEntityName: classType.name,
 	};
 }
 type TypeGQLMetadataStorage = ReturnType<typeof getMetadataStorage>;
@@ -210,6 +213,8 @@ export function createGQLEntityFields<T, K>(
 ) {
 	const getType: FieldSettings['type'] = fieldOptions.type;
 
+	const isArray = 'array' in fieldOptions && fieldOptions.array;
+
 	const fieldCopy = {
 		target: GQLEntity,
 		name: fieldName,
@@ -220,14 +225,26 @@ export function createGQLEntityFields<T, K>(
 		deprecationReason: undefined,
 		options: {
 			...fieldOptions.options,
-			...(fieldOptions.array ? { array: true, arrayDepth: 1 } : {}),
+			...(isArray ? { array: true, arrayDepth: 1 } : {}),
 		},
 		typeOptions: {
-			...(fieldOptions.array ? { array: true, arrayDepth: 1 } : {}),
+			...(isArray ? { array: true, arrayDepth: 1 } : {}),
 			...fieldOptions.options,
 		},
 	} as FieldParameter;
 	metadata.collectClassFieldMetadata(fieldCopy);
+
+	if (fieldOptions.enum) {
+		const enumObj = fieldOptions.enum[0];
+		const enumValues = fieldOptions.enum[1];
+
+		metadata.collectEnumMetadata({
+			enumObj,
+			description: enumValues.description ?? `${enumObj}`,
+			name: enumValues.name,
+			valuesConfig: enumValues.valuesConfig ?? {},
+		});
+	}
 
 	const UppercasedFieldName = fieldName[0].toUpperCase() + fieldName.slice(1);
 	if (fieldOptions.generateFilter) {
@@ -235,7 +252,7 @@ export function createGQLEntityFields<T, K>(
 		 * SORTING
 		 * right now sorting by reference is not supported
 		 */
-		if (!fieldOptions.array) {
+		if (!isArray) {
 			const orderByField = {
 				target: GQLEntityOrderBy,
 				name: fieldName,
@@ -375,15 +392,9 @@ export function createGQLEntityFields<T, K>(
 		} as FieldParameter;
 		metadata.collectClassFieldMetadata(fieldFilter);
 
-		if (
-			fieldOptions.array &&
-			'relatedEntityName' in fieldOptions &&
-			fieldOptions.relatedEntityName
-		) {
-			const relatedEntityName =
-				fieldOptions.relatedEntityName[0].toUpperCase() +
-				fieldOptions.relatedEntityName.slice(1) +
-				'2';
+		if ('array' in fieldOptions) {
+			const relatedEntityName = getGQLEntityNameFor(fieldOptions.relatedEntityName());
+
 			metadata.collectHandlerParamMetadata({
 				kind: 'arg',
 				name: 'filter',

@@ -10,7 +10,8 @@ export const FieldOperations = {
 		`${l} ${rv !== null && rv !== 'null' ? `= ${r}` : 'is null'}`,
 	_ne: ([l, r]: string[], [_, rv]: Array<string | number | boolean | bigint>) =>
 		`${l} ${rv !== null && rv !== 'null' ? `!= ${r}` : 'is not null'}`,
-	_in: ([l, r]: string[], []: Array<string | number | boolean | bigint>) => `${l} in (${r})`,
+	_in: ([l, ...r]: string[], []: Array<string | number | boolean | bigint>) =>
+		`${l} in (${r.join(', ')})`,
 	_nin: ([l, r]: string[], []: Array<string | number | boolean | bigint>) => `${l} nin (${r})`,
 	_gt: ([l, r]: string[], []: Array<string | number | boolean | bigint>) => `${l} gt ${r}`,
 	_gte: ([l, r]: string[], []: Array<string | number | boolean | bigint>) => `${l} gte ${r}`,

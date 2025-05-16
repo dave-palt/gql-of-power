@@ -1,4 +1,4 @@
-import { Field, FieldResolver } from 'type-graphql';
+import { Field, FieldResolver, registerEnumType } from 'type-graphql';
 import { ClassOperations, FieldOperations } from './operations';
 import { Alias } from './queries';
 
@@ -43,11 +43,17 @@ export enum Sort {
 export type OrderByOptions = {
 	[x: string]: Sort;
 };
-export type FieldBaseSettings = {
-	generateFilter?: boolean;
-	array?: boolean;
-	relatedEntityName?: string;
-};
+
+export type EnumData = Parameters<typeof registerEnumType>;
+
+export type FieldBaseSettings = { generateFilter?: boolean; enum?: EnumData } & (
+	| {}
+	| {
+			array: true;
+			relatedEntityName: () => string;
+	  }
+);
+
 export type FieldSettings = FieldBaseSettings & {
 	type: NonNullable<Parameters<typeof Field>[0]>;
 	options?: Parameters<typeof Field>[1];

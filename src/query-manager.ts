@@ -1,6 +1,6 @@
 import { GraphQLResolveInfo } from 'graphql';
 import graphqlFields from 'graphql-fields';
-import { getCustomFieldsFor, getGQLEntityNameFor } from './entities/gql-entity';
+import { getCustomFieldsFor, getGQLEntityNameForClass } from './entities/gql-entity';
 import { Alias, GQLtoSQLMapper, mappingsReducer } from './queries/gql-to-sql-mapper';
 import {
 	EntityMetadata,
@@ -32,7 +32,7 @@ export const getQueryResultsFor = async <K extends { _____name: string }, T>(
 	const mapper = new GQLtoSQLMapper({ exists, getMetadata, rawQuery, executeQuery });
 	const fields = graphqlFields(info, {}, { processArguments: true }) as Fields<T>;
 
-	const customFields = getCustomFieldsFor(getGQLEntityNameFor(entity));
+	const customFields = getCustomFieldsFor(getGQLEntityNameForClass(entity));
 
 	const alias = new Alias(0, 'a');
 	const metadata = getMetadata(entity.name) as EntityMetadata<T>;

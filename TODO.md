@@ -10,6 +10,8 @@
 
 - [x] field params to add filtering and pagination
 - [x] fix joined filters inside fields
+- [ ] replace `${alias}.${xxx}` with `alias.toValue(xxx)`
+- [ ] wrap table names with `"`
 
 ## Key limitations
 
