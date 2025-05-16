@@ -13,12 +13,12 @@ export const FieldOperations = {
 	_in: ([l, ...r]: string[], []: Array<string | number | boolean | bigint>) =>
 		`${l} in (${r.join(', ')})`,
 	_nin: ([l, r]: string[], []: Array<string | number | boolean | bigint>) => `${l} nin (${r})`,
-	_gt: ([l, r]: string[], []: Array<string | number | boolean | bigint>) => `${l} gt ${r}`,
-	_gte: ([l, r]: string[], []: Array<string | number | boolean | bigint>) => `${l} gte ${r}`,
-	_lt: ([l, r]: string[], []: Array<string | number | boolean | bigint>) => `${l} lt ${r}`,
-	_lte: ([l, r]: string[], []: Array<string | number | boolean | bigint>) => `${l} lte ${r}`,
+	_gt: ([l, r]: string[], []: Array<string | number | boolean | bigint>) => `${l} > ${r}`,
+	_gte: ([l, r]: string[], []: Array<string | number | boolean | bigint>) => `${l} >= ${r}`,
+	_lt: ([l, r]: string[], []: Array<string | number | boolean | bigint>) => `${l} < ${r}`,
+	_lte: ([l, r]: string[], []: Array<string | number | boolean | bigint>) => `${l} <= ${r}`,
 	_like: ([l, r]: string[], []: Array<string | number | boolean | bigint>) => `${l} like ${r}`,
-	_re: ([l, r]: string[], []: Array<string | number | boolean | bigint>) => `${l} re ${r}`,
+	_re: ([l, r]: string[], []: Array<string | number | boolean | bigint>) => `${l} ~ ${r}`,
 	_ilike: ([l, r]: string[], []: Array<string | number | boolean | bigint>) => `${l} ilike ${r}`,
 	_fulltext: ([l, r]: string[], []: Array<string | number | boolean | bigint>) =>
 		`${l} fulltext ${r}`,

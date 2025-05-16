@@ -379,7 +379,7 @@ export function createGQLEntityFields<T, K>(
 				'relatedEntityName' in fieldOptions
 					? () => {
 							return (
-								TypeMap[fieldOptions.relatedEntityName + '2FilterInput'] ??
+								TypeMap[getGQLEntityNameFor(fieldOptions.relatedEntityName()) + 'FilterInput'] ??
 								GQLEntityFilterInputField
 							);
 					  }

@@ -31,6 +31,31 @@ const isPrimitive = (filterValue: any): filterValue is string | number | boolean
 	typeof filterValue === 'string' ||
 	typeof filterValue === 'symbol';
 
+const USE_STRING = process.env.D3GOP_USE_STRING_FOR_JSONB === 'true';
+const jsonReducerForString = (
+	/**
+	 * `'id', `
+	 */
+	j: string,
+	index: number
+): string => {
+	const [key, value] = j.split(',');
+	return `'${index > 0 ? ',' : ''}${key.replaceAll(
+		/[']/gi,
+		'"'
+	)}:' || coalesce(${value}::text, '""')`;
+};
+export const generateJsonObjectSelectStatement = (json: string[], isMulti = false) =>
+	isMulti
+		? !USE_STRING
+			? `coalesce(json_agg(jsonb_build_object(${json.join(', ')})), '[]'::json)`
+			: `'['||coalesce(string_agg('{"' || ${json
+					.map(jsonReducerForString)
+					.join('||')} || '"}', ','), '') || ']'`
+		: !USE_STRING
+		? `jsonb_build_object(${json.join(', ')})`
+		: `'{' || ${json.map(jsonReducerForString).join(' || ')} || '}'`;
+
 export const mappingsReducer = (m: Map<string, MappingsType>) =>
 	Array.from(m.values()).reduce(
 		(
@@ -324,10 +349,10 @@ export class GQLtoSQLMapper {
 							if (referenceField.tableName && where.length > 0) {
 								mapping.json.push(`'${gqlFieldName}', ${childAlias.toValue('value')}`);
 
-								const jsonSelect =
-									fieldProps.reference === ReferenceType.ONE_TO_ONE
-										? `jsonb_build_object(${json.join(', ')})`
-										: `coalesce(json_agg(jsonb_build_object(${json.join(', ')})), '[]'::json)`;
+								const jsonSelect = generateJsonObjectSelectStatement(
+									json,
+									fieldProps.reference !== ReferenceType.ONE_TO_ONE
+								);
 
 								const onFields = Array.from(
 									new Set(ons.map((on) => `${childAlias.toValue(on)}`).concat(Array.from(select)))
@@ -444,8 +469,11 @@ export class GQLtoSQLMapper {
 								const selectFields = [
 									...new Set(ons.map((on) => childAlias.toValue(on)).concat(Array.from(select))),
 								];
+
+								const jsonSQL = generateJsonObjectSelectStatement(json);
+
 								const leftOuterJoin = `left outer join lateral (
-                                select jsonb_build_object(${json.join(', ')}) as value from (
+                                select ${jsonSQL} as value from (
                                     select ${selectFields.join(', ')} from "${
 									referenceField.tableName
 								}" as ${childAlias.toString()}
@@ -592,9 +620,11 @@ export class GQLtoSQLMapper {
 													from ${fieldProps.pivotTable}
 												where ${pivotTableWhereSQL.join(' and ')}`;
 
+			const jsonSQL = generateJsonObjectSelectStatement(json, true);
+
 			const refAlias = childAlias.toString();
 			const leftOuterJoin = `left outer join lateral (
-			select coalesce(json_agg(jsonb_build_object(${json.join(', ')})), '[]'::json) as value 
+			select ${jsonSQL} as value 
 				from (
 					select ${selectFields.join(', ')} 
 						from "${referenceField.tableName}" as ${refAlias}
@@ -801,7 +831,7 @@ export class GQLtoSQLMapper {
 
 			if (referenceField) {
 				const alias = latestAlias.toString();
-				const childAlias = mapping.latestAlias;
+				const childAlias = mapping.latestAlias.next('w');
 				const refAlias = childAlias.toString();
 
 				// const refAlias = `${fieldPrefix ?? ''}_${alias}_${fieldPrefix}`;

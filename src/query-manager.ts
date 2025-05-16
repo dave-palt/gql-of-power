@@ -1,7 +1,12 @@
 import { GraphQLResolveInfo } from 'graphql';
 import graphqlFields from 'graphql-fields';
 import { getCustomFieldsFor, getGQLEntityNameForClass } from './entities/gql-entity';
-import { Alias, GQLtoSQLMapper, mappingsReducer } from './queries/gql-to-sql-mapper';
+import {
+	Alias,
+	generateJsonObjectSelectStatement,
+	GQLtoSQLMapper,
+	mappingsReducer,
+} from './queries/gql-to-sql-mapper';
 import {
 	EntityMetadata,
 	Fields,
@@ -10,6 +15,8 @@ import {
 	MetadataProvider,
 } from './types';
 import { logger } from './variables';
+
+const USE_STRING = process.env.D3GOP_USE_STRING_FOR_JSONB === 'true';
 
 export const getQueryResultsFor = async <K extends { _____name: string }, T>(
 	{ exists, getMetadata, rawQuery, executeQuery }: MetadataProvider,
@@ -85,7 +92,7 @@ export const getQueryResultsFor = async <K extends { _____name: string }, T>(
     `;
 
 	const selectFieldsSQL = Array.from(orderByFields);
-	selectFieldsSQL.push(`jsonb_build_object(${json.join('\n, ')}) as val`);
+	selectFieldsSQL.push(`${generateJsonObjectSelectStatement(json)} as val`);
 
 	const querySQL = `select ${selectFieldsSQL.join(', ')}
 	from (${subQuery2}) as ${alias.toString()}
@@ -99,7 +106,8 @@ export const getQueryResultsFor = async <K extends { _____name: string }, T>(
 		...(pagination?.offset ? { offset: pagination.offset } : {}),
 	};
 	logger.timeLog(logName, 'input processed, query created');
-	const res = (await executeQuery(rawQuery(querySQL, bindings))) as Array<{ val: T }>;
+
+	const res = (await executeQuery(rawQuery(querySQL, bindings))) as Array<{ val: K | string }>;
 
 	logger.timeLog(logName, 'found', res.length, 'results');
 	const mapped = res.map(({ val }) => {
@@ -112,7 +120,7 @@ export const getQueryResultsFor = async <K extends { _____name: string }, T>(
 		// 	});
 		// }
 
-		return val as any as K;
+		return typeof val === 'string' ? (JSON.parse(val) as K) : val;
 	});
 
 	logger.timeLog(logName, res.length, 'results mapped');
