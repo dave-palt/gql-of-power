@@ -148,4 +148,5 @@ export type MappingsType = {
 	offset?: number;
 	orderBy: GQLEntityOrderByInputType<any>[];
 	latestAlias: Alias;
+	_or: MappingsType[];
 };

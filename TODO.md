@@ -15,8 +15,8 @@
 
 ## Key limitations
 
-- [ ] change `OR` conditions into single queries with `union all`
-  - [ ] `OR` filtering works only for columns in the same table
+- [x] change `OR` conditions into single queries with `union all`
+  - [x] `OR` filtering works only for columns in the same table
 - [*] reduce load on DB by not using json but string concat and `string_agg` + `JSON.parse()` of the result string
   - issues with typings
 - [ ] order by reference table ( query authors order by latest book publication date)
@@ -30,13 +30,14 @@
 
 - Refactor
 
-  - [ ] improve function names
-    - [ ] fields
+  - [x] improve function names
+    - [x] fields
     - [x] filters
   - [WIP] organise things in classes
     - [*] GQLtoSQLMapper
       - [WIP] refactor mapper functions
     - [ ] QueryManager
+      - [ ] move query builder into GQLtoSQLMapper
 
 - 1:1 example: select author by person
 

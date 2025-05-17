@@ -14,9 +14,7 @@ import {
 	GQLEntityPaginationInputType,
 	MetadataProvider,
 } from './types';
-import { logger } from './variables';
-
-const USE_STRING = process.env.D3GOP_USE_STRING_FOR_JSONB === 'true';
+// import { logger } from './variables';
 
 export const getQueryResultsFor = async <K extends { _____name: string }, T>(
 	{ exists, getMetadata, rawQuery, executeQuery }: MetadataProvider,
@@ -26,14 +24,14 @@ export const getQueryResultsFor = async <K extends { _____name: string }, T>(
 	pagination?: Partial<GQLEntityPaginationInputType<T>>
 ): Promise<K[]> => {
 	const logName = 'GetQueryResultsFor - ' + entity.name;
-	logger.time(logName);
-	logger.timeLog(logName);
+	console.time(logName);
+	console.timeLog(logName);
 	if (!entity || !entity.name) {
-		logger.timeEnd(logName);
+		console.timeEnd(logName);
 		throw new Error(`Entity ${entity} not compatible`);
 	}
 	if (!exists(entity.name)) {
-		logger.timeEnd(logName);
+		console.timeEnd(logName);
 		throw new Error(`Entity ${entity.name} not found in metadata`);
 	}
 	const mapper = new GQLtoSQLMapper({ exists, getMetadata, rawQuery, executeQuery });
@@ -44,17 +42,19 @@ export const getQueryResultsFor = async <K extends { _____name: string }, T>(
 	const alias = new Alias(0, 'a');
 	const metadata = getMetadata(entity.name) as EntityMetadata<T>;
 
-	logger.timeLog(logName, 'customFields', customFields);
+	console.timeLog(logName, 'customFields', customFields);
 
-	const { select, json, filterJoin, join, where, values } = mappingsReducer(
-		mapper.recursiveMap<T>({
-			entityMetadata: metadata,
-			alias,
-			fields,
-			customFields,
-			gqlFilters: filter ? [filter] : [],
-		})
-	);
+	const recursiveMapResults = mapper.recursiveMap<T>({
+		entityMetadata: metadata,
+		alias,
+		fields,
+		customFields,
+		gqlFilters: filter ? [filter] : [],
+	});
+
+	// logger.info('recursiveMapResults', recursiveMapResults);
+	const { select, json, filterJoin, join, where, values, _or } =
+		mappingsReducer(recursiveMapResults);
 
 	const orderByFields = (pagination?.orderBy ?? [])
 		.map((obs) =>
@@ -64,13 +64,30 @@ export const getQueryResultsFor = async <K extends { _____name: string }, T>(
 		)
 		.flat();
 
+	const buildOrderBySQL = (pagination?: Partial<GQLEntityPaginationInputType<T>>, alias?: Alias) =>
+		pagination?.orderBy
+			? `order by ${pagination.orderBy
+					.map((obs) =>
+						Object.keys(obs)
+							.map((ob) =>
+								metadata.properties[ob as string & keyof T].fieldNames
+									.map((fn) => `${alias?.toColumnName(fn) ?? fn} ${(obs as any)[ob]}`)
+									.join(', ')
+							)
+							.filter((o) => o.length > 0)
+							.join(', ')
+					)
+					.filter((o) => o.length > 0)
+					.join(', ')}`
+			: ``;
+
 	const orderBySQL = pagination?.orderBy
 		? `order by ${pagination.orderBy
 				.map((obs) =>
 					Object.keys(obs)
 						.map((ob) =>
 							metadata.properties[ob as string & keyof T].fieldNames
-								.map((fn) => `${alias.toString()}.${fn} ${(obs as any)[ob]}`)
+								.map((fn) => `${alias.toColumnName(fn)} ${(obs as any)[ob]}`)
 								.join(', ')
 						)
 						.filter((o) => o.length > 0)
@@ -79,23 +96,57 @@ export const getQueryResultsFor = async <K extends { _____name: string }, T>(
 				.filter((o) => o.length > 0)
 				.join(', ')}`
 		: ``;
-	logger.error('orderByFields', orderByFields, 'select', select);
+	// console.error('orderByFields', orderByFields, 'select', select);
 	const selectFields = [...new Set(orderByFields.concat(Array.from(select)))];
-	const subQuery2 = `select ${selectFields.join(', ')} 
+
+	const buildSubQuery = (
+		globalFilterJoin: string[],
+		globalFilterWhere: string[],
+		value?:
+			| {
+					filterJoin: string;
+			  }
+			| {
+					where: string;
+			  }
+	) => `select ${selectFields.join(', ')} 
             from ${metadata.tableName} as ${alias.toString()}
-            ${filterJoin.join(' \n')}
-                where true 
-                ${where.length > 0 ? ` and ( ${where.join(' and ')} )` : ''}
-            ${orderBySQL}
-                ${pagination?.limit ? `limit :limit` : ``}
-                ${pagination?.offset ? `offset :offset` : ``}
-    `;
+            ${globalFilterJoin.join(' \n')}
+			${value && 'filterJoin' in value ? value.filterJoin : ''}
+		where true 
+		${globalFilterWhere.length > 0 ? ` and ( ${globalFilterWhere.join(' and ')} )` : ''}
+		${value && 'where' in value ? `and ${value.where}` : ''}`;
+
+	const unionAll = _or
+		.map(({ filterJoin: filterJoins, where: wheres }) => [
+			...filterJoins.map((filterJ) => buildSubQuery(filterJoin, where, { filterJoin: filterJ })),
+			...wheres.map((w) => buildSubQuery(filterJoin, where, { where: w })),
+		])
+		.flat();
+
+	// const subQuery2 = `select ${selectFields.join(', ')}
+	//         from ${metadata.tableName} as ${alias.toString()}
+	//         ${filterJoin.join(' \n')}
+	//             where true
+	//             ${where.length > 0 ? ` and ( ${where.join(' and ')} )` : ''}
+	//         ${orderBySQL}
+	//             ${pagination?.limit ? `limit :limit` : ``}
+	//             ${pagination?.offset ? `offset :offset` : ``}
+	// `;
 
 	const selectFieldsSQL = Array.from(orderByFields);
 	selectFieldsSQL.push(`${generateJsonObjectSelectStatement(json)} as val`);
 
 	const querySQL = `select ${selectFieldsSQL.join(', ')}
-	from (${subQuery2}) as ${alias.toString()}
+	from (${
+		unionAll.length > 0
+			? `select distinct * from (${unionAll.join(' union all ')}) as ${alias.toString()}`
+			: buildSubQuery(filterJoin, where)
+	}
+		${buildOrderBySQL(pagination, alias)}
+		${pagination?.limit ? `limit :limit` : ``}
+		${pagination?.offset ? `offset :offset` : ``}
+	) as ${alias.toString()}
 	${join.join(' \n')}
 	${orderBySQL}
     `;
@@ -105,11 +156,12 @@ export const getQueryResultsFor = async <K extends { _____name: string }, T>(
 		...(pagination?.limit ? { limit: pagination.limit } : {}),
 		...(pagination?.offset ? { offset: pagination.offset } : {}),
 	};
-	logger.timeLog(logName, 'input processed, query created');
+	console.timeLog(logName, 'input processed, query created');
 
+	console.log('querySQL', querySQL);
 	const res = (await executeQuery(rawQuery(querySQL, bindings))) as Array<{ val: K | string }>;
 
-	logger.timeLog(logName, 'found', res.length, 'results');
+	console.timeLog(logName, 'found', res.length, 'results');
 	const mapped = res.map(({ val }) => {
 		// for (const key of customFieldsKeys) {
 		// 	const conf = (customFields as any)[key];
@@ -123,7 +175,7 @@ export const getQueryResultsFor = async <K extends { _____name: string }, T>(
 		return typeof val === 'string' ? (JSON.parse(val) as K) : val;
 	});
 
-	logger.timeLog(logName, res.length, 'results mapped');
-	logger.timeEnd(logName);
+	console.timeLog(logName, res.length, 'results mapped');
+	console.timeEnd(logName);
 	return mapped;
 };
