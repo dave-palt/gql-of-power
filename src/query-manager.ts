@@ -2,7 +2,7 @@ import { GraphQLResolveInfo } from 'graphql';
 import graphqlFields from 'graphql-fields';
 import { getCustomFieldsFor, getGQLEntityNameForClass } from './entities/gql-entity';
 import {
-	Alias,
+	Alias2,
 	generateJsonObjectSelectStatement,
 	GQLtoSQLMapper,
 	mappingsReducer,
@@ -16,6 +16,7 @@ import {
 } from './types';
 // import { logger } from './variables';
 
+const stop = true;
 export const getQueryResultsFor = async <K extends { _____name: string }, T>(
 	{ exists, getMetadata, rawQuery, executeQuery }: MetadataProvider,
 	entity: new () => T,
@@ -39,13 +40,24 @@ export const getQueryResultsFor = async <K extends { _____name: string }, T>(
 
 	const customFields = getCustomFieldsFor(getGQLEntityNameForClass(entity));
 
-	const alias = new Alias(0, 'a');
+	const alias = Alias2.start('a');
 	const metadata = getMetadata(entity.name) as EntityMetadata<T>;
+
+	// const normalised = mapper.recursiveMapFilter({
+	// 	entityName: entity.name,
+	// 	gqlFilters: filter ? [filter] : [],
+	// });
+
+	// console.log('normalised', JSON.stringify(normalised));
+	// if (stop) {
+	// 	throw new Error('normalised');
+	// }
 
 	console.timeLog(logName, 'customFields', customFields);
 
 	const recursiveMapResults = mapper.recursiveMap<T>({
 		entityMetadata: metadata,
+		parentAlias: alias,
 		alias,
 		fields,
 		customFields,
@@ -53,8 +65,10 @@ export const getQueryResultsFor = async <K extends { _____name: string }, T>(
 	});
 
 	// logger.info('recursiveMapResults', recursiveMapResults);
-	const { select, json, filterJoin, join, where, values, _or } =
+	const { select, json, filterJoin, join, where, values, _or, _and } =
 		mappingsReducer(recursiveMapResults);
+
+	// logger.info('2GQLtoSQLMapper', _and);
 
 	const orderByFields = (pagination?.orderBy ?? [])
 		.map((obs) =>
@@ -64,7 +78,7 @@ export const getQueryResultsFor = async <K extends { _____name: string }, T>(
 		)
 		.flat();
 
-	const buildOrderBySQL = (pagination?: Partial<GQLEntityPaginationInputType<T>>, alias?: Alias) =>
+	const buildOrderBySQL = (pagination?: Partial<GQLEntityPaginationInputType<T>>, alias?: Alias2) =>
 		pagination?.orderBy
 			? `order by ${pagination.orderBy
 					.map((obs) =>
@@ -81,6 +95,57 @@ export const getQueryResultsFor = async <K extends { _____name: string }, T>(
 					.join(', ')}`
 			: ``;
 
+	// console.error('orderByFields', orderByFields, 'select', select);
+	const selectFields = [...new Set(orderByFields.concat(Array.from(select)))];
+
+	const buildSubQuery = (
+		globalFilterJoin: string[],
+		globalFilterWhere: string[],
+		alias: Alias2,
+		value?: {
+			filterJoin: string[];
+			where: string[];
+		}
+	) => `select ${selectFields.join(', ')} 
+            from ${metadata.tableName} as ${alias.toString()}
+            ${globalFilterJoin.join(' \n')}
+			${value?.filterJoin ? value.filterJoin.join('\n') : ''}
+		where true 
+		${globalFilterWhere.length > 0 ? ` and ( ${globalFilterWhere.join(' and ')} )` : ''}
+		${value?.where ? `and ${value.where.join(' and ')}` : ''}`;
+
+	const unionAll = _or
+		.map(({ filterJoin: filterJoins, where: wheres, alias: mapAlias }) => [
+			buildSubQuery(filterJoin, where, mapAlias ?? alias, {
+				filterJoin: filterJoins,
+				where: wheres,
+			}),
+		])
+		.concat(
+			_and.map(({ filterJoin: filterJoins, where: wheres, alias: mapAlias }) => [
+				buildSubQuery(filterJoin, where, mapAlias ?? alias, {
+					filterJoin: filterJoins,
+					where: wheres,
+				}),
+			])
+		)
+		.flat();
+
+	const selectFieldsSQL = Array.from(orderByFields);
+	selectFieldsSQL.push(`${generateJsonObjectSelectStatement(json)} as val`);
+
+	const sourceDataSQL = `${
+		unionAll.length > 0
+			? `select distinct * from (${unionAll.join(' union all ')}) as ${alias.toString()}`
+			: buildSubQuery(filterJoin, where, alias)
+	}
+		${buildOrderBySQL(pagination, alias)}
+		${pagination?.limit ? `limit :limit` : ``}
+		${pagination?.offset ? `offset :offset` : ``}`.replaceAll(/[ \n\t]+/gi, ' ');
+
+	console.log('sourceDataSQL', unionAll.length, sourceDataSQL);
+	// throw new Error('sourceDataSQL');
+
 	const orderBySQL = pagination?.orderBy
 		? `order by ${pagination.orderBy
 				.map((obs) =>
@@ -96,69 +161,19 @@ export const getQueryResultsFor = async <K extends { _____name: string }, T>(
 				.filter((o) => o.length > 0)
 				.join(', ')}`
 		: ``;
-	// console.error('orderByFields', orderByFields, 'select', select);
-	const selectFields = [...new Set(orderByFields.concat(Array.from(select)))];
-
-	const buildSubQuery = (
-		globalFilterJoin: string[],
-		globalFilterWhere: string[],
-		value?:
-			| {
-					filterJoin: string;
-			  }
-			| {
-					where: string;
-			  }
-	) => `select ${selectFields.join(', ')} 
-            from ${metadata.tableName} as ${alias.toString()}
-            ${globalFilterJoin.join(' \n')}
-			${value && 'filterJoin' in value ? value.filterJoin : ''}
-		where true 
-		${globalFilterWhere.length > 0 ? ` and ( ${globalFilterWhere.join(' and ')} )` : ''}
-		${value && 'where' in value ? `and ${value.where}` : ''}`;
-
-	const unionAll = _or
-		.map(({ filterJoin: filterJoins, where: wheres }) => [
-			...filterJoins.map((filterJ) => buildSubQuery(filterJoin, where, { filterJoin: filterJ })),
-			...wheres.map((w) => buildSubQuery(filterJoin, where, { where: w })),
-		])
-		.flat();
-
-	// const subQuery2 = `select ${selectFields.join(', ')}
-	//         from ${metadata.tableName} as ${alias.toString()}
-	//         ${filterJoin.join(' \n')}
-	//             where true
-	//             ${where.length > 0 ? ` and ( ${where.join(' and ')} )` : ''}
-	//         ${orderBySQL}
-	//             ${pagination?.limit ? `limit :limit` : ``}
-	//             ${pagination?.offset ? `offset :offset` : ``}
-	// `;
-
-	const selectFieldsSQL = Array.from(orderByFields);
-	selectFieldsSQL.push(`${generateJsonObjectSelectStatement(json)} as val`);
 
 	const querySQL = `select ${selectFieldsSQL.join(', ')}
-	from (${
-		unionAll.length > 0
-			? `select distinct * from (${unionAll.join(' union all ')}) as ${alias.toString()}`
-			: buildSubQuery(filterJoin, where)
-	}
-		${buildOrderBySQL(pagination, alias)}
-		${pagination?.limit ? `limit :limit` : ``}
-		${pagination?.offset ? `offset :offset` : ``}
-	) as ${alias.toString()}
-	${join.join(' \n')}
-	${orderBySQL}
-    `;
+						from (${sourceDataSQL}) as ${alias.toString()}
+						${join.join(' \n')}
+						${orderBySQL}`.replaceAll(/[ \n\t]+/gi, ' ');
 	const bindings = {
 		...values,
 		limit: 3000,
 		...(pagination?.limit ? { limit: pagination.limit } : {}),
 		...(pagination?.offset ? { offset: pagination.offset } : {}),
 	};
-	console.timeLog(logName, 'input processed, query created');
+	console.timeLog(logName, 'input processed, query created', bindings);
 
-	console.log('querySQL', querySQL);
 	const res = (await executeQuery(rawQuery(querySQL, bindings))) as Array<{ val: K | string }>;
 
 	console.timeLog(logName, 'found', res.length, 'results');

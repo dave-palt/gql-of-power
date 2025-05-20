@@ -103,7 +103,7 @@ export function createGQLTypes<T extends Object>(
 				schemaName: fieldName,
 				getType: fieldOptions.type,
 				typeOptions: {
-					...(fieldOptions.array ? { array: true, arrayDepth: 1 } : {}),
+					...('array' in fieldOptions && fieldOptions.array ? { array: true, arrayDepth: 1 } : {}),
 					...fieldOptions.options,
 				},
 				complexity: undefined,

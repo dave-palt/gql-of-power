@@ -17,6 +17,9 @@
 
 - [x] change `OR` conditions into single queries with `union all`
   - [x] `OR` filtering works only for columns in the same table
+- [ ] class level `AND` conditions
+  - [ ] with multiple sub `OR`
+- [ ] class level `NOT` conditions
 - [*] reduce load on DB by not using json but string concat and `string_agg` + `JSON.parse()` of the result string
   - issues with typings
 - [ ] order by reference table ( query authors order by latest book publication date)

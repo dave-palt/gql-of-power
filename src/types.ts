@@ -1,6 +1,6 @@
 import { Field, FieldResolver, registerEnumType } from 'type-graphql';
 import { ClassOperations, FieldOperations } from './operations';
-import { Alias } from './queries';
+import { Alias2 } from './queries';
 
 export enum ReferenceType {
 	ONE_TO_ONE = '1:1',
@@ -116,16 +116,39 @@ export type Fields<T> = Partial<{
 			: Fields<NonNullable<NonNullable<T>[key]>>
 		: {};
 }>;
+export type OmitArrays<T> = {
+	[K in keyof T as T[K] extends any[] ? never : K]: T[K];
+};
+
+export type FilterValueType<T> = T extends Array<infer K>
+	? FilterValueType<K>
+	: T extends string | number | boolean | null | undefined | Date | BigInt
+	? T
+	: GQLEntityFilterInputFieldType<T>;
+
+export type GQLFieldOperationType<T> = {
+	[key in string & keyof typeof FieldOperations]?: T extends Array<infer K>
+		? GQLEntityFilterInputFieldType<K>
+		: GQLEntityFilterInputFieldType<T>[];
+};
+
+export type GQLFieldOperationsType<T> = {
+	[key in string & keyof T]?: GQLFieldOperationType<T>;
+};
 
 export type GQLEntityFilterInputFieldType<T> = {
-	[key in string & keyof T]?: T[key];
+	[key in string & keyof T]?: FilterValueType<T[key]>;
 } & {
+	//_and, _or, _not => {  }
 	[key in string & keyof typeof ClassOperations]?: GQLEntityFilterInputFieldType<T>[];
 } & {
-	[Key in string & keyof T as `${Capitalize<Key>}`]: {
-		[key in string & keyof typeof FieldOperations]?: GQLEntityFilterInputFieldType<T>[];
-	};
+	[key in string & keyof T as `${Capitalize<key>}`]?: GQLFieldOperationsType<T[key]>;
 };
+
+export type GQLEntityFilterInputFieldValueType<T> = Partial<
+	GQLEntityFilterInputFieldType<T>[keyof GQLEntityFilterInputFieldType<T>]
+>;
+
 export type GQLEntityOrderByInputType<T> = {
 	[Key in string & keyof T]: ['asc', 'desc'];
 };
@@ -147,6 +170,19 @@ export type MappingsType = {
 	limit?: number;
 	offset?: number;
 	orderBy: GQLEntityOrderByInputType<any>[];
-	latestAlias: Alias;
+	alias?: Alias2;
 	_or: MappingsType[];
+	_and: MappingsType[];
+	_not: MappingsType[];
+};
+
+export type FilterMappingType = {
+	join: string[];
+	// TODO: convert into matrix [][] with an array for each _or condition
+	filterJoin: string[];
+	// TODO: convert into matrix [][] with an array for each _or condition
+	where: string[];
+	values: Record<string, any>;
+	alias?: Alias2;
+	unionAll: FilterMappingType[];
 };

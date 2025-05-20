@@ -1,3 +1,11 @@
+const LOG_TYPES = (process.env.D3GOP_LOG_TYPE || 'all').split(',');
+
+console.log('LOG_TYPES', LOG_TYPES);
+
+const shouldLog = (first: any) =>
+	LOG_TYPES.length === 0 ||
+	LOG_TYPES.indexOf('all') >= 0 ||
+	LOG_TYPES.some((lt) => first.startsWith(lt));
 export const logger = {
 	time: (name: string) => {
 		console.time(name);
@@ -9,7 +17,9 @@ export const logger = {
 		console.timeEnd(name);
 	},
 	log: (...args: any[]) => {
-		console.log(...args);
+		if (shouldLog(args[0])) {
+			console.log(...args);
+		}
 	},
 	error: (...args: any[]) => {
 		console.error(...args);
@@ -18,7 +28,9 @@ export const logger = {
 		console.warn(...args);
 	},
 	info: (...args: any[]) => {
-		console.info(...args);
+		if (shouldLog(args[0])) {
+			console.info(...args);
+		}
 	},
 	debug: (...args: any[]) => {
 		console.debug(...args);
