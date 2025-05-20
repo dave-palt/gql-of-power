@@ -40,6 +40,7 @@ export const getQueryResultsFor = async <K extends { _____name: string }, T>(
 
 	const customFields = getCustomFieldsFor(getGQLEntityNameForClass(entity));
 
+	Alias2.resetAll();
 	const alias = Alias2.start('a');
 	const metadata = getMetadata(entity.name) as EntityMetadata<T>;
 

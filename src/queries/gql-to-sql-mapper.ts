@@ -1,15 +1,11 @@
-import { ClassOperationInputType, ClassOperations, ClassOps, FieldOperations } from '../operations';
+import { ClassOperationInputType, ClassOperations, FieldOperations } from '../operations';
 import {
 	CustomFieldsSettings,
 	EntityMetadata,
 	EntityProperty,
 	Fields,
-	FilterValueType,
 	GQLEntityFilterInputFieldType,
-	GQLEntityFilterInputFieldValueType,
 	GQLEntityOrderByInputType,
-	GQLFieldOperationsType,
-	GQLFieldOperationType,
 	MappingsType,
 	MetadataProvider,
 	ReferenceType,
@@ -125,6 +121,9 @@ export class Alias2 {
 			Alias2.ALIAS_INDEX_MAP.get(type)?.set(prefix, 0);
 		}
 	}
+	public static resetAll() {
+		Alias2.ALIAS_INDEX_MAP.clear();
+	}
 	public static reset(type: Alias2Type, prefix: string) {
 		return Alias2.restartFrom(type, prefix, 1);
 	}
@@ -176,164 +175,6 @@ export class GQLtoSQLMapper extends ClassOperations {
 		this.exists = exists;
 		this.getMetadata = getMetadata;
 	}
-	public recursiveMapFilter = <T>({
-		entityName,
-		gqlFilters,
-		customFields,
-	}: {
-		entityName: string;
-		gqlFilters?: Array<GQLEntityFilterInputFieldType<T>>;
-		customFields?: CustomFieldsSettings<T>;
-	}): {
-		and: FilterValueType<any>;
-		not: FilterValueType<any>;
-		unionAll: FilterValueType<any>;
-	} => {
-		const entityMetadata = this.getMetadata(entityName) as EntityMetadata<T>;
-		const result: {
-			and: FilterValueType<any>;
-			not: FilterValueType<any>;
-			unionAll: FilterValueType<any>;
-		} = {
-			and: [],
-			not: [],
-			unionAll: [],
-		};
-		for (const filter of gqlFilters || []) {
-			Object.keys(filter).forEach((key: string) => {
-				console.log('recursiveMapFilter', key);
-				const value = filter[key as string & keyof typeof filter];
-				const normalised = this.recursiveNormaliseFilterToClassOperations({
-					entityMetadata,
-					value: value as any,
-					key,
-				});
-				result.and.push(...normalised.and);
-				result.not.push(...normalised.not);
-				result.unionAll.push(...normalised.unionAll);
-			});
-		}
-		return result;
-	};
-
-	public recursiveNormaliseFilterToClassOperations<T>({
-		entityMetadata,
-		value,
-		key,
-	}: {
-		entityMetadata: EntityMetadata<T>;
-		value: GQLEntityFilterInputFieldValueType<T>;
-		key: string;
-	}) {
-		const result: {
-			and: FilterValueType<any>;
-			not: FilterValueType<any>;
-			unionAll: FilterValueType<any>;
-		} = {
-			and: [],
-			not: [],
-			unionAll: [],
-		};
-		if (value === undefined) {
-			return result;
-		}
-		console.log('recursiveNormaliseFilterToClassOperations', key, key in ClassOps, value);
-		if (key in ClassOps && value instanceof Array) {
-			// { [_and]: [{ ... },{ ... }] }
-			value?.forEach((filter) => {
-				Object.keys(filter).forEach((k) => {
-					const res = this.recursiveNormaliseFilterToClassOperations({
-						entityMetadata,
-						value: filter[k as string & keyof typeof filter],
-						key: k,
-					});
-					key === '_and' && result.and.push(...res.and, ...res.not, ...res.unionAll);
-					key === '_not' && result.not.push(...res.and, ...res.not, ...res.unionAll);
-					key === '_or' && result.unionAll.push(...res.and, ...res.not, ...res.unionAll);
-				});
-			});
-		} else {
-			const normalised = this.normaliseFilterValueToFieldOperations<any>({
-				entityMetadata,
-				key,
-				filterValue: value,
-			});
-			// no class operation means "and" operation
-			result.and.push(normalised);
-		}
-		return result;
-	}
-
-	public normaliseFilterValueToFieldOperations<T>({
-		entityMetadata,
-		key,
-		filterValue,
-	}: {
-		entityMetadata: EntityMetadata<T>;
-		/**
-		 * key has to be either something like:
-		 *  - `id` value should be considered as a filter `_eq`
-		 *  - `id_<op>` (like: `id_eq`; or any other field operation suffix): value should be to apply as the suffix operation
-		 *  - `Id` value should be an object, either:
-		 * 	  - a final field operation `{ [field_operation]: value }`
-		 * 	  - a related object filter `{ [related_field]: { ... } }`
-		 */
-		key: string;
-		filterValue: GQLEntityFilterInputFieldValueType<T>;
-	}): GQLFieldOperationsType<T> | undefined {
-		const { properties, primaryKeys } = entityMetadata;
-		const normalisedKey = key[0].toLocaleLowerCase() + key.slice(1);
-
-		const fieldContainsOperation = Object.keys(FieldOperations).find((k) => key.endsWith(k));
-		console.log(
-			'normaliseFilterValueToFieldOperations - fieldContainsOperation',
-			fieldContainsOperation
-		);
-		const isFinalFilter = key in properties;
-		if (fieldContainsOperation || isFinalFilter) {
-			const operation = fieldContainsOperation ?? '_eq';
-			// `id`
-			// `id_<op>`
-			return {
-				[normalisedKey.replace(operation, '')]: {
-					[operation]: filterValue,
-				},
-			} as GQLFieldOperationsType<T>;
-		}
-		// `Id` value should be an object, either:
-		console.log('normaliseFilterValueToFieldOperations', key, filterValue, isFinalFilter);
-
-		const isFieldOperationFilter = normalisedKey in properties;
-		if (isFieldOperationFilter) {
-			// key is `Id`, filterValue is an object with final field operations `{ [field_operation]: value }`
-
-			// returning filter { id: { [field_operation]: value } }
-			return {
-				[normalisedKey]: filterValue as GQLFieldOperationType<T>,
-			} as GQLFieldOperationsType<T>;
-		}
-
-		const fieldProps = properties[normalisedKey as keyof EntityMetadata<T>['properties']];
-		// is a reference field
-		const referenceField =
-			this.exists(fieldProps.type) &&
-			this.getMetadata<any, EntityMetadata<typeof filterValue>>(fieldProps.type);
-
-		if (!referenceField) {
-			// TODO handle custom fields
-			console.log('normaliseFilterValueToFieldOperations not reference field');
-
-			const res = this.recursiveMapFilter({
-				entityName: fieldProps.type,
-				gqlFilters: [filterValue as any],
-			});
-		}
-		const normalised = this.recursiveNormaliseFilterToClassOperations<typeof filterValue>({
-			entityMetadata: referenceField as any,
-			value: filterValue as GQLEntityFilterInputFieldValueType<typeof filterValue>,
-			key: normalisedKey,
-		});
-	}
 
 	public recursiveMap = <T>({
 		entityMetadata,
@@ -352,7 +193,7 @@ export class GQLtoSQLMapper extends ClassOperations {
 		prefix?: string;
 		customFields?: CustomFieldsSettings<T>;
 	}) => {
-		const logPrefix = alias.concat('2GQLtoSQLMapper - recursiveMap');
+		const logPrefix = alias.concat('GQLtoSQLMapper - recursiveMap');
 		logger.log(logPrefix, 'start');
 		const { properties, primaryKeys } = entityMetadata;
 
@@ -1183,7 +1024,7 @@ export class GQLtoSQLMapper extends ClassOperations {
 				} = mappingsReducer(recursiveMapResults);
 
 				logger.log(
-					'2GQLtoSQLMapper - mapFilter: referenceField',
+					'GQLtoSQLMapper - mapFilter: referenceField',
 					referenceField.name,
 					fieldProps.reference,
 					'recursiveMapResults',
@@ -1335,12 +1176,12 @@ export class GQLtoSQLMapper extends ClassOperations {
 		} else {
 			const nextValueAlias = Alias2.next(Alias2Type.value, gqlFieldNameKey);
 			logger.log(
-				'GQLtoSQLMapper - mapFieldOperation: fieldValue',
-				fieldValue,
-				'fieldNameBeforeOperation',
+				'2GQLtoSQLMapper - mapFieldOperation: field',
 				fieldNameBeforeOperation,
-				'property',
-				(properties as any)?.[fieldNameBeforeOperation as keyof typeof properties]
+				'fieldValue',
+				fieldValue,
+				'alias',
+				nextValueAlias.toParamName(1)
 			);
 			const fieldNames =
 				properties[fieldNameBeforeOperation as keyof typeof properties]?.fieldNames;
@@ -1796,7 +1637,9 @@ export class GQLtoSQLMapper extends ClassOperations {
 		mapping: MappingsType;
 	}) {
 		const filterFieldWithAlias = `${alias.toColumnName(fieldName)}`;
-		const filterParameterName = `${alias.toParamName(fieldName)}`;
+		const filterParameterName = `${Alias2.next(Alias2Type.entity, fieldName).toParamName(
+			fieldName
+		)}`;
 
 		const where = FieldOperations[fieldOperation](
 			[filterFieldWithAlias, ':' + filterParameterName],
@@ -1876,6 +1719,13 @@ export class GQLtoSQLMapper extends ClassOperations {
 					// skipping undefined values
 					return;
 				}
+
+				logger.log(
+					'2GQLtoSQLMapper - ClassOperations - _or - filter',
+					fieldName,
+					parentAlias.toString(),
+					alias.toString()
+				);
 				// new mapping = [a] = 1, [c] = 2
 				this.mapFilter(
 					entityMetadata,
