@@ -10,6 +10,7 @@ import {
 	MappingsType,
 	MetadataProvider,
 	ReferenceType,
+	RelatedFieldSettings,
 } from '../types';
 import { logger } from '../variables';
 import { Alias, AliasManager, AliasType } from './alias';
@@ -353,7 +354,7 @@ export class GQLtoSQLMapper extends ClassOperations {
 
 	private mapCustomField<T>(
 		customFieldProps:
-			| import('/Users/davide.palchetti/Documents/bingoindustries/go-collect/gql-of-power/src/types').RelatedFieldSettings<T>
+			| RelatedFieldSettings<T>
 			| undefined,
 		mapping: MappingsType,
 		latestAlias: Alias,
