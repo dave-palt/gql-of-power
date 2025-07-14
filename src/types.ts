@@ -1,6 +1,6 @@
 import { Field, FieldResolver, registerEnumType } from 'type-graphql';
 import { ClassOperations, FieldOperations } from './operations';
-import { Alias2 } from './queries';
+import { Alias } from './queries';
 
 export enum ReferenceType {
 	ONE_TO_ONE = '1:1',
@@ -170,7 +170,7 @@ export type MappingsType = {
 	limit?: number;
 	offset?: number;
 	orderBy: GQLEntityOrderByInputType<any>[];
-	alias?: Alias2;
+	alias?: Alias;
 	_or: MappingsType[];
 	_and: MappingsType[];
 	_not: MappingsType[];
@@ -183,6 +183,6 @@ export type FilterMappingType = {
 	// TODO: convert into matrix [][] with an array for each _or condition
 	where: string[];
 	values: Record<string, any>;
-	alias?: Alias2;
+	alias?: Alias;
 	unionAll: FilterMappingType[];
 };

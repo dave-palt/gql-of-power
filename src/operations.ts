@@ -1,12 +1,12 @@
-import { Alias2 } from './queries';
+import { Alias } from './queries';
 import { EntityMetadata, GQLEntityFilterInputFieldType, MappingsType } from './types';
 
 export type ClassOperationInputType<T> = {
 	entityMetadata: EntityMetadata<T>;
 	gqlFilters: GQLEntityFilterInputFieldType<T>[];
 	fieldName: string & keyof Pick<MappingsType, '_and' | '_not' | '_or'>;
-	parentAlias: Alias2;
-	alias: Alias2;
+	parentAlias: Alias;
+	alias: Alias;
 	mapping: MappingsType;
 	mappings: Map<string, MappingsType>;
 };
