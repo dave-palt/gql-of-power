@@ -4,6 +4,7 @@ import {
 	EntityMetadata,
 	EntityProperty,
 	Fields,
+	FieldSelection,
 	GQLEntityFilterInputFieldType,
 	GQLEntityOrderByInputType,
 	GQLEntityPaginationInputType,
@@ -103,10 +104,15 @@ export class GQLtoSQLMapper extends ClassOperations {
 
 	private exists: MetadataProvider['exists'];
 	private getMetadata: MetadataProvider['getMetadata'];
-	constructor({ exists, getMetadata }: MetadataProvider) {
+	private namedParameterPrefix: string;
+	constructor(
+		{ exists, getMetadata }: MetadataProvider,
+		opts: { namedParameterPrefix?: string } = { namedParameterPrefix: ':' }
+	) {
 		super();
 		this.exists = exists;
 		this.getMetadata = getMetadata;
+		this.namedParameterPrefix = opts?.namedParameterPrefix ?? ':';
 	}
 
 	public buildQueryAndBindingsFor<T>({
@@ -116,7 +122,7 @@ export class GQLtoSQLMapper extends ClassOperations {
 		entity,
 		pagination,
 	}: {
-		fields: Fields<T>;
+		fields: FieldSelection<T>;
 		customFields: CustomFieldsSettings<T>;
 		entity: new () => T;
 		filter?: GQLEntityFilterInputFieldType<T>;
@@ -130,7 +136,15 @@ export class GQLtoSQLMapper extends ClassOperations {
 		const alias = this.Alias2.start('a');
 		const metadata = this.getMetadata(entity.name) as EntityMetadata<T>;
 
-		console.timeLog(logName, 'customFields', customFields);
+		console.log(
+			logName,
+			'customFields',
+			customFields,
+			'fields',
+			fields,
+			'orderBy',
+			pagination?.orderBy
+		);
 
 		const recursiveMapResults = this.recursiveMap<T>({
 			entityMetadata: metadata,
@@ -140,7 +154,6 @@ export class GQLtoSQLMapper extends ClassOperations {
 			customFields,
 			gqlFilters: filter ? [filter] : [],
 		});
-
 		// logger.info('recursiveMapResults', recursiveMapResults);
 		const { select, json, filterJoin, join, where, values, _or, _and } =
 			mappingsReducer(recursiveMapResults);
@@ -148,7 +161,12 @@ export class GQLtoSQLMapper extends ClassOperations {
 		const orderByFields = (pagination?.orderBy ?? [])
 			.map((obs) =>
 				Object.keys(obs)
-					.map((ob) => `${alias.toString()}.${ob}`)
+					.map(
+						(ob) =>
+							metadata.properties[ob as string & keyof T]?.fieldNames
+								?.map((fieldName) => `${alias.toString()}.${fieldName}`)
+								?.join(', ') ?? `${alias.toString()}.${ob}`
+					)
 					.flat()
 			)
 			.flat();
@@ -173,7 +191,7 @@ export class GQLtoSQLMapper extends ClassOperations {
 						.join(', ')}`
 				: ``;
 
-		// console.error('orderByFields', orderByFields, 'select', select);
+		// console.log('orderByFields', orderByFields, 'select', select, 'orderBy', orderBy);
 		const selectFields = [...new Set(orderByFields.concat(Array.from(select)))];
 
 		const buildSubQuery = (
@@ -190,7 +208,7 @@ export class GQLtoSQLMapper extends ClassOperations {
 			${value?.filterJoin ? value.filterJoin.join('\n') : ''}
 		where true 
 		${globalFilterWhere.length > 0 ? ` and ( ${globalFilterWhere.join(' and ')} )` : ''}
-		${value?.where ? `and ${value.where.join(' and ')}` : ''}`;
+		${value?.where && (value?.where?.length ?? 0) > 0 ? `and ${value.where.join(' and ')}` : ''}`;
 
 		const unionAll = _or
 			.map(({ filterJoin: filterJoins, where: wheres, alias: mapAlias }) => [
@@ -218,8 +236,11 @@ export class GQLtoSQLMapper extends ClassOperations {
 				: buildSubQuery(filterJoin, where, alias)
 		}
 		${buildOrderBySQL(pagination, alias)}
-		${pagination?.limit ? `limit :limit` : ``}
-		${pagination?.offset ? `offset :offset` : ``}`.replaceAll(/[ \n\t]+/gi, ' ');
+		${pagination?.limit ? `limit ${this.namedParameterPrefix}limit` : ``}
+		${pagination?.offset ? `offset ${this.namedParameterPrefix}offset` : ``}`.replaceAll(
+			/[ \n\t]+/gi,
+			' '
+		);
 
 		logger.log(logName, 'sourceDataSQL', unionAll.length, sourceDataSQL);
 		// throw new Error('sourceDataSQL');
@@ -353,9 +374,7 @@ export class GQLtoSQLMapper extends ClassOperations {
 	};
 
 	private mapCustomField<T>(
-		customFieldProps:
-			| RelatedFieldSettings<T>
-			| undefined,
+		customFieldProps: RelatedFieldSettings<T> | undefined,
 		mapping: MappingsType,
 		latestAlias: Alias,
 		gqlFieldName: string,
@@ -1238,7 +1257,7 @@ export class GQLtoSQLMapper extends ClassOperations {
 								const nextValueAlias = this.Alias2.next(AliasType.value, fieldName);
 
 								mapping.values[nextValueAlias.toParamName(i)] = fv;
-								return ':' + nextValueAlias.toParamName(i);
+								return this.namedParameterPrefix + nextValueAlias.toParamName(i);
 							},
 							{
 								keys: [] as string[],
@@ -1722,7 +1741,7 @@ export class GQLtoSQLMapper extends ClassOperations {
 		)}`;
 
 		const where = FieldOperations[fieldOperation](
-			[filterFieldWithAlias, ':' + filterParameterName],
+			[filterFieldWithAlias, this.namedParameterPrefix + filterParameterName],
 			['_', filterValue]
 		);
 		const value = { [filterParameterName]: filterValue };

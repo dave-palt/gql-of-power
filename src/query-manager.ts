@@ -3,7 +3,7 @@ import graphqlFields from 'graphql-fields';
 import { getCustomFieldsFor, getGQLEntityNameForClass } from './entities/gql-entity';
 import { GQLtoSQLMapper } from './queries/gql-to-sql-mapper';
 import {
-	Fields,
+	FieldSelection,
 	GQLEntityFilterInputFieldType,
 	GQLEntityPaginationInputType,
 	MetadataProvider,
@@ -28,7 +28,7 @@ export class GQLQueryManager {
 			console.timeEnd(logName);
 			throw new Error(`Entity ${entity.name} not found in metadata`);
 		}
-		const fields = graphqlFields(info, {}, { processArguments: true }) as Fields<T>;
+		const fields = graphqlFields(info, {}, { processArguments: true }) as FieldSelection<T>;
 		const customFields = getCustomFieldsFor(getGQLEntityNameForClass(entity));
 		const mapper = new GQLtoSQLMapper({ exists, getMetadata, rawQuery, executeQuery });
 		const { bindings, querySQL } = mapper.buildQueryAndBindingsFor({

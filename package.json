@@ -4,10 +4,17 @@
 	"description": "",
 	"main": "dist/index.js",
 	"types": "dist/index.d.ts",
+	"type": "module",
+	"module": "esnext",
 	"scripts": {
 		"build": "tsc",
 		"watch": "tsc --watch",
-		"prepublishOnly": "pnpm run build"
+		"prepublishOnly": "bun run build",
+		"test": "bun test",
+		"test:unit": "bun test --filter='unit'",
+		"test:integration": "bun test --filter='integration'",
+		"test:watch": "bun test --watch",
+		"test:coverage": "bun test --coverage"
 	},
 	"keywords": [],
 	"author": "",
@@ -15,7 +22,9 @@
 	"devDependencies": {
 		"@types/graphql-fields": "^1.3.9",
 		"@types/node": "^22.15.17",
+		"@types/bun": "latest",
 		"concurrently": "^9.1.2",
+		"reflect-metadata": "^0.2.2",
 		"typescript": "^5.8.3"
 	},
 	"dependencies": {

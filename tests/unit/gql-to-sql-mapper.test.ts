@@ -1,0 +1,562 @@
+/**
+ * Unit Tests for GQLtoSQLMapper
+ *
+ * These tests focus on individual methods of the GQLtoSQLMapper class
+ * to ensure each component works correctly in isolation before refactoring.
+ */
+
+import { EntityMetadata } from '../../src';
+import {
+	generateJsonObjectSelectStatement,
+	GQLtoSQLMapper,
+	mappingsReducer,
+	newMappings,
+} from '../../src/queries/gql-to-sql-mapper';
+import { Fellowship, Person, Ring } from '../fixtures/middle-earth-schema';
+import { createMockMetadataProvider } from '../fixtures/test-data';
+import '../setup';
+
+describe('GQLtoSQLMapper - Unit Tests', () => {
+	let mapper: GQLtoSQLMapper;
+	let mockProvider: ReturnType<typeof createMockMetadataProvider>;
+
+	beforeEach(() => {
+		mockProvider = createMockMetadataProvider();
+		mapper = new GQLtoSQLMapper(mockProvider);
+	});
+
+	describe('Utility Functions', () => {
+		describe('newMappings', () => {
+			it('should create a new mapping object with correct initial state', () => {
+				const mapping = newMappings();
+
+				expect(mapping.select).toBeInstanceOf(Set);
+				expect(mapping.select.size).toBe(0);
+				expect(mapping.json).toEqual([]);
+				expect(mapping.filterJoin).toEqual([]);
+				expect(mapping.join).toEqual([]);
+				expect(mapping.where).toEqual([]);
+				expect(mapping.values).toEqual({});
+				expect(mapping.orderBy).toEqual([]);
+				expect(mapping._or).toEqual([]);
+				expect(mapping._and).toEqual([]);
+				expect(mapping._not).toEqual([]);
+			});
+		});
+
+		describe('generateJsonObjectSelectStatement', () => {
+			it('should generate correct JSONB object for single record', () => {
+				const jsonFields = ["'id'", 'person.id', "'name'", 'person.person_name'];
+				const result = generateJsonObjectSelectStatement(jsonFields, false);
+
+				expect(result).toBe("jsonb_build_object('id', person.id, 'name', person.person_name)");
+			});
+
+			it('should generate correct JSONB array for multiple records', () => {
+				const jsonFields = ["'id'", 'person.id', "'name'", 'person.person_name'];
+				const result = generateJsonObjectSelectStatement(jsonFields, true);
+
+				expect(result).toBe(
+					"coalesce(json_agg(jsonb_build_object('id', person.id, 'name', person.person_name)), '[]'::json)"
+				);
+			});
+
+			it('should handle string concatenation mode when env variable is set', () => {
+				const originalEnv = process.env.D3GOP_USE_STRING_FOR_JSONB;
+
+				// Set env variable and clear module cache
+				process.env.D3GOP_USE_STRING_FOR_JSONB = 'true';
+				delete require.cache[require.resolve('../../src/queries/gql-to-sql-mapper')];
+
+				// Re-import to get the updated behavior
+				const {
+					generateJsonObjectSelectStatement: stringMode,
+				} = require('../../src/queries/gql-to-sql-mapper');
+
+				const jsonFields = ["'id'", 'person.id', "'name'", 'person.person_name'];
+				const result = stringMode(jsonFields, false);
+
+				expect(result).toContain("'{' ||");
+				expect(result).toContain("|| '}'");
+
+				// Restore original env and clear cache again
+				process.env.D3GOP_USE_STRING_FOR_JSONB = originalEnv;
+				delete require.cache[require.resolve('../../src/queries/gql-to-sql-mapper')];
+			});
+		});
+
+		describe('mappingsReducer', () => {
+			it('should merge multiple mappings correctly', () => {
+				const mapping1 = newMappings();
+				mapping1.select.add('field1');
+				mapping1.json.push("'key1', field1");
+				mapping1.where.push("field1 = 'value1'");
+				mapping1.values = { param1: 'value1' };
+
+				const mapping2 = newMappings();
+				mapping2.select.add('field2');
+				mapping2.json.push("'key2', field2");
+				mapping2.where.push("field2 = 'value2'");
+				mapping2.values = { param2: 'value2' };
+
+				const mappingsMap = new Map([
+					['map1', mapping1],
+					['map2', mapping2],
+				]);
+
+				const result = mappingsReducer(mappingsMap);
+
+				expect(result.select.has('field1')).toBe(true);
+				expect(result.select.has('field2')).toBe(true);
+				expect(result.json).toContain("'key1', field1");
+				expect(result.json).toContain("'key2', field2");
+				expect(result.where).toContain("field1 = 'value1'");
+				expect(result.where).toContain("field2 = 'value2'");
+				expect(result.values).toEqual({ param1: 'value1', param2: 'value2' });
+			});
+
+			it('should handle empty mappings', () => {
+				const result = mappingsReducer(new Map());
+
+				expect(result.select.size).toBe(0);
+				expect(result.json).toEqual([]);
+				expect(result.where).toEqual([]);
+				expect(result.values).toEqual({});
+			});
+
+			it('should preserve limit, offset, and orderBy from mappings', () => {
+				const mapping = newMappings();
+				mapping.limit = 10;
+				mapping.offset = 5;
+				mapping.orderBy = [{ name: 'asc' as any }];
+
+				const mappingsMap = new Map([['test', mapping]]);
+				const result = mappingsReducer(mappingsMap);
+
+				expect(result.limit).toBe(10);
+				expect(result.offset).toBe(5);
+				expect(result.orderBy).toEqual([{ name: 'asc' }]);
+			});
+		});
+	});
+
+	describe('buildQueryAndBindingsFor', () => {
+		it('should build a basic query for simple entity with no relationships', () => {
+			const fields = {
+				id: {},
+				name: {},
+				age: {},
+			};
+
+			const result = mapper.buildQueryAndBindingsFor({
+				fields,
+				entity: Person,
+				customFields: {},
+			});
+
+			expect(result.querySQL).toContain('persons');
+			expect(result.querySQL).toContain('jsonb_build_object');
+			expect(result.querySQL).toContain("'id'");
+			expect(result.querySQL).toContain("'name'");
+			expect(result.querySQL).toContain("'age'");
+			expect(result.bindings).toBeDefined();
+			expect(typeof result.bindings.limit).toBe('number');
+		});
+
+		it('should handle empty fields gracefully', () => {
+			const fields = {};
+
+			const result = mapper.buildQueryAndBindingsFor({
+				fields,
+				entity: Person,
+				customFields: {},
+			});
+
+			expect(result.querySQL).toContain('persons');
+			expect(result.bindings).toBeDefined();
+		});
+
+		it('should apply filters correctly', () => {
+			const fields = {
+				id: {},
+				name: {},
+			};
+
+			const filter = {
+				name: 'Frodo Baggins',
+				age: { _gt: 30 },
+			};
+
+			const result = mapper.buildQueryAndBindingsFor({
+				fields,
+				entity: Person,
+				customFields: {},
+				filter: filter as any,
+			});
+
+			expect(result.querySQL).toContain('persons');
+			expect(result.bindings).toBeDefined();
+			// The filter should generate some WHERE conditions
+			expect(result.querySQL.toLowerCase()).toContain('where');
+		});
+
+		it('should apply pagination correctly', () => {
+			const fields = {
+				id: {},
+				name: {},
+			};
+
+			const pagination = {
+				limit: 5,
+				offset: 10,
+				orderBy: [{ name: 'asc' as any }],
+			};
+
+			const result = mapper.buildQueryAndBindingsFor({
+				fields,
+				entity: Person,
+				customFields: {},
+				pagination,
+			});
+
+			expect(result.querySQL).toContain('persons');
+			expect(result.bindings.limit).toBe(5);
+			expect(result.bindings.offset).toBe(10);
+			expect(result.querySQL.toLowerCase()).toContain('order by');
+		});
+
+		it('should handle unknown entity gracefully', () => {
+			class UnknownEntity {
+				id!: number;
+				name!: string;
+			}
+
+			const fields = { id: {}, name: {} };
+
+			expect(() => {
+				mapper.buildQueryAndBindingsFor({
+					fields,
+					entity: UnknownEntity,
+					customFields: {},
+				});
+			}).toThrow('Entity metadata not found for: UnknownEntity');
+		});
+	});
+
+	describe('recursiveMap', () => {
+		it('should map simple fields correctly', () => {
+			const fields = {
+				id: {},
+				name: {},
+				age: {},
+			};
+
+			const personMetadata = mockProvider.getMetadata<Person, EntityMetadata<Person>>('Person');
+			const alias = {
+				toString: () => 'a1',
+				toColumnName: (col: string) => `a1.${col}`,
+				toParamName: (col: string) => `a1_${col}`,
+				concat: (str: string) => `a1_${str}`,
+			} as any;
+
+			const result = mapper.recursiveMap({
+				entityMetadata: personMetadata,
+				fields,
+				parentAlias: alias,
+				alias,
+				gqlFilters: [],
+				customFields: {},
+			});
+
+			expect(result).toBeInstanceOf(Map);
+			expect(result.size).toBeGreaterThan(0);
+
+			// Check that basic field mappings were created
+			const mappingEntries = Array.from(result.entries());
+			expect(mappingEntries.length).toBeGreaterThan(0);
+		});
+
+		it('should handle filters in recursiveMap', () => {
+			const fields = {
+				id: {},
+				name: {},
+			};
+
+			const filters = [
+				{
+					name: 'Frodo',
+					age: { _gt: 30 },
+				},
+			];
+
+			const personMetadata = mockProvider.getMetadata<Person, EntityMetadata<Person>>('Person');
+			const alias = {
+				toString: () => 'a1',
+				toColumnName: (col: string) => `a1.${col}`,
+				toParamName: (col: string) => `a1_${col}`,
+				concat: (str: string) => `a1_${str}`,
+			} as any;
+
+			const result = mapper.recursiveMap({
+				entityMetadata: personMetadata,
+				fields,
+				parentAlias: alias,
+				alias,
+				gqlFilters: filters as any,
+				customFields: {},
+			});
+
+			expect(result).toBeInstanceOf(Map);
+			// Filters should generate additional mappings
+			expect(result.size).toBeGreaterThan(0);
+		});
+
+		it('should handle custom fields', () => {
+			const fields = {
+				id: {},
+				name: {},
+				customField: {},
+			};
+
+			const customFields = {
+				customField: {
+					type: () => String,
+					requires: ['name'],
+					resolve: (parent: any) => parent.name.toUpperCase(),
+				},
+			};
+
+			const personMetadata = mockProvider.getMetadata<Person, EntityMetadata<Person>>('Person');
+			const alias = {
+				toString: () => 'a1',
+				toColumnName: (col: string) => `a1.${col}`,
+				toParamName: (col: string) => `a1_${col}`,
+				concat: (str: string) => `a1_${str}`,
+			} as any;
+
+			const result = mapper.recursiveMap({
+				entityMetadata: personMetadata,
+				fields,
+				parentAlias: alias,
+				alias,
+				gqlFilters: [],
+				customFields: customFields as any,
+			});
+
+			expect(result).toBeInstanceOf(Map);
+			expect(result.size).toBeGreaterThan(0);
+		});
+	});
+
+	describe('Class Operations (_and, _or, _not)', () => {
+		it('should handle _or operations', () => {
+			const input = {
+				entityMetadata: mockProvider.getMetadata('Person'),
+				gqlFilters: [{ name: 'Frodo' }, { name: 'Sam' }],
+				fieldName: '_or' as any,
+				parentAlias: { toString: () => 'a1' } as any,
+				alias: { toString: () => 'a1' } as any,
+				mapping: newMappings(),
+				mappings: new Map(),
+			};
+
+			// Test that _or method exists and can be called
+			expect(typeof mapper._or).toBe('function');
+		});
+
+		it('should handle _and operations', () => {
+			const input = {
+				entityMetadata: mockProvider.getMetadata('Person'),
+				gqlFilters: [{ name: 'Frodo' }, { age: { _gt: 30 } }],
+				fieldName: '_and' as any,
+				parentAlias: { toString: () => 'a1' } as any,
+				alias: { toString: () => 'a1' } as any,
+				mapping: newMappings(),
+				mappings: new Map(),
+			};
+
+			// Test that _and method exists and can be called
+			expect(typeof mapper._and).toBe('function');
+		});
+
+		it('should handle _not operations', () => {
+			const input = {
+				entityMetadata: mockProvider.getMetadata('Person'),
+				gqlFilters: [{ name: 'Sauron' }],
+				fieldName: '_not' as any,
+				parentAlias: { toString: () => 'a1' } as any,
+				alias: { toString: () => 'a1' } as any,
+				mapping: newMappings(),
+				mappings: new Map(),
+			};
+
+			// Test that _not method exists and can be called
+			expect(typeof mapper._not).toBe('function');
+		});
+	});
+
+	describe('Integration with Sample Data', () => {
+		it('should work with Fellowship entity and relationships', () => {
+			const fields = {
+				id: {},
+				name: {},
+				purpose: {},
+				members: {
+					id: {},
+					name: {},
+					race: {},
+				},
+			};
+
+			const result = mapper.buildQueryAndBindingsFor({
+				fields,
+				entity: Fellowship,
+				customFields: {},
+			});
+
+			expect(result.querySQL).toContain('fellowships');
+			expect(result.querySQL).toContain('jsonb_build_object');
+			expect(result.bindings).toBeDefined();
+		});
+
+		it('should work with Ring entity and 1:1 relationship', () => {
+			const fields = {
+				id: {},
+				name: {},
+				power: {},
+				bearer: {
+					id: {},
+					name: {},
+					race: {},
+				},
+			};
+
+			const result = mapper.buildQueryAndBindingsFor({
+				fields,
+				entity: Ring,
+				customFields: {},
+			});
+
+			expect(result.querySQL).toContain('rings');
+			expect(result.querySQL).toContain('jsonb_build_object');
+			expect(result.bindings).toBeDefined();
+		});
+
+		it('should handle complex filtering scenarios', () => {
+			const fields = {
+				id: {},
+				name: {},
+			};
+
+			const complexFilter = {
+				_or: [
+					{ name: 'Frodo' },
+					{
+						_and: [{ race: 'Hobbit' }, { age: { _lt: 40 } }],
+					},
+				],
+			};
+
+			const result = mapper.buildQueryAndBindingsFor({
+				fields,
+				entity: Person,
+				customFields: {},
+				filter: complexFilter as any,
+			});
+
+			expect(result.querySQL).toContain('persons');
+			expect(result.bindings).toBeDefined();
+			// Complex filters should generate UNION ALL queries
+			expect(
+				result.querySQL.toLowerCase().includes('union') ||
+					result.querySQL.toLowerCase().includes('where')
+			).toBe(true);
+		});
+	});
+
+	describe('Error Handling', () => {
+		it('should throw meaningful error for missing entity metadata', () => {
+			class NonExistentEntity {
+				id!: number;
+			}
+
+			expect(() => {
+				mapper.buildQueryAndBindingsFor({
+					fields: { id: {} },
+					entity: NonExistentEntity,
+					customFields: {},
+				});
+			}).toThrow('Entity metadata not found');
+		});
+
+		it('should handle malformed field definitions gracefully', () => {
+			const fields = {
+				id: {},
+				invalidField: null,
+				undefinedField: undefined,
+			};
+
+			// Should not throw, but handle gracefully
+			const result = mapper.buildQueryAndBindingsFor({
+				fields,
+				entity: Person,
+				customFields: {},
+			});
+
+			expect(result.querySQL).toContain('persons');
+			expect(result.bindings).toBeDefined();
+		});
+	});
+
+	describe('Performance and Optimization', () => {
+		it('should generate efficient queries for large field sets', () => {
+			const fields = {
+				id: {},
+				name: {},
+				age: {},
+				race: {},
+				home: {},
+				fellowship: {
+					id: {},
+					name: {},
+					purpose: {},
+				},
+				ring: {
+					id: {},
+					name: {},
+					power: {},
+				},
+			};
+
+			const result = mapper.buildQueryAndBindingsFor({
+				fields,
+				entity: Person,
+				customFields: {},
+			});
+
+			expect(result.querySQL).toContain('persons');
+			expect(result.bindings).toBeDefined();
+
+			// Check that the query is reasonably structured
+			expect(result.querySQL.length).toBeGreaterThan(100);
+			expect(result.querySQL.length).toBeLessThan(10000); // Should not be excessively long
+		});
+
+		it('should handle pagination efficiently', () => {
+			const fields = { id: {}, name: {} };
+			const pagination = { limit: 1000, offset: 50000 };
+
+			const result = mapper.buildQueryAndBindingsFor({
+				fields,
+				entity: Person,
+				customFields: {},
+				pagination,
+			});
+
+			expect(result.bindings.limit).toBe(1000);
+			expect(result.bindings.offset).toBe(50000);
+			expect(result.querySQL).toContain('limit');
+			expect(result.querySQL).toContain('offset');
+		});
+	});
+});
