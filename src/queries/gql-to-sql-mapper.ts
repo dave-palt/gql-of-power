@@ -52,16 +52,8 @@ const jsonReducerForString = (
 		'"'
 	)}:' || coalesce(${value}::text, '""')`;
 };
-export const generateJsonObjectSelectStatement = (json: string[], isMulti = false) =>
-	isMulti
-		? !USE_STRING
-			? `coalesce(json_agg(jsonb_build_object(${json.join(', ')})), '[]'::json)`
-			: `'['||coalesce(string_agg('{"' || ${json
-					.map(jsonReducerForString)
-					.join('||')} || '"}', ','), '') || ']'`
-		: !USE_STRING
-		? `jsonb_build_object(${json.join(', ')})`
-		: `'{' || ${json.map(jsonReducerForString).join(' || ')} || '}'`;
+export const generateJsonSelectStatement = (alias: string, isMulti = false) =>
+	isMulti ? `coalesce(json_agg(row_to_json(${alias})), '[]'::json)` : `row_to_json(${alias})`;
 
 export const mappingsReducer = (m: Map<string, MappingsType>, startMapping = newMappings()) =>
 	Array.from(m.values()).reduce(
@@ -129,14 +121,14 @@ export class GQLtoSQLMapper extends ClassOperations {
 		pagination?: Partial<GQLEntityPaginationInputType<T>>;
 	}): QueryAndBindings {
 		const logName = 'GQLtoSQLMapper - ' + entity.name;
-		console.time(logName);
-		console.timeLog(logName);
+		logger.time(logName);
+		logger.timeLog(logName);
 
 		this.Alias2 = new AliasManager();
 		const alias = this.Alias2.start('a');
 		const metadata = this.getMetadata(entity.name) as EntityMetadata<T>;
 
-		console.log(
+		logger.log(
 			logName,
 			'customFields',
 			customFields,
@@ -191,7 +183,7 @@ export class GQLtoSQLMapper extends ClassOperations {
 						.join(', ')}`
 				: ``;
 
-		// console.log('orderByFields', orderByFields, 'select', select, 'orderBy', orderBy);
+		// logger.log('orderByFields', orderByFields, 'select', select, 'orderBy', orderBy);
 		const selectFields = [...new Set(orderByFields.concat(Array.from(select)))];
 
 		const buildSubQuery = (
@@ -227,9 +219,6 @@ export class GQLtoSQLMapper extends ClassOperations {
 			)
 			.flat();
 
-		const selectFieldsSQL = Array.from(orderByFields);
-		selectFieldsSQL.push(`${generateJsonObjectSelectStatement(json)} as val`);
-
 		const sourceDataSQL = `${
 			unionAll.length > 0
 				? `select distinct * from (${unionAll.join(' union all ')}) as ${alias.toString()}`
@@ -243,7 +232,6 @@ export class GQLtoSQLMapper extends ClassOperations {
 		);
 
 		logger.log(logName, 'sourceDataSQL', unionAll.length, sourceDataSQL);
-		// throw new Error('sourceDataSQL');
 
 		const orderBySQL = pagination?.orderBy
 			? `order by ${pagination.orderBy
@@ -261,7 +249,8 @@ export class GQLtoSQLMapper extends ClassOperations {
 					.join(', ')}`
 			: ``;
 
-		const querySQL = `select ${selectFieldsSQL.join(', ')}
+		// Use row_to_json on the final alias to get properly formatted JSON with correct casing
+		const querySQL = `select row_to_json(${alias.toString()}) as val
 						from (${sourceDataSQL}) as ${alias.toString()}
 						${join.join(' \n')}
 						${orderBySQL}`.replaceAll(/[ \n\t]+/gi, ' ');
@@ -273,7 +262,7 @@ export class GQLtoSQLMapper extends ClassOperations {
 			...(pagination?.offset ? { offset: pagination.offset } : {}),
 		};
 
-		console.timeEnd(logName);
+		logger.timeEnd(logName);
 		return { querySQL, bindings };
 	}
 
@@ -386,10 +375,12 @@ export class GQLtoSQLMapper extends ClassOperations {
 					? customFieldProps.requires
 					: [customFieldProps.requires];
 			requires.forEach((req) => {
-				mapping.select.add(latestAlias.toString() + '.' + req);
+				mapping.select.add(`${latestAlias.toString()}.${req} AS "${gqlFieldName}"`);
 			});
+		} else {
+			// Add null field with proper alias
+			mapping.select.add(`null AS "${gqlFieldName}"`);
 		}
-		mapping.json.push(`'${gqlFieldName}', null`);
 		return { mappings, latestAlias };
 	}
 
@@ -611,14 +602,10 @@ export class GQLtoSQLMapper extends ClassOperations {
 			orderBy
 		);
 		if (referenceField.tableName && where.length > 0) {
-			mapping.json.push(`'${gqlFieldName}', ${alias.toColumnName('value')}`);
-
 			const isArray = fieldProps.reference !== ReferenceType.ONE_TO_ONE;
-			const jsonSelect = generateJsonObjectSelectStatement(json, isArray);
+			const jsonSelect = generateJsonSelectStatement(alias.toString(), isArray);
 
-			const onFields = Array.from(
-				new Set(ons.map((on) => `${alias.toColumnName(on)}`).concat(Array.from(select)))
-			);
+			const onFields = Array.from(select);
 
 			const processedOrderBy = orderBy.reduce((acc, ob) => {
 				Object.keys(ob).forEach((k: string) => {
@@ -749,13 +736,10 @@ export class GQLtoSQLMapper extends ClassOperations {
 			mapping.select.add(
 				`${fieldProps.fieldNames.map((fn) => parentAlias.toColumnName(fn)).join(', ')}`
 			);
-			mapping.json.push(`'${gqlFieldName}', ${alias.toColumnName('value')}`);
 
-			const selectFields = [
-				...new Set(ons.map((on) => alias.toColumnName(on)).concat(Array.from(select))),
-			];
+			const selectFields = Array.from(select);
 
-			const jsonSQL = generateJsonObjectSelectStatement(json);
+			const jsonSQL = generateJsonSelectStatement(alias.toString());
 
 			const fromSQL = `"${referenceField.tableName}" as ${alias.toString()}`;
 
@@ -836,11 +820,11 @@ export class GQLtoSQLMapper extends ClassOperations {
 													from ${fieldProps.pivotTable}
 												where ${pivotTableWhereSQL.join(' and ')}`;
 
-			const jsonSQL = generateJsonObjectSelectStatement(json, true);
+			const jsonSQL = generateJsonSelectStatement(alias.toString(), true);
 
 			const refAlias = alias.toString();
 			const leftOuterJoin = `left outer join lateral (
-			select ${jsonSQL} as value 
+			select ${jsonSQL} as value
 				from (
 					select ${selectFields.join(', ')} 
 						from "${referenceField.tableName}" as ${refAlias}
@@ -864,7 +848,6 @@ export class GQLtoSQLMapper extends ClassOperations {
 				${join.join(' \n')}
 		) as ${refAlias} on true`.replaceAll(/[ \n\t]+/gi, ' ');
 
-			mapping.json.push(`'${gqlFieldName}', ${alias.toColumnName('value')}`);
 			mapping.join.push(leftOuterJoin);
 			mapping.values = { ...mapping.values, ...values };
 		} else {
@@ -902,9 +885,13 @@ export class GQLtoSQLMapper extends ClassOperations {
 			logger.warn(gqlFieldName, 'has multiple fieldNames:', fieldNames, 'taking first only');
 
 		const fieldNameWithAlias = alias.toColumnName(fieldNames[0]);
+		// Use double-quoted alias to preserve casing for row_to_json
+		const aliasedField =
+			gqlFieldName !== fieldNames[0]
+				? `${fieldNameWithAlias} AS "${gqlFieldName}"`
+				: fieldNameWithAlias;
 
-		mapping.select.add(fieldNameWithAlias);
-		mapping.json.push(`'${gqlFieldName}', ${fieldNameWithAlias}`);
+		mapping.select.add(aliasedField);
 	}
 
 	protected buildSubQuery(

@@ -1,15 +1,16 @@
 {
 	"compilerOptions": {
 		"target": "ESNext",
-		"module": "CommonJS",
+		"module": "ESNext",
 		"outDir": "./dist",
+		"moduleResolution": "node",
 		"declaration": true,
 		"strict": true,
 		"esModuleInterop": true,
 		"skipLibCheck": true,
 		"forceConsistentCasingInFileNames": true,
 		"experimentalDecorators": true,
-		"types": ["jest", "node"]
+		"types": ["@types/bun"]
 	},
 	"include": ["src/**/*", "tests/**/*"],
 	"exclude": ["node_modules", "dist"]

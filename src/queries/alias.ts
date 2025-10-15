@@ -1,3 +1,5 @@
+import { logger } from '../variables';
+
 export enum AliasType {
 	entity = 'entity',
 	field = 'field',
@@ -56,7 +58,9 @@ export class AliasManager {
 	public next(type: AliasType, prefix: string) {
 		this.checkMap(type, prefix);
 		const existingIndex = this.ALIAS_INDEX_MAP.get(type)?.get(prefix) ?? 0;
-		console.log('AliasManager.next', type, prefix, existingIndex);
+
+		logger.log('AliasManager.next', type, prefix, existingIndex);
+
 		const index = existingIndex + 1;
 		this.ALIAS_INDEX_MAP.get(type)?.set(prefix, index);
 

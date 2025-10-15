@@ -10,9 +10,9 @@
 		"build": "tsc",
 		"watch": "tsc --watch",
 		"prepublishOnly": "bun run build",
-		"test": "bun test",
-		"test:unit": "bun test --filter='unit'",
-		"test:integration": "bun test --filter='integration'",
+		"test": "D3GOP_LOG_TYPE=\"disabled\" bun test",
+		"test:unit": "D3GOP_LOG_TYPE=\"disabled\" bun test --filter='unit'",
+		"test:integration": "D3GOP_LOG_TYPE=\"disabled\" bun test --filter='integration'",
 		"test:watch": "bun test --watch",
 		"test:coverage": "bun test --coverage"
 	},

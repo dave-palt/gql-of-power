@@ -2,81 +2,80 @@ const LOG_TYPES = (process.env.D3GOP_LOG_TYPE || 'all').split(',');
 
 console.log('LOG_TYPES', LOG_TYPES);
 
-const shouldLog = (first: any) =>
+export const shouldLog = (first: any) =>
 	LOG_TYPES.length === 0 ||
 	LOG_TYPES.indexOf('all') >= 0 ||
 	LOG_TYPES.some((lt) => first.startsWith(lt));
+
 export const logger = {
-	time: (name: string) => {
-		console.time(name);
+	time: (...args: Parameters<typeof console.time>) => {
+		console.time(...args);
 	},
-	timeLog: (name: string, ...args: any[]) => {
-		console.timeLog(name, ...args);
+	timeLog: (...args: Parameters<typeof console.timeLog>) => {
+		console.timeLog(...args, ...args);
 	},
-	timeEnd: (name: string) => {
-		console.timeEnd(name);
+	timeEnd: (...args: Parameters<typeof console.timeEnd>) => {
+		console.timeEnd(...args);
 	},
-	log: (...args: any[]) => {
+	log: (...args: Parameters<typeof console.log>) => {
 		if (shouldLog(args[0])) {
 			console.log(...args);
 		}
 	},
-	error: (...args: any[]) => {
+	error: (...args: Parameters<typeof console.error>) => {
 		console.error(...args);
 	},
-	warn: (...args: any[]) => {
+	warn: (...args: Parameters<typeof console.warn>) => {
 		console.warn(...args);
 	},
-	info: (...args: any[]) => {
+	info: (...args: Parameters<typeof console.info>) => {
 		if (shouldLog(args[0])) {
 			console.info(...args);
 		}
 	},
-	debug: (...args: any[]) => {
+	debug: (...args: Parameters<typeof console.debug>) => {
 		console.debug(...args);
 	},
-	group: (name: string) => {
-		console.group(name);
+	group: (...args: Parameters<typeof console.group>) => {
+		console.group(...args);
 	},
 	groupEnd: () => {
 		console.groupEnd();
 	},
-	assert: (condition: boolean, ...args: any[]) => {
-		if (!condition) {
-			console.assert(condition, ...args);
-		}
+	assert: (...args: Parameters<typeof console.assert>) => {
+		console.assert(...args);
 	},
-	table: (data: any) => {
-		console.table(data);
+	table: (...args: Parameters<typeof console.table>) => {
+		console.table(...args);
 	},
 	clear: () => {
 		console.clear();
 	},
-	trace: (...args: any[]) => {
+	trace: (...args: Parameters<typeof console.trace>) => {
 		console.trace(...args);
 	},
-	timeStamp: (name: string) => {
-		console.timeStamp(name);
+	timeStamp: (...args: Parameters<typeof console.timeStamp>) => {
+		console.timeStamp(...args);
 	},
-	count: (label: string) => {
-		console.count(label);
+	count: (...args: Parameters<typeof console.count>) => {
+		console.count(...args);
 	},
-	countReset: (label: string) => {
-		console.countReset(label);
+	countReset: (...args: Parameters<typeof console.countReset>) => {
+		console.countReset(...args);
 	},
-	profile: (label: string) => {
-		console.profile(label);
+	profile: (...args: Parameters<typeof console.profile>) => {
+		console.profile(...args);
 	},
-	profileEnd: (label: string) => {
-		console.profileEnd(label);
+	profileEnd: (...args: Parameters<typeof console.profileEnd>) => {
+		console.profileEnd(...args);
 	},
-	dir: (obj: any, options?: any) => {
-		console.dir(obj, options);
+	dir: (...args: Parameters<typeof console.dir>) => {
+		console.dir(...args);
 	},
-	dirxml: (obj: any) => {
-		console.dirxml(obj);
+	dirxml: (...args: Parameters<typeof console.dirxml>) => {
+		console.dirxml(...args);
 	},
-	groupCollapsed: (name: string) => {
-		console.groupCollapsed(name);
+	groupCollapsed: (...args: Parameters<typeof console.groupCollapsed>) => {
+		console.groupCollapsed(...args);
 	},
 } as Console;

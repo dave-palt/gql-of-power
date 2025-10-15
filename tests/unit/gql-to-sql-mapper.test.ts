@@ -7,7 +7,7 @@
 
 import { EntityMetadata } from '../../src';
 import {
-	generateJsonObjectSelectStatement,
+	generateJsonSelectStatement,
 	GQLtoSQLMapper,
 	mappingsReducer,
 	newMappings,
@@ -44,44 +44,17 @@ describe('GQLtoSQLMapper - Unit Tests', () => {
 			});
 		});
 
-		describe('generateJsonObjectSelectStatement', () => {
+		describe('generateJsonSelectStatement', () => {
 			it('should generate correct JSONB object for single record', () => {
-				const jsonFields = ["'id'", 'person.id', "'name'", 'person.person_name'];
-				const result = generateJsonObjectSelectStatement(jsonFields, false);
+				const result = generateJsonSelectStatement('alias', false);
 
-				expect(result).toBe("jsonb_build_object('id', person.id, 'name', person.person_name)");
+				expect(result).toBe('row_to_json(alias)');
 			});
 
 			it('should generate correct JSONB array for multiple records', () => {
-				const jsonFields = ["'id'", 'person.id', "'name'", 'person.person_name'];
-				const result = generateJsonObjectSelectStatement(jsonFields, true);
+				const result = generateJsonSelectStatement('alias', true);
 
-				expect(result).toBe(
-					"coalesce(json_agg(jsonb_build_object('id', person.id, 'name', person.person_name)), '[]'::json)"
-				);
-			});
-
-			it('should handle string concatenation mode when env variable is set', () => {
-				const originalEnv = process.env.D3GOP_USE_STRING_FOR_JSONB;
-
-				// Set env variable and clear module cache
-				process.env.D3GOP_USE_STRING_FOR_JSONB = 'true';
-				delete require.cache[require.resolve('../../src/queries/gql-to-sql-mapper')];
-
-				// Re-import to get the updated behavior
-				const {
-					generateJsonObjectSelectStatement: stringMode,
-				} = require('../../src/queries/gql-to-sql-mapper');
-
-				const jsonFields = ["'id'", 'person.id', "'name'", 'person.person_name'];
-				const result = stringMode(jsonFields, false);
-
-				expect(result).toContain("'{' ||");
-				expect(result).toContain("|| '}'");
-
-				// Restore original env and clear cache again
-				process.env.D3GOP_USE_STRING_FOR_JSONB = originalEnv;
-				delete require.cache[require.resolve('../../src/queries/gql-to-sql-mapper')];
+				expect(result).toBe("coalesce(json_agg(row_to_json(alias)), '[]'::json)");
 			});
 		});
 
@@ -155,10 +128,10 @@ describe('GQLtoSQLMapper - Unit Tests', () => {
 			});
 
 			expect(result.querySQL).toContain('persons');
-			expect(result.querySQL).toContain('jsonb_build_object');
-			expect(result.querySQL).toContain("'id'");
-			expect(result.querySQL).toContain("'name'");
-			expect(result.querySQL).toContain("'age'");
+			expect(result.querySQL).toContain('row_to_json');
+			expect(result.querySQL).toContain('id');
+			expect(result.querySQL).toContain('person_name AS "name"');
+			expect(result.querySQL).toContain('age');
 			expect(result.bindings).toBeDefined();
 			expect(typeof result.bindings.limit).toBe('number');
 		});
@@ -415,7 +388,8 @@ describe('GQLtoSQLMapper - Unit Tests', () => {
 			});
 
 			expect(result.querySQL).toContain('fellowships');
-			expect(result.querySQL).toContain('jsonb_build_object');
+			expect(result.querySQL).toContain('row_to_json');
+			expect(result.querySQL).toContain('fellowship_name AS "name"');
 			expect(result.bindings).toBeDefined();
 		});
 
@@ -438,7 +412,9 @@ describe('GQLtoSQLMapper - Unit Tests', () => {
 			});
 
 			expect(result.querySQL).toContain('rings');
-			expect(result.querySQL).toContain('jsonb_build_object');
+			expect(result.querySQL).toContain('row_to_json');
+			expect(result.querySQL).toContain('ring_name AS "name"');
+			expect(result.querySQL).toContain('power_description AS "power"');
 			expect(result.bindings).toBeDefined();
 		});
 

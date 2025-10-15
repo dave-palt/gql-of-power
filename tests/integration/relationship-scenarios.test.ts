@@ -35,11 +35,13 @@ describe('GQLtoSQLMapper - Relationship Integration Tests', () => {
 				entity: Person,
 				customFields: {},
 			});
+			console.log('query ->', result.querySQL);
 
 			expect(result.querySQL).toContain('persons');
 			expect(result.querySQL).toContain('rings');
-			expect(result.querySQL).toContain('jsonb_build_object');
+			expect(result.querySQL).toContain('row_to_json');
 			expect(result.querySQL).toContain('bearer_id');
+			expect(result.querySQL).toContain('person_name AS "name"');
 			expect(result.bindings).toBeDefined();
 		});
 

@@ -656,7 +656,7 @@ describe('GQL-of-Power Database Integration Tests', () => {
 	 * Uses the throw/catch pattern to force rollback
 	 */
 	async function runInTransaction<T>(testFn: (sql: SQL) => Promise<T>): Promise<T> {
-		let result: T;
+		let result: T = {} as T;
 		const rollback = true; // Always rollback in tests
 
 		try {
@@ -665,7 +665,6 @@ describe('GQL-of-Power Database Integration Tests', () => {
 					result = await testFn(txSql);
 					return result;
 				} catch (e) {
-					console.error('Test error:', e);
 					throw e; // Re-throw actual test errors
 				} finally {
 					if (rollback) throw 'stop'; // Force rollback
