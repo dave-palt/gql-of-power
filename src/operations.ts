@@ -10,11 +10,7 @@ export type ClassOperationInputType<T> = {
 	mapping: MappingsType;
 	mappings: Map<string, MappingsType>;
 };
-export const ClassOps = {
-	_and: 1,
-	_or: 1,
-	_not: 1,
-};
+
 export abstract class ClassOperations {
 	abstract _and(input: ClassOperationInputType<any>): any;
 	abstract _or(input: ClassOperationInputType<any>): any;

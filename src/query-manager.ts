@@ -8,6 +8,7 @@ import {
 	GQLEntityPaginationInputType,
 	MetadataProvider,
 } from './types';
+import { logger } from './variables';
 
 export class GQLQueryManager {
 	async getQueryResultsFor<K extends { _____name: string }, T>(
@@ -18,14 +19,14 @@ export class GQLQueryManager {
 		pagination?: Partial<GQLEntityPaginationInputType<T>>
 	): Promise<K[]> {
 		const logName = 'GetQueryResultsFor - ' + entity.name;
-		console.time(logName);
-		console.timeLog(logName);
+		logger.time(logName);
+		logger.timeLog(logName);
 		if (!entity || !entity.name) {
-			console.timeEnd(logName);
+			logger.timeEnd(logName);
 			throw new Error(`Entity ${entity} not compatible`);
 		}
 		if (!exists(entity.name)) {
-			console.timeEnd(logName);
+			logger.timeEnd(logName);
 			throw new Error(`Entity ${entity.name} not found in metadata`);
 		}
 		const fields = graphqlFields(info, {}, { processArguments: true }) as FieldSelection<T>;
@@ -39,11 +40,11 @@ export class GQLQueryManager {
 			pagination,
 		});
 
-		console.timeLog(logName, 'input processed, query created', bindings);
+		logger.timeLog(logName, 'input processed, query created', bindings);
 
 		const res = (await executeQuery(rawQuery(querySQL, bindings))) as Array<{ val: K | string }>;
 
-		console.timeLog(logName, 'found', res.length, 'results');
+		logger.timeLog(logName, 'found', res.length, 'results');
 		const mapped = res.map(({ val }) => {
 			// for (const key of customFieldsKeys) {
 			// 	const conf = (customFields as any)[key];
@@ -57,8 +58,8 @@ export class GQLQueryManager {
 			return typeof val === 'string' ? (JSON.parse(val) as K) : val;
 		});
 
-		console.timeLog(logName, res.length, 'results mapped');
-		console.timeEnd(logName);
+		logger.timeLog(logName, res.length, 'results mapped');
+		logger.timeEnd(logName);
 		return mapped;
 	}
 }

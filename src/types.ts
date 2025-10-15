@@ -30,8 +30,8 @@ export type EntityMetadata<T> = {
 };
 
 export type MetadataProvider = {
-	exists: (arg: string) => boolean;
-	getMetadata: <T, K extends EntityMetadata<T>>(arg: string) => K;
+	exists: (entityName: string) => boolean;
+	getMetadata: <T, K extends EntityMetadata<T>>(entityName: string) => K;
 	rawQuery: (sql: string, bindings?: any) => string;
 	executeQuery: (sql: string, params?: any[], _?: any) => Promise<any>;
 };

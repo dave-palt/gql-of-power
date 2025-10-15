@@ -38,20 +38,6 @@ const isPrimitive = (filterValue: any): filterValue is string | number | boolean
 	typeof filterValue === 'symbol' ||
 	filterValue === null;
 
-const USE_STRING = process.env.D3GOP_USE_STRING_FOR_JSONB === 'true';
-const jsonReducerForString = (
-	/**
-	 * `'id', `
-	 */
-	j: string,
-	index: number
-): string => {
-	const [key, value] = j.split(',');
-	return `'${index > 0 ? ',' : ''}${key.replaceAll(
-		/[']/gi,
-		'"'
-	)}:' || coalesce(${value}::text, '""')`;
-};
 export const generateJsonSelectStatement = (alias: string, isMulti = false) =>
 	isMulti ? `coalesce(json_agg(row_to_json(${alias})), '[]'::json)` : `row_to_json(${alias})`;
 
