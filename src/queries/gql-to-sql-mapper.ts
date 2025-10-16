@@ -109,11 +109,6 @@ export class GQLtoSQLMapper extends ClassOperations {
 		this.getMetadata = metadataProvider.getMetadata;
 		this.namedParameterPrefix = opts?.namedParameterPrefix ?? ':';
 
-		console.log('');
-		console.log('');
-		console.log('GQLtoSQLMapper - created with prefix', this.namedParameterPrefix);
-		console.log('');
-
 		this.filterProcessor = new FilterProcessor(
 			this.Alias2,
 			metadataProvider,
@@ -282,10 +277,11 @@ export class GQLtoSQLMapper extends ClassOperations {
 			: ``;
 
 		// Use row_to_json on the final alias to get properly formatted JSON with correct casing
-		const querySQL = `select row_to_json(${alias.toString()}) as val
-						from (${sourceDataSQL}) as ${alias.toString()}
-						${join.join(' \n')}
-						${orderBySQL}`.replaceAll(/[ \n\t]+/gi, ' ');
+		const querySQL = `select ${alias.toString()}.*
+								${json.length > 0 ? `, ${json.join(', ')}` : ''}
+								from (${sourceDataSQL}) as ${alias.toString()}
+							${join.join(' \n')}
+					${orderBySQL}`.replaceAll(/[ \n\t]+/gi, ' ');
 
 		const bindings = {
 			...values,
@@ -929,7 +925,7 @@ export class GQLtoSQLMapper extends ClassOperations {
 			mapping.join.push(leftOuterJoin);
 			mapping.values = { ...mapping.values, ...values };
 		} else {
-			mapping.json.push(`'${gqlFieldName}', null`);
+			mapping.json.push(`null as "${gqlFieldName}"`);
 		}
 	}
 

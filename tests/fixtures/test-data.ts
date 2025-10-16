@@ -456,45 +456,48 @@ export class MockMetadataProvider implements MetadataProvider {
 
 		// Return mock results based on the table being queried
 		if (sql.includes('persons')) {
-			return SamplePersons.map((person) => ({
-				val: {
-					id: person.id,
-					name: person.person_name,
-					age: person.age,
-					race: person.race,
-					home: person.home_location,
-					ring: person.ring_id,
-					fellowshipId: person.fellowship_id,
-					fellowship: SampleFellowships.find((f) => f.id === person.fellowship_id),
-				} as Person,
-			}));
+			return SamplePersons.map(
+				(person) =>
+					({
+						id: person.id,
+						name: person.person_name,
+						age: person.age,
+						race: person.race,
+						home: person.home_location,
+						ring: person.ring_id,
+						fellowshipId: person.fellowship_id,
+						fellowship: SampleFellowships.find((f) => f.id === person.fellowship_id),
+					} as Person)
+			);
 		}
 		if (sql.includes('rings')) {
-			return SampleRings.map((ring) => ({
-				val: {
-					id: ring.id,
-					name: ring.ring_name,
-					power: ring.power_description,
-				} as Ring,
-			}));
+			return SampleRings.map(
+				(ring) =>
+					({
+						id: ring.id,
+						name: ring.ring_name,
+						power: ring.power_description,
+					} as Ring)
+			);
 		}
 		if (sql.includes('fellowships')) {
-			return SampleFellowships.map((fellowship) => ({
-				val: {
-					id: fellowship.id,
-					name: fellowship.fellowship_name,
-					purpose: fellowship.purpose,
-					formedDate: new Date(fellowship.formed_date),
-					disbanded: fellowship.disbanded,
-					// members: fellowship.,
-					questId: fellowship.quest_id,
-					quest: SampleQuests.find((q) => q.id === fellowship.quest_id),
-				} as Fellowship,
-			}));
+			return SampleFellowships.map(
+				(fellowship) =>
+					({
+						id: fellowship.id,
+						name: fellowship.fellowship_name,
+						purpose: fellowship.purpose,
+						formedDate: new Date(fellowship.formed_date),
+						disbanded: fellowship.disbanded,
+						// members: fellowship.,
+						questId: fellowship.quest_id,
+						quest: SampleQuests.find((q) => q.id === fellowship.quest_id),
+					} as Fellowship)
+			);
 		}
 
 		// Default return for testing
-		return [{ val: { id: 1, name: 'Mock Result' } }];
+		return [{ id: 1, name: 'Mock Result' }];
 	};
 
 	// Additional helper methods for testing

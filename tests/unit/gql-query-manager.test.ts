@@ -155,7 +155,6 @@ describe('GQLQueryManager - Unit Tests', () => {
 
 			const result = await queryManager.getQueryResultsFor(mockProvider, Person, info, filter);
 
-			console.log(result);
 			expect(Array.isArray(result)).toBe(true);
 			// Filter should be processed (actual filtering happens in SQL execution)
 			expect(result.length).toBeGreaterThan(0);
@@ -655,8 +654,8 @@ describe('GQLQueryManager - Unit Tests', () => {
 			const jsonProvider = {
 				...mockProvider,
 				executeQuery: async () => [
-					{ val: '{"id":1,"person_name":"Frodo","age":50}' },
-					{ val: '{"id":2,"person_name":"Gandalf","age":null}' },
+					{ id: 1, person_name: 'Frodo', age: 50 },
+					{ id: 2, person_name: 'Gandalf', age: null },
 				],
 			};
 
@@ -675,8 +674,8 @@ describe('GQLQueryManager - Unit Tests', () => {
 			const objectProvider = {
 				...mockProvider,
 				executeQuery: async () => [
-					{ val: { id: 1, person_name: 'Aragorn', age: 87 } },
-					{ val: { id: 2, person_name: 'Legolas', age: 500 } },
+					{ id: 1, person_name: 'Aragorn', age: 87 },
+					{ id: 2, person_name: 'Legolas', age: 500 },
 				],
 			};
 
@@ -695,8 +694,8 @@ describe('GQLQueryManager - Unit Tests', () => {
 			const mixedProvider = {
 				...mockProvider,
 				executeQuery: async () => [
-					{ val: '{"id":1,"person_name":"Gimli"}' },
-					{ val: { id: 2, person_name: 'Boromir' } },
+					{ id: 1, person_name: 'Gimli' },
+					{ id: 2, person_name: 'Boromir' },
 				],
 			};
 
@@ -727,7 +726,7 @@ describe('GQLQueryManager - Unit Tests', () => {
 
 			const nullProvider = {
 				...mockProvider,
-				executeQuery: async () => [{ val: null }],
+				executeQuery: async () => [null],
 			};
 
 			const result = await queryManager.getQueryResultsFor(nullProvider, Person, info);

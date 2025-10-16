@@ -124,7 +124,6 @@ describe('GQLtoSQLMapper - Unit Tests', () => {
 			});
 
 			expect(result.querySQL).toContain('persons');
-			expect(result.querySQL).toContain('row_to_json');
 			expect(result.querySQL).toContain('id');
 			expect(result.querySQL).toContain('person_name AS "name"');
 			expect(result.querySQL).toContain('age');

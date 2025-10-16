@@ -175,14 +175,16 @@ describe('GQL-of-Power Database Integration Tests', () => {
 					console.log('📝 Bindings:', result.bindings);
 
 					// Execute the query against real database within transaction
-					const dbResults = await metadataProvider.executeQuery(result.querySQL, result.bindings);
+					const dbResults = await metadataProvider.executeQuery(
+						metadataProvider.rawQuery(result.querySQL, result.bindings)
+					);
 
 					expect(dbResults).toBeDefined();
 					expect(Array.isArray(dbResults)).toBe(true);
 
 					// Should find Frodo with the One Ring
 					const frodoWithRing = dbResults.find(
-						(row) => row.val && typeof row.val === 'object' && row.val.name === 'Frodo Baggins'
+						(row) => row && typeof row === 'object' && row.name === 'Frodo Baggins'
 					);
 					expect(frodoWithRing).toBeDefined();
 
@@ -210,14 +212,16 @@ describe('GQL-of-Power Database Integration Tests', () => {
 						customFields: {},
 					});
 
-					const dbResults = await metadataProvider.executeQuery(result.querySQL, result.bindings);
+					const dbResults = await metadataProvider.executeQuery(
+						metadataProvider.rawQuery(result.querySQL, result.bindings)
+					);
 
 					expect(dbResults).toBeDefined();
 					expect(Array.isArray(dbResults)).toBe(true);
 
 					// Should find the One Ring with Frodo as bearer
 					const oneRingWithBearer = dbResults.find(
-						(row) => row.val && typeof row.val === 'object' && row.val.name === 'The One Ring'
+						(row) => row && typeof row === 'object' && row.name === 'The One Ring'
 					);
 					expect(oneRingWithBearer).toBeDefined();
 				},
@@ -250,15 +254,16 @@ describe('GQL-of-Power Database Integration Tests', () => {
 						customFields: {},
 					});
 
-					const dbResults = await metadataProvider.executeQuery(result.querySQL, result.bindings);
+					const dbResults = await metadataProvider.executeQuery(
+						metadataProvider.rawQuery(result.querySQL, result.bindings)
+					);
 
 					expect(dbResults).toBeDefined();
 					expect(Array.isArray(dbResults)).toBe(true);
 
 					// Should find Fellowship of the Ring with multiple members
 					const fellowship = dbResults.find(
-						(row) =>
-							row.val && typeof row.val === 'object' && row.val.name === 'Fellowship of the Ring'
+						(row) => row && typeof row === 'object' && row.name === 'Fellowship of the Ring'
 					);
 					expect(fellowship).toBeDefined();
 				},
@@ -292,7 +297,9 @@ describe('GQL-of-Power Database Integration Tests', () => {
 						filter: filter as any,
 					});
 
-					const dbResults = await metadataProvider.executeQuery(result.querySQL, result.bindings);
+					const dbResults = await metadataProvider.executeQuery(
+						metadataProvider.rawQuery(result.querySQL, result.bindings)
+					);
 
 					expect(dbResults).toBeDefined();
 					expect(Array.isArray(dbResults)).toBe(true);
@@ -322,14 +329,16 @@ describe('GQL-of-Power Database Integration Tests', () => {
 						customFields: {},
 					});
 
-					const dbResults = await metadataProvider.executeQuery(result.querySQL, result.bindings);
+					const dbResults = await metadataProvider.executeQuery(
+						metadataProvider.rawQuery(result.querySQL, result.bindings)
+					);
 
 					expect(dbResults).toBeDefined();
 					expect(Array.isArray(dbResults)).toBe(true);
 
 					// Should find persons with their fellowship information
 					const personWithFellowship = dbResults.find(
-						(row) => row.val && typeof row.val === 'object' && row.val.name === 'Frodo Baggins'
+						(row) => row && typeof row === 'object' && row.name === 'Frodo Baggins'
 					);
 					expect(personWithFellowship).toBeDefined();
 				},
@@ -362,7 +371,9 @@ describe('GQL-of-Power Database Integration Tests', () => {
 						filter: filter as any,
 					});
 
-					const dbResults = await metadataProvider.executeQuery(result.querySQL, result.bindings);
+					const dbResults = await metadataProvider.executeQuery(
+						metadataProvider.rawQuery(result.querySQL, result.bindings)
+					);
 
 					expect(dbResults).toBeDefined();
 					expect(Array.isArray(dbResults)).toBe(true);
@@ -394,7 +405,9 @@ describe('GQL-of-Power Database Integration Tests', () => {
 						customFields: {},
 					});
 
-					const dbResults = await metadataProvider.executeQuery(result.querySQL, result.bindings);
+					const dbResults = await metadataProvider.executeQuery(
+						metadataProvider.rawQuery(result.querySQL, result.bindings)
+					);
 
 					expect(dbResults).toBeDefined();
 					expect(Array.isArray(dbResults)).toBe(true);
@@ -422,7 +435,9 @@ describe('GQL-of-Power Database Integration Tests', () => {
 						customFields: {},
 					});
 
-					const dbResults = await metadataProvider.executeQuery(result.querySQL, result.bindings);
+					const dbResults = await metadataProvider.executeQuery(
+						metadataProvider.rawQuery(result.querySQL, result.bindings)
+					);
 
 					expect(dbResults).toBeDefined();
 					expect(Array.isArray(dbResults)).toBe(true);
@@ -454,7 +469,9 @@ describe('GQL-of-Power Database Integration Tests', () => {
 						filter: filter as any,
 					});
 
-					const dbResults = await metadataProvider.executeQuery(result.querySQL, result.bindings);
+					const dbResults = await metadataProvider.executeQuery(
+						metadataProvider.rawQuery(result.querySQL, result.bindings)
+					);
 
 					expect(dbResults).toBeDefined();
 					expect(Array.isArray(dbResults)).toBe(true);
@@ -491,7 +508,9 @@ describe('GQL-of-Power Database Integration Tests', () => {
 						filter: filter as any,
 					});
 
-					const dbResults = await metadataProvider.executeQuery(result.querySQL, result.bindings);
+					const dbResults = await metadataProvider.executeQuery(
+						metadataProvider.rawQuery(result.querySQL, result.bindings)
+					);
 
 					expect(dbResults).toBeDefined();
 					expect(Array.isArray(dbResults)).toBe(true);
@@ -524,7 +543,9 @@ describe('GQL-of-Power Database Integration Tests', () => {
 						pagination,
 					});
 
-					const dbResults = await metadataProvider.executeQuery(result.querySQL, result.bindings);
+					const dbResults = await metadataProvider.executeQuery(
+						metadataProvider.rawQuery(result.querySQL, result.bindings)
+					);
 
 					expect(dbResults).toBeDefined();
 					expect(Array.isArray(dbResults)).toBe(true);
@@ -564,7 +585,9 @@ describe('GQL-of-Power Database Integration Tests', () => {
 						customFields: {},
 					});
 
-					const dbResults = await metadataProvider.executeQuery(result.querySQL, result.bindings);
+					const dbResults = await metadataProvider.executeQuery(
+						metadataProvider.rawQuery(result.querySQL, result.bindings)
+					);
 
 					expect(dbResults).toBeDefined();
 					expect(Array.isArray(dbResults)).toBe(true);
@@ -610,7 +633,9 @@ describe('GQL-of-Power Database Integration Tests', () => {
 						customFields: {},
 					});
 
-					const dbResults = await metadataProvider.executeQuery(result.querySQL, result.bindings);
+					const dbResults = await metadataProvider.executeQuery(
+						metadataProvider.rawQuery(result.querySQL, result.bindings)
+					);
 
 					expect(dbResults).toBeDefined();
 					expect(Array.isArray(dbResults)).toBe(true);
@@ -650,7 +675,9 @@ describe('GQL-of-Power Database Integration Tests', () => {
 						pagination,
 					});
 
-					const dbResults = await metadataProvider.executeQuery(result.querySQL, result.bindings);
+					const dbResults = await metadataProvider.executeQuery(
+						metadataProvider.rawQuery(result.querySQL, result.bindings)
+					);
 					const executionTime = Date.now() - startTime;
 
 					expect(dbResults).toBeDefined();

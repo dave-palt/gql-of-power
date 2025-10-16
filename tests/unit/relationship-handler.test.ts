@@ -21,7 +21,7 @@ describe('RelationshipHandler', () => {
 
 	beforeEach(() => {
 		aliasManager = new AliasManager();
-		relationshipHandler = new RelationshipHandler(aliasManager);
+		relationshipHandler = new RelationshipHandler();
 		mockProvider = createMockMetadataProvider();
 	});
 
@@ -61,7 +61,7 @@ describe('RelationshipHandler', () => {
 				[] // join
 			);
 
-			expect(mapping.json).toContain("'members', f_p1.value");
+			expect(mapping.json).toContain('f_p1.value as "members"');
 			expect(mapping.join).toHaveLength(1);
 			expect(mapping.join[0]).toContain('left outer join lateral');
 			expect(mapping.join[0]).toContain('json_agg');
@@ -99,7 +99,7 @@ describe('RelationshipHandler', () => {
 				[] // join
 			);
 
-			expect(mapping.json).toContain("'ring', f_r1.value");
+			expect(mapping.json).toContain('f_r1.value as "ring"');
 			expect(mapping.join).toHaveLength(1);
 			expect(mapping.join[0]).toContain('left outer join lateral');
 			// One-to-One should NOT have json_agg
@@ -222,7 +222,7 @@ describe('RelationshipHandler', () => {
 
 			// The RelationshipHandler should add the join field to select
 			expect(mapping.select.size).toBeGreaterThan(0);
-			expect(mapping.json).toContain("'fellowship', f_f1.value");
+			expect(mapping.json).toContain('f_f1.value as "fellowship"');
 			expect(mapping.join).toHaveLength(1);
 			expect(mapping.join[0]).toContain('left outer join lateral');
 			expect(mapping.join[0]).toContain('row_to_json');
@@ -320,7 +320,7 @@ describe('RelationshipHandler', () => {
 				[] // orderBy
 			);
 
-			expect(mapping.json).toContain("'battles', f_b1.value");
+			expect(mapping.json).toContain('f_b1.value as "battles"');
 			expect(mapping.join).toHaveLength(1);
 			expect(mapping.join[0]).toContain('left outer join lateral');
 			expect(mapping.join[0]).toContain('person_battles');
@@ -365,7 +365,7 @@ describe('RelationshipHandler', () => {
 			);
 
 			// Should still create a join even with empty conditions
-			expect(mapping.json).toContain("'battles', f_b1.value");
+			expect(mapping.json).toContain('f_b1.value as "battles"');
 			expect(mapping.join).toHaveLength(1);
 		});
 

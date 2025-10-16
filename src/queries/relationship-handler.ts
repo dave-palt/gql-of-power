@@ -68,7 +68,7 @@ export class RelationshipHandler {
 		);
 
 		if (referenceField.tableName && where.length > 0) {
-			mapping.json.push(`'${gqlFieldName}', ${alias.toColumnName('value')}`);
+			mapping.json.push(`${alias.toColumnName('value')} as "${gqlFieldName}"`);
 
 			const isArray = fieldProps.reference !== ReferenceType.ONE_TO_ONE;
 			const jsonSelect = SQLBuilder.generateJsonSelectStatement(alias.toString(), isArray);
@@ -171,14 +171,25 @@ export class RelationshipHandler {
 			mapping.select.add(
 				`${fieldProps.fieldNames.map((fn) => parentAlias.toColumnName(fn)).join(', ')}`
 			);
-			mapping.json.push(`'${gqlFieldName}', ${alias.toColumnName('value')}`);
+			mapping.json.push(`${alias.toColumnName('value')} as "${gqlFieldName}"`);
 
 			const selectFields = [
 				...new Set(ons.map((on) => alias.toColumnName(on)).concat(Array.from(select))),
 			];
 
 			const jsonSQL = SQLBuilder.generateJsonSelectStatement(alias.toString());
-			const fromSQL = `"${referenceField.tableName}" as ${alias.toString()}`;
+
+			const subFromSQL = this.buildSubFromSQL(
+				selectFields,
+				referenceField.tableName,
+				alias,
+				filterJoin,
+				where,
+				whereWithValues,
+				'',
+				limit,
+				offset
+			);
 
 			const whereConditions = `where ${where}
 				${whereWithValues.length > 0 ? ` and ( ${whereWithValues.join(' and ')} )` : ''}
@@ -187,7 +198,7 @@ export class RelationshipHandler {
 
 			const leftOuterJoin = SQLBuilder.buildLateralJoin(
 				jsonSQL,
-				fromSQL,
+				subFromSQL,
 				join,
 				whereConditions,
 				alias.toString()
@@ -269,7 +280,7 @@ export class RelationshipHandler {
 				${join.join(' \n')}
 			) as ${refAlias} on true`.replaceAll(/[ \n\t]+/gi, ' ');
 
-			mapping.json.push(`'${gqlFieldName}', ${alias.toColumnName('value')}`);
+			mapping.json.push(`${alias.toColumnName('value')} as "${gqlFieldName}"`);
 			mapping.join.push(leftOuterJoin);
 			mapping.values = { ...mapping.values, ...values };
 		} else {

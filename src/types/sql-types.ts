@@ -33,7 +33,7 @@ export type MetadataProvider = {
 	exists: (entityName: string) => boolean;
 	getMetadata: <T, K extends EntityMetadata<T>>(entityName: string) => K;
 	rawQuery: (sql: string, bindings?: any) => string;
-	executeQuery: (sql: string, params?: any[], _?: any) => Promise<any>;
+	executeQuery: (sql: string, ...params: any[]) => Promise<any>;
 };
 
 export enum Sort {

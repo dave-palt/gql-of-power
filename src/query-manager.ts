@@ -20,12 +20,7 @@ export const getGQLFields = (...args: Parameters<typeof graphqlFields>) => {
 };
 
 export class GQLQueryManager {
-	constructor(private opts?: { namedParameterPrefix?: string }) {
-		console.log('');
-		console.log('');
-		console.log('GQLQueryManager - created with prefix', this.opts?.namedParameterPrefix);
-		console.log('');
-	}
+	constructor(private opts?: { namedParameterPrefix?: string }) {}
 	async getQueryResultsFor<K extends { _____name: string }, T>(
 		{ exists, getMetadata, rawQuery, executeQuery }: MetadataProvider,
 		entity: new () => T,
@@ -50,6 +45,7 @@ export class GQLQueryManager {
 		const fields = getGQLFields(info, {}, { processArguments: true }) as FieldSelection<T>;
 		const customFields = getCustomFieldsFor(getGQLEntityNameForClass(entity));
 		const mapper = new GQLtoSQLMapper({ exists, getMetadata, rawQuery, executeQuery }, this.opts);
+
 		const { bindings, querySQL } = mapper.buildQueryAndBindingsFor({
 			fields,
 			customFields,
@@ -60,24 +56,8 @@ export class GQLQueryManager {
 
 		logger.timeLog(logName, 'input processed, query created', bindings);
 
-		const res = (await executeQuery(rawQuery(querySQL, bindings))) as Array<{ val: K | string }>;
+		const res = (await executeQuery(rawQuery(querySQL, bindings))) as Array<K>;
 
-		logger.timeLog(logName, 'found', res.length, 'results');
-		const mapped = res.map(({ val }) => {
-			// for (const key of customFieldsKeys) {
-			// 	const conf = (customFields as any)[key];
-			// 	Object.defineProperty(val, key, {
-			// 		get: () => conf.resolve(val),
-			// 		enumerable: true,
-			// 		configurable: true,
-			// 	});
-			// }
-
-			return typeof val === 'string' ? (JSON.parse(val) as K) : val;
-		});
-
-		logger.timeLog(logName, res.length, 'results mapped');
-		logger.timeEnd(logName);
-		return mapped;
+		return res;
 	}
 }

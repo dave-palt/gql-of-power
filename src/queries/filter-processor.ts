@@ -35,10 +35,6 @@ export class FilterProcessor extends ClassOperations {
 		private namedParameterPrefix: string = ':'
 	) {
 		super();
-		console.log('');
-		console.log('');
-		console.log('FilterProcessor - created with prefix', this.namedParameterPrefix);
-		console.log('');
 	}
 
 	/**
