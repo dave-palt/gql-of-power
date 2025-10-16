@@ -1,0 +1,16 @@
+[test]
+# Only run tests from source directories, not dist
+preload = ["./tests/setup.ts"]
+testNamePattern = ".*\\.test\\.(ts|js)$"
+
+# Explicitly exclude dist directory from test discovery
+exclude = [
+  "dist/**/*",
+  "node_modules/**/*",
+  "coverage/**/*"
+]
+
+# Include only tests from these directories
+include = [
+  "tests/**/*.test.ts"
+]

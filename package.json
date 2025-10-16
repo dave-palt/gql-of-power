@@ -13,8 +13,8 @@
 		"test": "D3GOP_LOG_TYPE=\"disabled\" bun test",
 		"test:unit": "D3GOP_LOG_TYPE=\"disabled\" bun test --filter='unit'",
 		"test:integration": "D3GOP_LOG_TYPE=\"disabled\" bun test --filter='integration'",
-		"test:watch": "bun test --watch",
-		"test:coverage": "bun test --coverage"
+		"test:watch": "D3GOP_LOG_TYPE=\"disabled\" bun test --watch",
+		"test:coverage": "D3GOP_LOG_TYPE=\"disabled\" bun test --coverage"
 	},
 	"keywords": [],
 	"author": "",
