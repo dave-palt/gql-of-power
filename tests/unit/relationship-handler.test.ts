@@ -5,13 +5,13 @@
  * and Many-to-Many relationships extracted from GQLtoSQLMapper.
  */
 
-import { describe, it, expect, beforeEach } from 'bun:test';
-import { RelationshipHandler } from '../../src/queries/relationship-handler';
+import { beforeEach, describe, expect, it } from 'bun:test';
 import { AliasManager, AliasType } from '../../src/queries/alias';
 import { newMappings } from '../../src/queries/gql-to-sql-mapper';
-import { ReferenceType, EntityMetadata, EntityProperty } from '../../src/types';
+import { RelationshipHandler } from '../../src/queries/relationship-handler';
+import { EntityMetadata, EntityProperty, ReferenceType } from '../../src/types';
+import { Fellowship, Person, Ring } from '../fixtures/middle-earth-schema';
 import { createMockMetadataProvider } from '../fixtures/test-data';
-import { Person, Ring, Fellowship } from '../fixtures/middle-earth-schema';
 import '../setup';
 
 describe('RelationshipHandler', () => {
@@ -27,9 +27,11 @@ describe('RelationshipHandler', () => {
 
 	describe('mapOneToX', () => {
 		it('should handle One-to-Many relationship for Fellowship members', () => {
-			const fellowshipMetadata = mockProvider.getMetadata('Fellowship') as EntityMetadata<Fellowship>;
+			const fellowshipMetadata = mockProvider.getMetadata(
+				'Fellowship'
+			) as EntityMetadata<Fellowship>;
 			const personMetadata = mockProvider.getMetadata('Person') as EntityMetadata<Person>;
-			
+
 			// Fellowship has many members (persons)
 			const fieldProps = fellowshipMetadata.properties.members as EntityProperty;
 			const parentAlias = aliasManager.start('f');
@@ -69,7 +71,7 @@ describe('RelationshipHandler', () => {
 		it('should handle One-to-One relationship for Person ring', () => {
 			const personMetadata = mockProvider.getMetadata('Person') as EntityMetadata<Person>;
 			const ringMetadata = mockProvider.getMetadata('Ring') as EntityMetadata<Ring>;
-			
+
 			// Person has one ring
 			const fieldProps = personMetadata.properties.ring as EntityProperty;
 			const parentAlias = aliasManager.start('p');
@@ -101,14 +103,16 @@ describe('RelationshipHandler', () => {
 			expect(mapping.join).toHaveLength(1);
 			expect(mapping.join[0]).toContain('left outer join lateral');
 			// One-to-One should NOT have json_agg
-			expect(mapping.join[0]).toContain('jsonb_build_object');
+			expect(mapping.join[0]).toContain('row_to_json');
 			expect(mapping.join[0]).not.toContain('json_agg');
 		});
 
 		it('should handle pagination and ordering for One-to-Many', () => {
-			const fellowshipMetadata = mockProvider.getMetadata('Fellowship') as EntityMetadata<Fellowship>;
+			const fellowshipMetadata = mockProvider.getMetadata(
+				'Fellowship'
+			) as EntityMetadata<Fellowship>;
 			const personMetadata = mockProvider.getMetadata('Person') as EntityMetadata<Person>;
-			
+
 			const fieldProps = fellowshipMetadata.properties.members as EntityProperty;
 			const parentAlias = aliasManager.start('f');
 			const alias = aliasManager.next(AliasType.field, 'p');
@@ -143,7 +147,7 @@ describe('RelationshipHandler', () => {
 			const personMetadata = mockProvider.getMetadata('Person') as EntityMetadata<Person>;
 			const fieldProps = {
 				...personMetadata.properties.ring,
-				mappedBy: 'invalidMappedBy'
+				mappedBy: 'invalidMappedBy',
 			} as EntityProperty;
 
 			const parentAlias = aliasManager.start('p');
@@ -156,9 +160,9 @@ describe('RelationshipHandler', () => {
 				properties: {
 					invalidMappedBy: {
 						joinColumns: ['col1', 'col2'], // 2 columns
-						referencedColumnNames: ['ref1'] // 1 column - mismatch!
-					} as EntityProperty
-				}
+						referencedColumnNames: ['ref1'], // 1 column - mismatch!
+					} as EntityProperty,
+				},
 			} as EntityMetadata<any>;
 
 			expect(() => {
@@ -186,8 +190,10 @@ describe('RelationshipHandler', () => {
 	describe('mapManyToOne', () => {
 		it('should handle Many-to-One relationship for Person fellowship', () => {
 			const personMetadata = mockProvider.getMetadata('Person') as EntityMetadata<Person>;
-			const fellowshipMetadata = mockProvider.getMetadata('Fellowship') as EntityMetadata<Fellowship>;
-			
+			const fellowshipMetadata = mockProvider.getMetadata(
+				'Fellowship'
+			) as EntityMetadata<Fellowship>;
+
 			// Person belongs to one fellowship
 			const fieldProps = personMetadata.properties.fellowship as EntityProperty;
 			const parentAlias = aliasManager.start('p');
@@ -219,17 +225,19 @@ describe('RelationshipHandler', () => {
 			expect(mapping.json).toContain("'fellowship', f_f1.value");
 			expect(mapping.join).toHaveLength(1);
 			expect(mapping.join[0]).toContain('left outer join lateral');
-			expect(mapping.join[0]).toContain('jsonb_build_object');
+			expect(mapping.join[0]).toContain('row_to_json');
 		});
 
 		it('should throw error for mismatched field lengths', () => {
 			const personMetadata = mockProvider.getMetadata('Person') as EntityMetadata<Person>;
-			const fellowshipMetadata = mockProvider.getMetadata('Fellowship') as EntityMetadata<Fellowship>;
-			
+			const fellowshipMetadata = mockProvider.getMetadata(
+				'Fellowship'
+			) as EntityMetadata<Fellowship>;
+
 			// Create invalid field props with mismatched lengths
 			const invalidFieldProps = {
 				...personMetadata.properties.fellowship,
-				fieldNames: ['field1', 'field2'] // 2 fields
+				fieldNames: ['field1', 'field2'], // 2 fields
 			} as EntityProperty;
 
 			// Fellowship has 1 primary key, but fieldNames has 2 - mismatch!
@@ -265,14 +273,14 @@ describe('RelationshipHandler', () => {
 				name: 'Person',
 				tableName: 'persons',
 				primaryKeys: ['id'],
-				properties: {}
+				properties: {},
 			} as EntityMetadata<any>;
 
 			const referenceMetadata = {
 				name: 'Battle',
 				tableName: 'battles',
 				primaryKeys: ['id'],
-				properties: {}
+				properties: {},
 			} as EntityMetadata<any>;
 
 			const fieldProps = {
@@ -284,7 +292,7 @@ describe('RelationshipHandler', () => {
 				joinColumns: ['person_id'],
 				referencedColumnNames: [],
 				inverseJoinColumns: ['battle_id'],
-				pivotTable: 'person_battles'
+				pivotTable: 'person_battles',
 			} as EntityProperty;
 
 			const parentAlias = aliasManager.start('p');
@@ -324,13 +332,13 @@ describe('RelationshipHandler', () => {
 				name: 'Battle',
 				tableName: 'battles',
 				primaryKeys: ['id'],
-				properties: {}
+				properties: {},
 			} as EntityMetadata<any>;
 
 			const fieldProps = {
 				joinColumns: ['person_id'], // Fix: provide matching join columns
 				inverseJoinColumns: ['battle_id'],
-				pivotTable: 'person_battles'
+				pivotTable: 'person_battles',
 			} as EntityProperty;
 
 			const parentAlias = aliasManager.start('p');
@@ -340,7 +348,7 @@ describe('RelationshipHandler', () => {
 			// Test with empty whereWithValues to simulate null conditions
 			relationshipHandler.mapManyToMany(
 				referenceMetadata,
-				['id'], // primaryKeys 
+				['id'], // primaryKeys
 				fieldProps,
 				parentAlias,
 				alias,
@@ -369,7 +377,7 @@ describe('RelationshipHandler', () => {
 			const fieldProps = {
 				joinColumns: ['person_id'], // 1 join column
 				inverseJoinColumns: ['battle_id'],
-				pivotTable: 'person_battles'
+				pivotTable: 'person_battles',
 			} as EntityProperty;
 
 			const parentAlias = aliasManager.start('p');
@@ -405,7 +413,7 @@ describe('RelationshipHandler', () => {
 			const fieldProps = {
 				joinColumns: ['person_id'],
 				inverseJoinColumns: ['battle_id1', 'battle_id2'], // 2 inverse join columns
-				pivotTable: 'person_battles'
+				pivotTable: 'person_battles',
 			} as EntityProperty;
 
 			const parentAlias = aliasManager.start('p');
@@ -436,28 +444,24 @@ describe('RelationshipHandler', () => {
 
 	describe('integration scenarios', () => {
 		it('should handle complex Fellowship with members and quest', () => {
-			const fellowshipMetadata = mockProvider.getMetadata('Fellowship') as EntityMetadata<Fellowship>;
+			const fellowshipMetadata = mockProvider.getMetadata(
+				'Fellowship'
+			) as EntityMetadata<Fellowship>;
 			const personMetadata = mockProvider.getMetadata('Person') as EntityMetadata<Person>;
-			
+
 			const membersFieldProps = fellowshipMetadata.properties.members as EntityProperty;
 			const parentAlias = aliasManager.start('f');
 			const membersAlias = aliasManager.next(AliasType.field, 'p');
 			const mapping = newMappings();
 
 			// Test with complex filtering and ordering
-			const mockOrderBy = [
-				{ name: 'asc' as const },
-				{ race: 'desc' as const }
-			];
+			const mockOrderBy = [{ name: 'asc' as const }, { race: 'desc' as const }];
 
-			const mockWhereWithValues = [
-				'p.race = :race',
-				'p.age > :min_age'
-			];
+			const mockWhereWithValues = ['p.race = :race', 'p.age > :min_age'];
 
 			const mockValues = {
 				race: 'Hobbit',
-				min_age: 30
+				min_age: 30,
 			};
 
 			relationshipHandler.mapOneToX(
@@ -479,7 +483,7 @@ describe('RelationshipHandler', () => {
 			);
 
 			const generatedJoin = mapping.join[0];
-			
+
 			// Verify the query structure
 			expect(generatedJoin).toContain('left outer join lateral');
 			expect(generatedJoin).toContain('json_agg');

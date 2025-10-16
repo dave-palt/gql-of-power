@@ -5,13 +5,13 @@
  * including field operations, class operations (_and, _or, _not), and relationship filters.
  */
 
-import { describe, it, expect, beforeEach, spyOn, mock } from 'bun:test';
+import { beforeEach, describe, expect, it, mock } from 'bun:test';
+import { AliasManager } from '../../src/queries/alias';
 import { FilterProcessor } from '../../src/queries/filter-processor';
-import { AliasManager, AliasType } from '../../src/queries/alias';
 import { newMappings } from '../../src/queries/gql-to-sql-mapper';
 import { EntityMetadata, GQLEntityFilterInputFieldType, MappingsType } from '../../src/types';
+import { Fellowship, Person } from '../fixtures/middle-earth-schema';
 import { createMockMetadataProvider } from '../fixtures/test-data';
-import { Person, Ring, Fellowship } from '../fixtures/middle-earth-schema';
 import '../setup';
 
 describe('FilterProcessor', () => {
@@ -23,15 +23,11 @@ describe('FilterProcessor', () => {
 	beforeEach(() => {
 		aliasManager = new AliasManager();
 		mockProvider = createMockMetadataProvider();
-		
+
 		// Mock the recursive map function
 		mockRecursiveMapFunction = mock(() => new Map<string, MappingsType>());
-		
-		filterProcessor = new FilterProcessor(
-			aliasManager,
-			mockProvider,
-			mockRecursiveMapFunction
-		);
+
+		filterProcessor = new FilterProcessor(aliasManager, mockProvider, mockRecursiveMapFunction);
 	});
 
 	describe('mapFilter', () => {
@@ -42,17 +38,10 @@ describe('FilterProcessor', () => {
 			const alias = aliasManager.start('p');
 
 			const filter: GQLEntityFilterInputFieldType<Person> = {
-				name_eq: 'Frodo'
+				name_eq: 'Frodo',
 			};
 
-			filterProcessor.mapFilter(
-				personMetadata,
-				mappings,
-				parentAlias,
-				alias,
-				'name_eq',
-				filter
-			);
+			filterProcessor.mapFilter(personMetadata, mappings, parentAlias, alias, 'name_eq', filter);
 
 			const nameEqMapping = mappings.get('name_eq');
 			expect(nameEqMapping).toBeDefined();
@@ -69,17 +58,10 @@ describe('FilterProcessor', () => {
 			const alias = aliasManager.start('p');
 
 			const filter: GQLEntityFilterInputFieldType<Person> = {
-				race_in: ['Hobbit', 'Elf', 'Dwarf'] as any
+				race_in: ['Hobbit', 'Elf', 'Dwarf'] as any,
 			};
 
-			filterProcessor.mapFilter(
-				personMetadata,
-				mappings,
-				parentAlias,
-				alias,
-				'race_in',
-				filter
-			);
+			filterProcessor.mapFilter(personMetadata, mappings, parentAlias, alias, 'race_in', filter);
 
 			const raceInMapping = mappings.get('race_in');
 			expect(raceInMapping).toBeDefined();
@@ -95,17 +77,10 @@ describe('FilterProcessor', () => {
 			const alias = aliasManager.start('p');
 
 			const filter: GQLEntityFilterInputFieldType<Person> = {
-				age: 50 as any
+				age: 50 as any,
 			};
 
-			filterProcessor.mapFilter(
-				personMetadata,
-				mappings,
-				parentAlias,
-				alias,
-				'age',
-				filter
-			);
+			filterProcessor.mapFilter(personMetadata, mappings, parentAlias, alias, 'age', filter);
 
 			const ageMapping = mappings.get('age');
 			expect(ageMapping).toBeDefined();
@@ -121,20 +96,10 @@ describe('FilterProcessor', () => {
 			const alias = aliasManager.start('p');
 
 			const filter: GQLEntityFilterInputFieldType<Person> = {
-				_or: [
-					{ name: 'Frodo' as any },
-					{ race: 'Hobbit' as any }
-				]
+				_or: [{ name: 'Frodo' as any }, { race: 'Hobbit' as any }],
 			};
 
-			filterProcessor.mapFilter(
-				personMetadata,
-				mappings,
-				parentAlias,
-				alias,
-				'_or',
-				filter
-			);
+			filterProcessor.mapFilter(personMetadata, mappings, parentAlias, alias, '_or', filter);
 
 			const orMapping = mappings.get('_or');
 			expect(orMapping).toBeDefined();
@@ -148,17 +113,10 @@ describe('FilterProcessor', () => {
 			const alias = aliasManager.start('p');
 
 			const filter = {
-				age: { _gt: 30, _lt: 100 } as any
+				age: { _gt: 30, _lt: 100 } as any,
 			};
 
-			filterProcessor.mapFilter(
-				personMetadata,
-				mappings,
-				parentAlias,
-				alias,
-				'age',
-				filter as any
-			);
+			filterProcessor.mapFilter(personMetadata, mappings, parentAlias, alias, 'age', filter as any);
 
 			const ageMapping = mappings.get('age');
 			expect(ageMapping).toBeDefined();
@@ -181,17 +139,10 @@ describe('FilterProcessor', () => {
 			mockRecursiveMapFunction.mockImplementation(() => mockRelationshipMappings);
 
 			const filter: GQLEntityFilterInputFieldType<Person> = {
-				fellowship: { name: 'Fellowship of the Ring' } as any
+				fellowship: { name: 'Fellowship of the Ring' } as any,
 			};
 
-			filterProcessor.mapFilter(
-				personMetadata,
-				mappings,
-				parentAlias,
-				alias,
-				'fellowship',
-				filter
-			);
+			filterProcessor.mapFilter(personMetadata, mappings, parentAlias, alias, 'fellowship', filter);
 
 			expect(mockRecursiveMapFunction).toHaveBeenCalled();
 			const fellowshipMapping = mappings.get('fellowship');
@@ -205,7 +156,7 @@ describe('FilterProcessor', () => {
 			const alias = aliasManager.start('p');
 
 			const filter = {
-				unknownField: 'value'
+				unknownField: 'value',
 			};
 
 			expect(() => {
@@ -249,7 +200,7 @@ describe('FilterProcessor', () => {
 
 			const filterValue = {
 				_gt: 30,
-				_lt: 100
+				_lt: 100,
 			};
 
 			filterProcessor.applyFilterValue({
@@ -262,8 +213,8 @@ describe('FilterProcessor', () => {
 			});
 
 			expect(mapping.where).toHaveLength(2); // One for _gt and one for _lt
-			expect(mapping.where.some(w => w.includes('>'))).toBe(true);
-			expect(mapping.where.some(w => w.includes('<'))).toBe(true);
+			expect(mapping.where.some((w) => w.includes('>'))).toBe(true);
+			expect(mapping.where.some((w) => w.includes('<'))).toBe(true);
 		});
 
 		it('should handle null values correctly', () => {
@@ -293,10 +244,7 @@ describe('FilterProcessor', () => {
 			const parentAlias = aliasManager.start('p');
 			const alias = aliasManager.start('p');
 
-			const gqlFilters = [
-				{ name: 'Frodo' as any },
-				{ race: 'Hobbit' as any }
-			];
+			const gqlFilters = [{ name: 'Frodo' as any }, { race: 'Hobbit' as any }];
 
 			filterProcessor._or({
 				entityMetadata: personMetadata,
@@ -318,10 +266,7 @@ describe('FilterProcessor', () => {
 			const parentAlias = aliasManager.start('p');
 			const alias = aliasManager.start('p');
 
-			const gqlFilters = [
-				{ name: 'Frodo' as any, age: undefined },
-				{ race: 'Hobbit' as any }
-			];
+			const gqlFilters = [{ name: 'Frodo' as any, age: undefined }, { race: 'Hobbit' as any }];
 
 			filterProcessor._or({
 				entityMetadata: personMetadata,
@@ -353,10 +298,7 @@ describe('FilterProcessor', () => {
 			mockMappings.set('test', testMapping);
 			mockRecursiveMapFunction.mockImplementation(() => mockMappings);
 
-			const gqlFilters = [
-				{ name: 'Frodo' as any },
-				{ race: 'Hobbit' as any }
-			];
+			const gqlFilters = [{ name: 'Frodo' as any }, { race: 'Hobbit' as any }];
 
 			filterProcessor._and({
 				entityMetadata: personMetadata,
@@ -413,17 +355,14 @@ describe('FilterProcessor', () => {
 
 			const complexFilter = {
 				_or: [
-					{ 
+					{
 						name_eq: 'Frodo',
-						age: { _gt: 30 } as any
+						age: { _gt: 30 } as any,
 					},
 					{
-						_and: [
-							{ race: 'Hobbit' as any },
-							{ age: { _lt: 50 } as any }
-						]
-					}
-				]
+						_and: [{ race: 'Hobbit' as any }, { age: { _lt: 50 } as any }],
+					},
+				],
 			};
 
 			// Test mapping the _or part
@@ -442,7 +381,9 @@ describe('FilterProcessor', () => {
 		});
 
 		it('should handle Fellowship members with complex filtering', () => {
-			const fellowshipMetadata = mockProvider.getMetadata('Fellowship') as EntityMetadata<Fellowship>;
+			const fellowshipMetadata = mockProvider.getMetadata(
+				'Fellowship'
+			) as EntityMetadata<Fellowship>;
 			const mappings = new Map<string, MappingsType>();
 			const parentAlias = aliasManager.start('f');
 			const alias = aliasManager.start('f');
@@ -457,8 +398,8 @@ describe('FilterProcessor', () => {
 
 			const filter = {
 				members: {
-					race: 'Hobbit'
-				}
+					race: 'Hobbit',
+				},
 			};
 
 			filterProcessor.mapFilter(
@@ -482,23 +423,13 @@ describe('FilterProcessor', () => {
 			const alias = aliasManager.start('p');
 
 			// Apply multiple operations to age field
-			filterProcessor.mapFilter(
-				personMetadata,
-				mappings,
-				parentAlias,
-				alias,
-				'age_gt',
-				{ age_gt: 18 } as any
-			);
+			filterProcessor.mapFilter(personMetadata, mappings, parentAlias, alias, 'age_gt', {
+				age_gt: 18,
+			} as any);
 
-			filterProcessor.mapFilter(
-				personMetadata,
-				mappings,
-				parentAlias,
-				alias,
-				'age_lt',
-				{ age_lt: 150 } as any
-			);
+			filterProcessor.mapFilter(personMetadata, mappings, parentAlias, alias, 'age_lt', {
+				age_lt: 150,
+			} as any);
 
 			const gtMapping = mappings.get('age_gt');
 			const ltMapping = mappings.get('age_lt');

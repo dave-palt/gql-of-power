@@ -17,6 +17,7 @@ import {
 	RelatedFieldSettings,
 	Sort,
 } from '../types';
+import { keys } from '../utils';
 import { logger } from '../variables';
 
 const TypeMap: { [key: string]: any } = {};
@@ -48,7 +49,7 @@ export function createGQLTypes<T extends Object>(
 
 	const gqlEntityName = getGQLEntityNameForClass(classType);
 
-	const fields = Object.keys(opts) as (keyof typeof opts)[];
+	const fields = keys(opts);
 
 	class GQLEntity {
 		_____name = gqlEntityName;
@@ -89,8 +90,7 @@ export function createGQLTypes<T extends Object>(
 
 		logger.info('CustomFieldsMap', gqlEntityName, customFields);
 
-		for (const fieldName of Object.keys(customFields) as (keyof typeof opts &
-			keyof typeof customFields)[]) {
+		for (const fieldName of keys(customFields)) {
 			const fieldOptions = fieldName in customFields ? customFields[fieldName] : undefined;
 
 			if (!fieldOptions) {

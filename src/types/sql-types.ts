@@ -1,6 +1,6 @@
 import { Field, FieldResolver, registerEnumType } from 'type-graphql';
-import { ClassOperations, FieldOperations } from './operations';
-import { Alias } from './queries';
+import { FieldOperations } from '../operations';
+import { GQLEntityFilterInputFieldType, GQLEntityPaginationInputType } from './gql-types';
 
 export enum ReferenceType {
 	ONE_TO_ONE = '1:1',
@@ -25,7 +25,7 @@ export type EntityMetadata<T> = {
 	name?: string;
 	tableName: string;
 	properties: {
-		[key in string & keyof T]: EntityProperty;
+		[key in (string & keyof T) | string]: EntityProperty;
 	};
 };
 
@@ -87,13 +87,18 @@ type GQLArgumentsFilterAndPagination<T> = {
 	>;
 };
 
+export type ActualValueType<T> = Exclude<T, undefined | null>;
+export type ExtractType<T> = ActualValueType<T> extends Array<infer K>
+	? ActualValueType<K>
+	: ActualValueType<T>;
+
 // Simple field selection type for GraphQL field selection (like graphql-fields output)
 export type FieldSelection<T> = {
-	[K in keyof T]?: T[K] extends Array<infer U>
-		? FieldSelection<U> | { __arguments?: any }
-		: T[K] extends object
-		? FieldSelection<T[K]> | { __arguments?: any }
-		: {} | { __arguments?: any };
+	[K in keyof T]?: ActualValueType<T[K]> extends Array<infer U>
+		? FieldSelection<U> | { __arguments?: any; is_array: true }
+		: ActualValueType<T[K]> extends object
+		? FieldSelection<ActualValueType<T[K]>> | { __arguments?: any; is_array: false }
+		: {} | { __arguments?: any; is_unk: true };
 };
 
 // Keep the original complex Fields type for when it's needed
@@ -154,74 +159,3 @@ export type Fields<
 			  >
 		: {};
 }>;
-
-export type OmitArrays<T> = {
-	[K in keyof T as T[K] extends any[] ? never : K]: T[K];
-};
-
-export type FilterValueType<T> = T extends Array<infer K>
-	? FilterValueType<K>
-	: T extends string | number | boolean | null | undefined | Date | BigInt
-	? T
-	: GQLEntityFilterInputFieldType<T>;
-
-export type GQLFieldOperationType<T> = {
-	[key in string & keyof typeof FieldOperations]?: T extends Array<infer K>
-		? GQLEntityFilterInputFieldType<K>
-		: GQLEntityFilterInputFieldType<T>[];
-};
-
-export type GQLFieldOperationsType<T> = {
-	[key in string & keyof T]?: GQLFieldOperationType<T>;
-};
-
-export type GQLEntityFilterInputFieldType<T> = {
-	[key in string & keyof T]?: FilterValueType<T[key]>;
-} & {
-	//_and, _or, _not => {  }
-	[key in string & keyof typeof ClassOperations]?: GQLEntityFilterInputFieldType<T>[];
-} & {
-	[key in string & keyof T as `${Capitalize<key>}`]?: GQLFieldOperationsType<T[key]>;
-};
-
-export type GQLEntityFilterInputFieldValueType<T> = Partial<
-	GQLEntityFilterInputFieldType<T>[keyof GQLEntityFilterInputFieldType<T>]
->;
-
-export type GQLEntityOrderByInputType<T> = Partial<{
-	[Key in string & keyof T]: 'asc' | 'desc';
-}>;
-export type GQLEntityPaginationInputType<T> = {
-	limit?: number;
-	offset?: number;
-	orderBy?: GQLEntityOrderByInputType<T>[];
-};
-
-export type MappingsType = {
-	select: Set<string>;
-	json: string[];
-	join: string[];
-	// TODO: convert into matrix [][] with an array for each _or condition
-	filterJoin: string[];
-	// TODO: convert into matrix [][] with an array for each _or condition
-	where: string[];
-	values: Record<string, any>;
-	limit?: number;
-	offset?: number;
-	orderBy: GQLEntityOrderByInputType<any>[];
-	alias?: Alias;
-	_or: MappingsType[];
-	_and: MappingsType[];
-	_not: MappingsType[];
-};
-
-export type FilterMappingType = {
-	join: string[];
-	// TODO: convert into matrix [][] with an array for each _or condition
-	filterJoin: string[];
-	// TODO: convert into matrix [][] with an array for each _or condition
-	where: string[];
-	values: Record<string, any>;
-	alias?: Alias;
-	unionAll: FilterMappingType[];
-};

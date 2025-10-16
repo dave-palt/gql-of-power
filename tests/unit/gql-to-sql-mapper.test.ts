@@ -4,14 +4,10 @@
  * These tests focus on individual methods of the GQLtoSQLMapper class
  * to ensure each component works correctly in isolation before refactoring.
  */
-
+import { beforeEach, describe, expect, it } from 'bun:test';
 import { EntityMetadata } from '../../src';
-import {
-	generateJsonSelectStatement,
-	GQLtoSQLMapper,
-	mappingsReducer,
-	newMappings,
-} from '../../src/queries/gql-to-sql-mapper';
+import { GQLtoSQLMapper, mappingsReducer, newMappings } from '../../src/queries/gql-to-sql-mapper';
+import { SQLBuilder } from '../../src/queries/sql-builder';
 import { Fellowship, Person, Ring } from '../fixtures/middle-earth-schema';
 import { createMockMetadataProvider } from '../fixtures/test-data';
 import '../setup';
@@ -46,13 +42,13 @@ describe('GQLtoSQLMapper - Unit Tests', () => {
 
 		describe('generateJsonSelectStatement', () => {
 			it('should generate correct JSONB object for single record', () => {
-				const result = generateJsonSelectStatement('alias', false);
+				const result = SQLBuilder.generateJsonSelectStatement('alias', false);
 
 				expect(result).toBe('row_to_json(alias)');
 			});
 
 			it('should generate correct JSONB array for multiple records', () => {
-				const result = generateJsonSelectStatement('alias', true);
+				const result = SQLBuilder.generateJsonSelectStatement('alias', true);
 
 				expect(result).toBe("coalesce(json_agg(row_to_json(alias)), '[]'::json)");
 			});

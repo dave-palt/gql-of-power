@@ -1,4 +1,6 @@
 import { MappingsType } from '../types';
+import { keys } from '../utils';
+import { Alias } from './alias';
 
 const USE_STRING = process.env.D3GOP_USE_STRING_FOR_JSONB === 'true';
 
@@ -34,7 +36,8 @@ export class SQLBuilder {
 			? `jsonb_build_object(${json.join(', ')})`
 			: `'{' || ${json.map(jsonReducerForString).join(' || ')} || '}'`;
 	}
-
+	public static generateJsonSelectStatement = (alias: string, isMulti = false) =>
+		isMulti ? `coalesce(json_agg(row_to_json(${alias})), '[]'::json)` : `row_to_json(${alias})`;
 	/**
 	 * Builds a subquery with proper joins and where conditions
 	 * @param selectFields Fields to select
@@ -51,9 +54,7 @@ export class SQLBuilder {
 		alias: string,
 		globalFilterJoin: string[],
 		globalWhereJoin: string[],
-		value?: 
-			| { filterJoin: string }
-			| { where: string }
+		value?: { filterJoin: string } | { where: string }
 	): string {
 		return `select ${selectFields.join(', ')} 
             from ${tableName} as ${alias}
@@ -80,7 +81,7 @@ export class SQLBuilder {
 	public static buildUnionAll(
 		fields: string[],
 		tableName: string,
-		alias: string,
+		alias: Alias,
 		globalFilterJoin: string[],
 		join: string[],
 		whereSQL: string,
@@ -88,15 +89,13 @@ export class SQLBuilder {
 		orConditions: MappingsType[],
 		queryBuilder: (
 			fields: string[],
-			alias: string,
+			alias: Alias,
 			tableName: string,
 			filterJoin: string[],
 			join: string[],
 			whereSQL: string,
 			whereWithValues: string[],
-			value?:
-				| { filterJoin: string }
-				| { where: string }
+			value?: { filterJoin: string } | { where: string }
 		) => string
 	): string[] {
 		return orConditions
@@ -140,7 +139,7 @@ export class SQLBuilder {
 	 * @returns SQL ORDER BY clause
 	 */
 	public static buildOrderBySQL(
-		orderBy: Array<{ [key: string]: 'asc' | 'desc' }>,
+		orderBy: Array<Record<string, 'asc' | 'desc'>>,
 		fieldMapper: (field: string) => string[]
 	): string {
 		if (!orderBy || orderBy.length === 0) {
@@ -149,7 +148,7 @@ export class SQLBuilder {
 
 		const orderClauses = orderBy
 			.map((obs) =>
-				Object.keys(obs)
+				keys(obs)
 					.map((ob) =>
 						fieldMapper(ob)
 							.map((fn) => `${fn} ${obs[ob]}`)
@@ -186,5 +185,104 @@ export class SQLBuilder {
 			${joins.join(' \n')}
 			${whereConditions}
 		) as ${alias} on true`.replaceAll(/[ \n\t]+/gi, ' ');
+	}
+
+	/**
+	 * Builds a many-to-many pivot table query
+	 * @param fieldNames Fields to select
+	 * @param alias Table alias
+	 * @param tableName Table name
+	 * @param filterJoin Filter join conditions
+	 * @param join Join conditions
+	 * @param whereSQL Where conditions
+	 * @param whereWithValues Where conditions with values
+	 * @param value Optional additional conditions
+	 * @returns Many-to-many pivot table SQL
+	 */
+	public static buildManyToManyPivotTable(
+		fieldNames: string[],
+		alias: Alias,
+		tableName: string,
+		filterJoin: string[],
+		join: string[],
+		whereSQL: string,
+		whereWithValues: string[],
+		value?: { filterJoin: string } | { where: string }
+	): string {
+		return `select ${fieldNames.join(', ')} 
+					from ${tableName} as ${alias.toString()}
+						${join.join(' \n')}
+						${value && 'filterJoin' in value ? value.filterJoin : ''}
+						${filterJoin.join(' \n')}
+				${whereSQL.length > 0 ? ` where ${whereSQL}` : ''}
+				${whereWithValues.length > 0 ? ` and ${whereWithValues.join(' and ')}` : ''}
+				${value && 'where' in value ? `and ${value.where}` : ''}`.replaceAll(/[ \n\t]+/gi, ' ');
+	}
+
+	/**
+	 * Builds a many-to-one join query
+	 * @param fields Fields to select
+	 * @param alias Table alias
+	 * @param tableName Table name
+	 * @param filterJoin Filter join conditions
+	 * @param join Join conditions
+	 * @param whereSQL Where conditions
+	 * @param whereWithValues Where conditions with values
+	 * @param value Optional additional conditions
+	 * @returns Many-to-one join SQL
+	 */
+	public static buildManyToOneJoin(
+		fields: string[],
+		alias: Alias,
+		tableName: string,
+		filterJoin: string[],
+		join: string[],
+		whereSQL: string,
+		whereWithValues: string[],
+		value?: { filterJoin: string } | { where: string }
+	): string {
+		return `select ${alias.toColumnName('*')} 
+					from "${tableName}" as ${alias}
+					${filterJoin.join(' \n')}
+					${join.join(' \n')}
+					${value && 'filterJoin' in value ? value.filterJoin : ''}
+				where ${whereSQL} 
+				${whereWithValues.length > 0 ? ' and ' : ''}
+				${whereWithValues.join(' and ')}
+				${value && 'where' in value ? `and ${value.where}` : ''}`.replaceAll(/[ \n\t]+/gi, ' ');
+	}
+
+	/**
+	 * Builds a one-to-many join query
+	 * @param fields Fields to select
+	 * @param alias Table alias
+	 * @param tableName Table name
+	 * @param filterJoin Filter join conditions
+	 * @param join Join conditions
+	 * @param whereSQL Where conditions
+	 * @param whereWithValues Where conditions with values
+	 * @param value Optional additional conditions
+	 * @returns One-to-many join SQL
+	 */
+	public static buildOneToXJoin(
+		fields: string[],
+		alias: Alias,
+		tableName: string,
+		filterJoin: string[],
+		join: string[],
+		whereSQL: string,
+		whereWithValues: string[],
+		value?: { filterJoin: string } | { where: string }
+	): string {
+		return `select ${alias.toColumnName('*')} 
+					from "${tableName}" as ${alias}
+					${filterJoin.join(' \n')}
+					${join.join(' \n')}
+					${value && 'filterJoin' in value ? value.filterJoin : ''}
+				where ${whereSQL} 
+				${whereWithValues.length > 0 ? ' and ' : ''}
+				${whereWithValues.join(' and ')}
+				${value && 'where' in value ? `and ${value.where}` : ''}
+				`.replaceAll(/[ \n\t]+/gi, ' ');
 	}
 }

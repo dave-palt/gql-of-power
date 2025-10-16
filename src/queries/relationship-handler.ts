@@ -1,10 +1,17 @@
-import { Alias, AliasManager, AliasType } from './alias';
-import { SQLBuilder } from './sql-builder';
-import { EntityMetadata, EntityProperty, GQLEntityOrderByInputType, MappingsType, ReferenceType } from '../types';
+import {
+	EntityMetadata,
+	EntityProperty,
+	GQLEntityOrderByInputType,
+	MappingsType,
+	ReferenceType,
+} from '../types';
+import { keys } from '../utils';
 import { logger } from '../variables';
+import { Alias } from './alias';
+import { SQLBuilder } from './sql-builder';
 
 export class RelationshipHandler {
-	constructor(private aliasManager: AliasManager) {}
+	constructor() {}
 
 	/**
 	 * Handles One-to-Many and One-to-One relationships
@@ -64,14 +71,15 @@ export class RelationshipHandler {
 			mapping.json.push(`'${gqlFieldName}', ${alias.toColumnName('value')}`);
 
 			const isArray = fieldProps.reference !== ReferenceType.ONE_TO_ONE;
-			const jsonSelect = SQLBuilder.generateJsonObjectSelectStatement(json, isArray);
+			const jsonSelect = SQLBuilder.generateJsonSelectStatement(alias.toString(), isArray);
 
 			const onFields = Array.from(
 				new Set(ons.map((on) => `${alias.toColumnName(on)}`).concat(Array.from(select)))
 			);
 
 			const processedOrderBy = this.processOrderBy(orderBy, referenceField, alias);
-			const orderBySQL = processedOrderBy.length > 0 ? ` order by ${processedOrderBy.join(', ')} ` : '';
+			const orderBySQL =
+				processedOrderBy.length > 0 ? ` order by ${processedOrderBy.join(', ')} ` : '';
 			const isNestedNeeded = offset || limit || processedOrderBy.length > 0;
 
 			const fromSQL = `"${referenceField.tableName}" as ${alias.toString()}`;
@@ -169,7 +177,7 @@ export class RelationshipHandler {
 				...new Set(ons.map((on) => alias.toColumnName(on)).concat(Array.from(select))),
 			];
 
-			const jsonSQL = SQLBuilder.generateJsonObjectSelectStatement(json);
+			const jsonSQL = SQLBuilder.generateJsonSelectStatement(alias.toString());
 			const fromSQL = `"${referenceField.tableName}" as ${alias.toString()}`;
 
 			const whereConditions = `where ${where}
@@ -241,7 +249,7 @@ export class RelationshipHandler {
 								from ${fieldProps.pivotTable}
 								where ${pivotTableWhereSQL.join(' and ')}`;
 
-			const jsonSQL = SQLBuilder.generateJsonObjectSelectStatement(json, true);
+			const jsonSQL = SQLBuilder.generateJsonSelectStatement(alias.toString(), true);
 			const refAlias = alias.toString();
 
 			const orderByClause = this.buildManyToManyOrderBy(orderBy, alias);
@@ -275,7 +283,7 @@ export class RelationshipHandler {
 		alias: Alias
 	): string[] {
 		return orderBy.reduce((acc, ob) => {
-			Object.keys(ob).forEach((k: string) => {
+			keys(ob).forEach((k) => {
 				logger.log(
 					'RelationshipHandler - processedOrderBy',
 					k,
@@ -327,7 +335,7 @@ export class RelationshipHandler {
 
 		const orderClauses = orderBy
 			.map((o) =>
-				Object.keys(o ?? {})
+				keys(o ?? {})
 					.map((column) => `${alias.toColumnName(column)} ${o[column]}`)
 					.join(', ')
 			)

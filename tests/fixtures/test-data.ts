@@ -6,7 +6,7 @@
  */
 
 import { MetadataProvider } from '../../src/types';
-import { AllEntityMetadata } from './middle-earth-schema';
+import { AllEntityMetadata, Fellowship, Person, Ring } from './middle-earth-schema';
 
 // Sample data for testing
 export const SamplePersons = [
@@ -451,18 +451,46 @@ export class MockMetadataProvider implements MetadataProvider {
 		// In a real test environment, you might want to use an in-memory database
 		// For now, we'll return mock data based on the query pattern
 
-		console.log('Mock executing query:', sql);
-		console.log('With params:', params);
+		// console.log('Mock executing query:', sql);
+		// console.log('With params:', params);
 
 		// Return mock results based on the table being queried
 		if (sql.includes('persons')) {
-			return SamplePersons.map((person) => ({ val: person }));
+			return SamplePersons.map((person) => ({
+				val: {
+					id: person.id,
+					name: person.person_name,
+					age: person.age,
+					race: person.race,
+					home: person.home_location,
+					ring: person.ring_id,
+					fellowshipId: person.fellowship_id,
+					fellowship: SampleFellowships.find((f) => f.id === person.fellowship_id),
+				} as Person,
+			}));
 		}
 		if (sql.includes('rings')) {
-			return SampleRings.map((ring) => ({ val: ring }));
+			return SampleRings.map((ring) => ({
+				val: {
+					id: ring.id,
+					name: ring.ring_name,
+					power: ring.power_description,
+				} as Ring,
+			}));
 		}
 		if (sql.includes('fellowships')) {
-			return SampleFellowships.map((fellowship) => ({ val: fellowship }));
+			return SampleFellowships.map((fellowship) => ({
+				val: {
+					id: fellowship.id,
+					name: fellowship.fellowship_name,
+					purpose: fellowship.purpose,
+					formedDate: new Date(fellowship.formed_date),
+					disbanded: fellowship.disbanded,
+					// members: fellowship.,
+					questId: fellowship.quest_id,
+					quest: SampleQuests.find((q) => q.id === fellowship.quest_id),
+				} as Fellowship,
+			}));
 		}
 
 		// Default return for testing

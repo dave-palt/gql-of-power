@@ -4,10 +4,19 @@
  * These tests verify that the GQLtoSQLMapper correctly handles all types
  * of relationships and complex query scenarios using Middle-earth entities.
  */
-
+import { beforeEach, describe, expect, it } from 'bun:test';
 import { GQLtoSQLMapper } from '../../src/queries/gql-to-sql-mapper';
 import { GQLQueryManager } from '../../src/query-manager';
-import { Battle, Book, Fellowship, Person, Region, Ring } from '../fixtures/middle-earth-schema';
+import { FieldSelection, GQLEntityFilterInputFieldType } from '../../src/types';
+import {
+	Author,
+	Battle,
+	Book,
+	Fellowship,
+	Person,
+	Region,
+	Ring,
+} from '../fixtures/middle-earth-schema';
 import { createMockMetadataProvider } from '../fixtures/test-data';
 import '../setup';
 
@@ -18,13 +27,13 @@ describe('GQLtoSQLMapper - Relationship Integration Tests', () => {
 
 	beforeEach(() => {
 		mockProvider = createMockMetadataProvider();
-		mapper = new GQLtoSQLMapper(mockProvider);
-		queryManager = new GQLQueryManager();
+		mapper = new GQLtoSQLMapper(mockProvider, { namedParameterPrefix: '$' });
+		queryManager = new GQLQueryManager({ namedParameterPrefix: '$' });
 	});
 
 	describe('1:1 Relationships (Person <-> Ring)', () => {
 		it('should handle Person to Ring relationship', () => {
-			const fields = {
+			const fields: FieldSelection<Person> = {
 				id: {},
 				name: {},
 				ring: {},
@@ -46,7 +55,7 @@ describe('GQLtoSQLMapper - Relationship Integration Tests', () => {
 		});
 
 		it('should handle Ring to Person (bearer) relationship', () => {
-			const fields = {
+			const fields: FieldSelection<Ring> = {
 				id: {},
 				name: {},
 				power: {},
@@ -70,7 +79,7 @@ describe('GQLtoSQLMapper - Relationship Integration Tests', () => {
 		});
 
 		it('should filter 1:1 relationships correctly', () => {
-			const fields = {
+			const fields: FieldSelection<Person> = {
 				id: {},
 				name: {},
 				ring: {
@@ -79,9 +88,9 @@ describe('GQLtoSQLMapper - Relationship Integration Tests', () => {
 				},
 			};
 
-			const filter = {
+			const filter: GQLEntityFilterInputFieldType<Person> = {
 				ring: {
-					name: 'The One Ring',
+					name_eq: 'The One Ring',
 				},
 			};
 
@@ -89,7 +98,7 @@ describe('GQLtoSQLMapper - Relationship Integration Tests', () => {
 				fields,
 				entity: Person,
 				customFields: {},
-				filter: filter as any,
+				filter,
 			});
 
 			expect(result.querySQL).toContain('persons');
@@ -101,7 +110,7 @@ describe('GQLtoSQLMapper - Relationship Integration Tests', () => {
 
 	describe('1:m Relationships (Fellowship -> Members, Region -> Locations)', () => {
 		it('should handle Fellowship to Members (1:m) relationship', () => {
-			const fields = {
+			const fields: FieldSelection<Fellowship> = {
 				id: {},
 				name: {},
 				purpose: {},
@@ -127,7 +136,7 @@ describe('GQLtoSQLMapper - Relationship Integration Tests', () => {
 		});
 
 		it('should handle Region to Locations (1:m) relationship', () => {
-			const fields = {
+			const fields: FieldSelection<Region> = {
 				id: {},
 				name: {},
 				ruler: {},
@@ -153,7 +162,7 @@ describe('GQLtoSQLMapper - Relationship Integration Tests', () => {
 		});
 
 		it('should filter 1:m relationships with pagination', () => {
-			const fields = {
+			const fields: FieldSelection<Fellowship> = {
 				id: {},
 				name: {},
 				members: {
@@ -163,9 +172,9 @@ describe('GQLtoSQLMapper - Relationship Integration Tests', () => {
 				},
 			};
 
-			const filter = {
+			const filter: GQLEntityFilterInputFieldType<Fellowship> = {
 				members: {
-					race: 'Hobbit',
+					race_eq: 'Hobbit',
 				},
 			};
 
@@ -178,7 +187,7 @@ describe('GQLtoSQLMapper - Relationship Integration Tests', () => {
 				fields,
 				entity: Fellowship,
 				customFields: {},
-				filter: filter as any,
+				filter,
 				pagination,
 			});
 
@@ -191,7 +200,7 @@ describe('GQLtoSQLMapper - Relationship Integration Tests', () => {
 
 	describe('m:1 Relationships (Person -> Fellowship, Book -> Author)', () => {
 		it('should handle Person to Fellowship (m:1) relationship', () => {
-			const fields = {
+			const fields: FieldSelection<Person> = {
 				id: {},
 				name: {},
 				race: {},
@@ -215,7 +224,7 @@ describe('GQLtoSQLMapper - Relationship Integration Tests', () => {
 		});
 
 		it('should handle Book to Author (m:1) relationship', () => {
-			const fields = {
+			const fields: FieldSelection<Book> = {
 				id: {},
 				title: {},
 				publishedYear: {},
@@ -240,7 +249,7 @@ describe('GQLtoSQLMapper - Relationship Integration Tests', () => {
 		});
 
 		it('should filter m:1 relationships correctly', () => {
-			const fields = {
+			const fields: FieldSelection<Person> = {
 				id: {},
 				name: {},
 				fellowship: {
@@ -249,9 +258,9 @@ describe('GQLtoSQLMapper - Relationship Integration Tests', () => {
 				},
 			};
 
-			const filter = {
+			const filter: GQLEntityFilterInputFieldType<Person> = {
 				fellowship: {
-					name: 'Fellowship of the Ring',
+					name_eq: 'Fellowship of the Ring',
 				},
 			};
 
@@ -259,7 +268,7 @@ describe('GQLtoSQLMapper - Relationship Integration Tests', () => {
 				fields,
 				entity: Person,
 				customFields: {},
-				filter: filter as any,
+				filter,
 			});
 
 			expect(result.querySQL).toContain('persons');
@@ -356,9 +365,9 @@ describe('GQLtoSQLMapper - Relationship Integration Tests', () => {
 				},
 			};
 
-			const filter = {
+			const filter: GQLEntityFilterInputFieldType<Person> = {
 				battles: {
-					outcome: 'Victory',
+					outcome_eq: 'Victory',
 					casualties: { _lt: 1000 },
 				},
 			};
@@ -367,7 +376,7 @@ describe('GQLtoSQLMapper - Relationship Integration Tests', () => {
 				fields,
 				entity: Person,
 				customFields: {},
-				filter: filter as any,
+				filter,
 			});
 
 			expect(result.querySQL).toContain('persons');
@@ -456,6 +465,761 @@ describe('GQLtoSQLMapper - Relationship Integration Tests', () => {
 		});
 	});
 
+	describe('Relationship Field Filters', () => {
+		it('should filter Person by Fellowship name', () => {
+			const fields = {
+				id: {},
+				name: {},
+				race: {},
+				fellowship: {
+					id: {},
+					name: {},
+				},
+			};
+
+			const filter: GQLEntityFilterInputFieldType<Person> = {
+				fellowship: {
+					name_eq: 'Fellowship of the Ring',
+				},
+			};
+
+			const result = mapper.buildQueryAndBindingsFor({
+				fields,
+				entity: Person,
+				customFields: {},
+				filter,
+			});
+
+			expect(result.querySQL).toContain('persons');
+			expect(result.querySQL).toContain('fellowships');
+			expect(result.querySQL.toLowerCase()).toContain('where');
+			expect(result.querySQL).toContain('fellowship_name');
+			expect(result.bindings).toBeDefined();
+		});
+
+		it('should filter Fellowship by member race', () => {
+			const fields = {
+				id: {},
+				name: {},
+				purpose: {},
+				members: {
+					id: {},
+					name: {},
+					race: {},
+				},
+			};
+
+			const filter: GQLEntityFilterInputFieldType<Fellowship> = {
+				members: {
+					race_eq: 'Hobbit',
+				},
+			};
+
+			const result = mapper.buildQueryAndBindingsFor({
+				fields,
+				entity: Fellowship,
+				customFields: {},
+				filter,
+			});
+
+			expect(result.querySQL).toContain('fellowships');
+			expect(result.querySQL).toContain('persons');
+			expect(result.querySQL.toLowerCase()).toContain('where');
+			expect(result.querySQL).toContain('race');
+			expect(result.bindings).toBeDefined();
+		});
+
+		it('should filter Person by Ring name', () => {
+			const fields = {
+				id: {},
+				name: {},
+				ring: {
+					id: {},
+					name: {},
+					power: {},
+				},
+			};
+
+			const filter: GQLEntityFilterInputFieldType<Person> = {
+				ring: {
+					name_eq: 'The One Ring',
+				},
+			};
+
+			const result = mapper.buildQueryAndBindingsFor({
+				fields,
+				entity: Person,
+				customFields: {},
+				filter,
+			});
+
+			expect(result.querySQL).toContain('persons');
+			expect(result.querySQL).toContain('rings');
+			expect(result.querySQL.toLowerCase()).toContain('where');
+			expect(result.querySQL).toContain('ring_name');
+			expect(result.bindings).toBeDefined();
+		});
+
+		it('should filter Region by Location name', () => {
+			const fields = {
+				id: {},
+				name: {},
+				ruler: {},
+				locations: {
+					id: {},
+					name: {},
+					type: {},
+				},
+			};
+
+			const filter: GQLEntityFilterInputFieldType<Region> = {
+				locations: {
+					name_eq: 'Minas Tirith',
+				},
+			};
+
+			const result = mapper.buildQueryAndBindingsFor({
+				fields,
+				entity: Region,
+				customFields: {},
+				filter,
+			});
+
+			expect(result.querySQL).toContain('regions');
+			expect(result.querySQL).toContain('locations');
+			expect(result.querySQL.toLowerCase()).toContain('where');
+			expect(result.querySQL).toContain('location_name');
+			expect(result.bindings).toBeDefined();
+		});
+
+		it('should filter Person by Battle outcome (m:m relationship)', () => {
+			const fields = {
+				id: {},
+				name: {},
+				race: {},
+				battles: {
+					id: {},
+					name: {},
+					outcome: {},
+				},
+			};
+
+			const filter: GQLEntityFilterInputFieldType<Person> = {
+				battles: {
+					outcome_eq: 'Victory',
+				},
+			};
+
+			const result = mapper.buildQueryAndBindingsFor({
+				fields,
+				entity: Person,
+				customFields: {},
+				filter,
+			});
+
+			expect(result.querySQL).toContain('persons');
+			expect(result.querySQL).toContain('battles');
+			expect(result.querySQL).toContain('person_battles');
+			expect(result.querySQL.toLowerCase()).toContain('where');
+			expect(result.querySQL).toContain('outcome');
+			expect(result.bindings).toBeDefined();
+		});
+
+		it('should filter Book by Author nationality', () => {
+			const fields = {
+				id: {},
+				title: {},
+				author: {
+					id: {},
+					name: {},
+					nationality: {},
+				},
+			};
+
+			const filter: GQLEntityFilterInputFieldType<Book> = {
+				author: {
+					nationality_eq: 'British',
+				},
+			};
+
+			const result = mapper.buildQueryAndBindingsFor({
+				fields,
+				entity: Book,
+				customFields: {},
+				filter,
+			});
+
+			expect(result.querySQL).toContain('books');
+			expect(result.querySQL).toContain('authors');
+			expect(result.querySQL.toLowerCase()).toContain('where');
+			expect(result.querySQL).toContain('nationality');
+			expect(result.bindings).toBeDefined();
+		});
+
+		it('should filter Battle by Location region name (nested relationship)', () => {
+			const fields = {
+				id: {},
+				name: {},
+				outcome: {},
+				location: {
+					id: {},
+					name: {},
+					region: {
+						id: {},
+						name: {},
+						ruler: {},
+					},
+				},
+			};
+
+			const filter: GQLEntityFilterInputFieldType<Battle> = {
+				location: {
+					region: {
+						name_eq: 'Gondor',
+					},
+				},
+			};
+
+			const result = mapper.buildQueryAndBindingsFor({
+				fields,
+				entity: Battle,
+				customFields: {},
+				filter,
+			});
+
+			expect(result.querySQL).toContain('battles');
+			expect(result.querySQL).toContain('locations');
+			expect(result.querySQL).toContain('regions');
+			expect(result.querySQL.toLowerCase()).toContain('where');
+			expect(result.querySQL).toContain('region_name');
+			expect(result.bindings).toBeDefined();
+		});
+
+		it('should filter with operation modifiers in relationship fields', () => {
+			const fields = {
+				id: {},
+				name: {},
+				members: {
+					id: {},
+					name: {},
+					age: {},
+				},
+			};
+
+			const filter = {
+				members: {
+					age: { _gt: 100 },
+					name: { _like: 'Legolas%' },
+				},
+			};
+
+			const result = mapper.buildQueryAndBindingsFor({
+				fields,
+				entity: Fellowship,
+				customFields: {},
+				filter,
+			});
+
+			expect(result.querySQL).toContain('fellowships');
+			expect(result.querySQL).toContain('persons');
+			expect(result.querySQL.toLowerCase()).toContain('where');
+			expect(result.bindings).toBeDefined();
+		});
+
+		it('should filter with multiple relationship field conditions', () => {
+			const fields = {
+				id: {},
+				name: {},
+				ring: {
+					id: {},
+					name: {},
+				},
+				fellowship: {
+					id: {},
+					name: {},
+				},
+			};
+
+			const filter: GQLEntityFilterInputFieldType<Person> = {
+				ring: {
+					name: { _ne: null },
+				},
+				fellowship: {
+					disbanded_eq: false,
+				},
+			};
+
+			const result = mapper.buildQueryAndBindingsFor({
+				fields,
+				entity: Person,
+				customFields: {},
+				filter,
+			});
+
+			expect(result.querySQL).toContain('persons');
+			expect(result.querySQL).toContain('rings');
+			expect(result.querySQL).toContain('fellowships');
+			expect(result.querySQL.toLowerCase()).toContain('where');
+			expect(result.bindings).toBeDefined();
+		});
+
+		it('should filter with OR conditions in relationship fields', () => {
+			const fields = {
+				id: {},
+				name: {},
+				battles: {
+					id: {},
+					name: {},
+					outcome: {},
+				},
+			};
+
+			const filter: GQLEntityFilterInputFieldType<Person> = {
+				battles: {
+					_or: [{ name_eq: "Battle of Helm's Deep" }, { outcome_eq: 'Victory' }],
+				},
+			};
+
+			const result = mapper.buildQueryAndBindingsFor({
+				fields,
+				entity: Person,
+				customFields: {},
+				filter,
+			});
+
+			expect(result.querySQL).toContain('persons');
+			expect(result.querySQL).toContain('battles');
+			expect(result.querySQL).toContain('person_battles');
+			expect(result.querySQL.toLowerCase()).toContain('where');
+			expect(result.bindings).toBeDefined();
+		});
+
+		it('should filter with complex nested relationship conditions', () => {
+			const fields = {
+				id: {},
+				name: {},
+				fellowship: {
+					id: {},
+					name: {},
+					quest: {
+						id: {},
+						name: {},
+						success: {},
+					},
+				},
+			};
+
+			const filter: GQLEntityFilterInputFieldType<Person> = {
+				fellowship: {
+					quest: {
+						success_eq: true,
+						name: { _like: '%Ring%' },
+					},
+				},
+			};
+
+			const result = mapper.buildQueryAndBindingsFor({
+				fields,
+				entity: Person,
+				customFields: {},
+				filter,
+			});
+
+			expect(result.querySQL).toContain('persons');
+			expect(result.querySQL).toContain('fellowships');
+			expect(result.querySQL).toContain('quests');
+			expect(result.querySQL.toLowerCase()).toContain('where');
+			expect(result.querySQL).toContain('success');
+			expect(result.bindings).toBeDefined();
+		});
+	});
+
+	describe('Reference List Filtering and Pagination', () => {
+		it('should filter Fellowship members by name pattern', () => {
+			const fields = {
+				id: {},
+				name: {},
+				purpose: {},
+				members: {
+					id: {},
+					name: {},
+					race: {},
+					__arguments: [
+						{
+							filter: {
+								value: {
+									name: { _like: 'Frodo%' },
+								},
+							},
+						},
+					],
+				},
+			};
+
+			const result = mapper.buildQueryAndBindingsFor({
+				fields,
+				entity: Fellowship,
+				customFields: {},
+			});
+
+			expect(result.querySQL).toContain('fellowships');
+			expect(result.querySQL).toContain('persons');
+			expect(result.querySQL).toContain('person_name');
+			expect(result.querySQL.toLowerCase()).toContain('where');
+			expect(result.bindings).toBeDefined();
+		});
+
+		it('should filter Region locations by type', () => {
+			const fields = {
+				id: {},
+				name: {},
+				ruler: {},
+				locations: {
+					id: {},
+					name: {},
+					type: {},
+					__arguments: [
+						{
+							filter: {
+								value: {
+									type: 'City',
+								},
+							},
+						},
+					],
+				},
+			};
+
+			const result = mapper.buildQueryAndBindingsFor({
+				fields,
+				entity: Region,
+				customFields: {},
+			});
+
+			expect(result.querySQL).toContain('regions');
+			expect(result.querySQL).toContain('locations');
+			expect(result.querySQL).toContain('location_type');
+			expect(result.querySQL.toLowerCase()).toContain('where');
+			expect(result.bindings).toBeDefined();
+		});
+
+		it('should filter Person battles by outcome with complex conditions', () => {
+			const fields = {
+				id: {},
+				name: {},
+				race: {},
+				battles: {
+					id: {},
+					name: {},
+					outcome: {},
+					casualties: {},
+					__arguments: [
+						{
+							filter: {
+								value: {
+									outcome: 'Victory',
+									casualties: { _lt: 500 },
+								},
+							},
+						},
+					],
+				},
+			};
+
+			const result = mapper.buildQueryAndBindingsFor({
+				fields,
+				entity: Person,
+				customFields: {},
+			});
+
+			expect(result.querySQL).toContain('persons');
+			expect(result.querySQL).toContain('battles');
+			expect(result.querySQL).toContain('person_battles');
+			expect(result.querySQL).toContain('outcome');
+			expect(result.querySQL).toContain('casualties');
+			expect(result.querySQL.toLowerCase()).toContain('where');
+			expect(result.bindings).toBeDefined();
+		});
+
+		it('should filter Author books by published year range', () => {
+			const x: FieldSelection<Author>['books'] = {};
+			const fields: FieldSelection<Author> = {
+				id: {},
+				name: {},
+				nationality: {},
+				books: {
+					id: {},
+					title: {},
+					publishedYear: {},
+					__arguments: [
+						{
+							filter: {
+								value: {
+									publishedYear: { _between: [1930, 1960] },
+								},
+							},
+						},
+					],
+				},
+			};
+
+			const result = mapper.buildQueryAndBindingsFor({
+				fields,
+				entity: Author,
+				customFields: {},
+			});
+
+			expect(result.querySQL).toContain('authors');
+			expect(result.querySQL).toContain('books');
+			expect(result.querySQL).toContain('published_year');
+			expect(result.querySQL.toLowerCase()).toContain('where');
+			expect(result.bindings).toBeDefined();
+		});
+
+		it.skip('should filter reference list with OR conditions', () => {
+			const fields = {
+				id: {},
+				name: {},
+				purpose: {},
+				members: {
+					id: {},
+					name: {},
+					race: {},
+					age: {},
+					__arguments: [
+						{
+							filter: {
+								value: {
+									_or: [{ race: 'Hobbit' }, { age: { _gt: 500 } }],
+								},
+							},
+						},
+					],
+				},
+			};
+
+			const result = mapper.buildQueryAndBindingsFor({
+				fields,
+				entity: Fellowship,
+				customFields: {},
+			});
+
+			expect(result.querySQL).toContain('fellowships');
+			expect(result.querySQL).toContain('persons');
+			expect(result.querySQL).toContain('race');
+			expect(result.querySQL).toContain('age');
+			expect(result.querySQL.toLowerCase()).toContain('where');
+			expect(result.bindings).toBeDefined();
+			const values = Object.values(result.bindings);
+			expect(values).toContain(500);
+			expect(values).toContain('Hobbit');
+		});
+
+		it('should paginate Fellowship members to get only first member', () => {
+			const fields = {
+				id: {},
+				name: {},
+				purpose: {},
+				members: {
+					id: {},
+					name: {},
+					race: {},
+					__arguments: [
+						{
+							pagination: {
+								value: {
+									limit: 1,
+									orderBy: [{ name: 'asc' as any }],
+								},
+							},
+						},
+					],
+				},
+			};
+
+			const result = mapper.buildQueryAndBindingsFor({
+				fields,
+				entity: Fellowship,
+				customFields: {},
+			});
+
+			expect(result.querySQL).toContain('fellowships');
+			expect(result.querySQL).toContain('persons');
+			expect(result.querySQL.toLowerCase()).toContain('limit');
+			expect(result.querySQL.toLowerCase()).toContain('order by');
+			expect(result.bindings).toBeDefined();
+		});
+
+		it('should paginate Region locations with offset', () => {
+			const fields = {
+				id: {},
+				name: {},
+				ruler: {},
+				locations: {
+					id: {},
+					name: {},
+					type: {},
+					__arguments: [
+						{
+							pagination: {
+								value: {
+									limit: 3,
+									offset: 2,
+									orderBy: [{ name: 'desc' as any }],
+								},
+							},
+						},
+					],
+				},
+			};
+
+			const result = mapper.buildQueryAndBindingsFor({
+				fields,
+				entity: Region,
+				customFields: {},
+			});
+
+			expect(result.querySQL).toContain('regions');
+			expect(result.querySQL).toContain('locations');
+			expect(result.querySQL.toLowerCase()).toContain('limit');
+			expect(result.querySQL.toLowerCase()).toContain('offset');
+			expect(result.querySQL.toLowerCase()).toContain('order by');
+			expect(result.bindings).toBeDefined();
+		});
+
+		it('should paginate Person battles (m:m) with ordering by date', () => {
+			const fields = {
+				id: {},
+				name: {},
+				race: {},
+				battles: {
+					id: {},
+					name: {},
+					date: {},
+					outcome: {},
+					__arguments: [
+						{
+							pagination: {
+								value: {
+									limit: 2,
+									orderBy: [{ date: 'desc' as any }],
+								},
+							},
+						},
+					],
+				},
+			};
+
+			const result = mapper.buildQueryAndBindingsFor({
+				fields,
+				entity: Person,
+				customFields: {},
+			});
+
+			expect(result.querySQL).toContain('persons');
+			expect(result.querySQL).toContain('battles');
+			expect(result.querySQL).toContain('person_battles');
+			expect(result.querySQL.toLowerCase()).toContain('limit');
+			expect(result.querySQL.toLowerCase()).toContain('order by');
+			expect(result.querySQL).toContain('battle_date');
+			expect(result.bindings).toBeDefined();
+		});
+
+		it('should combine filtering and pagination on reference list', () => {
+			const fields = {
+				id: {},
+				name: {},
+				nationality: {},
+				books: {
+					id: {},
+					title: {},
+					publishedYear: {},
+					pages: {},
+					__arguments: [
+						{
+							filter: {
+								value: {
+									pages: { _gt: 200 },
+								},
+							},
+							pagination: {
+								value: {
+									limit: 1,
+									orderBy: [{ publishedYear: 'desc' as any }],
+								},
+							},
+						},
+					],
+				},
+			};
+
+			const result = mapper.buildQueryAndBindingsFor({
+				fields,
+				entity: Author,
+				customFields: {},
+			});
+
+			expect(result.querySQL).toContain('authors');
+			expect(result.querySQL).toContain('books');
+			expect(result.querySQL).toContain('page_count');
+			expect(result.querySQL.toLowerCase()).toContain('where');
+			expect(result.querySQL.toLowerCase()).toContain('limit');
+			expect(result.querySQL.toLowerCase()).toContain('order by');
+			expect(result.querySQL).toContain('published_year');
+			expect(result.bindings).toBeDefined();
+		});
+
+		it('should handle nested relationship with reference list pagination', () => {
+			const fields = {
+				id: {},
+				name: {},
+				locations: {
+					id: {},
+					name: {},
+					battles: {
+						id: {},
+						name: {},
+						outcome: {},
+						__arguments: [
+							{
+								pagination: {
+									value: {
+										limit: 1,
+										orderBy: [{ name: 'asc' as any }],
+									},
+								},
+							},
+						],
+					},
+					__arguments: [
+						{
+							filter: {
+								value: {
+									type: 'City',
+								},
+							},
+						},
+					],
+				},
+			};
+
+			const result = mapper.buildQueryAndBindingsFor({
+				fields,
+				entity: Region,
+				customFields: {},
+			});
+
+			expect(result.querySQL).toContain('regions');
+			expect(result.querySQL).toContain('locations');
+			expect(result.querySQL).toContain('battles');
+			expect(result.querySQL).toContain('location_type');
+			expect(result.querySQL.toLowerCase()).toContain('where');
+			expect(result.querySQL.toLowerCase()).toContain('limit');
+			expect(result.querySQL.toLowerCase()).toContain('order by');
+			expect(result.bindings).toBeDefined();
+		});
+	});
+
 	describe('Complex Filtering Scenarios', () => {
 		it('should handle OR conditions across multiple fields', () => {
 			const fields = {
@@ -464,15 +1228,15 @@ describe('GQLtoSQLMapper - Relationship Integration Tests', () => {
 				race: {},
 			};
 
-			const filter = {
-				_or: [{ name: 'Frodo' }, { name: 'Gandalf' }, { race: 'Hobbit' }],
+			const filter: GQLEntityFilterInputFieldType<Person> = {
+				_or: [{ name_eq: 'Frodo' }, { name_eq: 'Gandalf' }, { race_eq: 'Hobbit' }],
 			};
 
 			const result = mapper.buildQueryAndBindingsFor({
 				fields,
 				entity: Person,
 				customFields: {},
-				filter: filter as any,
+				filter,
 			});
 
 			expect(result.querySQL).toContain('persons');
@@ -488,13 +1252,13 @@ describe('GQLtoSQLMapper - Relationship Integration Tests', () => {
 				age: {},
 			};
 
-			const filter = {
+			const filter: GQLEntityFilterInputFieldType<Person> = {
 				_or: [
 					{
-						_and: [{ race: 'Hobbit' }, { age: { _lt: 50 } }],
+						_and: [{ race_eq: 'Hobbit' }, { age: { _lt: 50 } }],
 					},
 					{
-						_and: [{ race: 'Elf' }, { age: { _gt: 100 } }],
+						_and: [{ race_eq: 'Elf' }, { age: { _gt: 100 } }],
 					},
 				],
 			};
@@ -503,7 +1267,7 @@ describe('GQLtoSQLMapper - Relationship Integration Tests', () => {
 				fields,
 				entity: Person,
 				customFields: {},
-				filter: filter as any,
+				filter,
 			});
 
 			expect(result.querySQL).toContain('persons');
@@ -518,15 +1282,15 @@ describe('GQLtoSQLMapper - Relationship Integration Tests', () => {
 				race: {},
 			};
 
-			const filter = {
-				_not: [{ race: 'Orc' }, { name: 'Sauron' }],
+			const filter: GQLEntityFilterInputFieldType<Person> = {
+				_not: [{ race_eq: 'Orc' }, { name_eq: 'Sauron' }],
 			};
 
 			const result = mapper.buildQueryAndBindingsFor({
 				fields,
 				entity: Person,
 				customFields: {},
-				filter: filter as any,
+				filter,
 			});
 
 			expect(result.querySQL).toContain('persons');
@@ -544,9 +1308,9 @@ describe('GQLtoSQLMapper - Relationship Integration Tests', () => {
 				},
 			};
 
-			const filter = {
+			const filter: GQLEntityFilterInputFieldType<Person> = {
 				fellowship: {
-					_or: [{ name: 'Fellowship of the Ring' }, { disbanded: false }],
+					_or: [{ name_eq: 'Fellowship of the Ring' }, { disbanded_eq: false }],
 				},
 			};
 
@@ -554,7 +1318,7 @@ describe('GQLtoSQLMapper - Relationship Integration Tests', () => {
 				fields,
 				entity: Person,
 				customFields: {},
-				filter: filter as any,
+				filter,
 			});
 
 			expect(result.querySQL).toContain('persons');
@@ -666,17 +1430,17 @@ describe('GQLtoSQLMapper - Relationship Integration Tests', () => {
 				age: {},
 			};
 
-			const filter = {
-				name: null,
+			const filter: GQLEntityFilterInputFieldType<Person> = {
+				name_eq: null,
 				age: undefined,
-				home: '',
+				home_eq: '',
 			};
 
 			const result = mapper.buildQueryAndBindingsFor({
 				fields,
 				entity: Person,
 				customFields: {},
-				filter: filter as any,
+				filter,
 			});
 
 			expect(result.querySQL).toContain('persons');
@@ -798,7 +1562,7 @@ describe('GQLtoSQLMapper - Relationship Integration Tests', () => {
 				fields,
 				entity: Person,
 				customFields: {},
-				filter: filter as any,
+				filter,
 			});
 
 			expect(result.querySQL).toContain('persons');

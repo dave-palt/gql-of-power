@@ -16,6 +16,31 @@ export abstract class ClassOperations {
 	abstract _or(input: ClassOperationInputType<any>): any;
 	abstract _not(input: ClassOperationInputType<any>): any;
 }
+export abstract class ClassOperationsClass<T> {
+	abstract _and: T[];
+	abstract _or: T[];
+	abstract _not: T[];
+}
+export abstract class FieldOperationsClass<T> {
+	abstract _and: T;
+	abstract _eq: T;
+	abstract _ne: T;
+	abstract _in: T[];
+	abstract _nin: T[];
+	abstract _gt: T;
+	abstract _gte: T;
+	abstract _lt: T;
+	abstract _lte: T;
+	abstract _like: T;
+	abstract _re: T;
+	abstract _ilike: T;
+	abstract _fulltext: T;
+	abstract _overlap: T[];
+	abstract _contains: T;
+	abstract _contained: T;
+	abstract _between: T[];
+	abstract _exists: T;
+}
 export const FieldOperations = {
 	_and: ([l]: string[], [_]: Array<string | number | boolean | bigint | null>) => `and (${l})`,
 

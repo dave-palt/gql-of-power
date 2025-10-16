@@ -254,7 +254,7 @@ export const QuestMetadata: EntityMetadata<Quest> = {
 		startDate: createProperty('Date', 'startDate', ['start_date']),
 		endDate: createProperty('Date', 'endDate', ['end_date']),
 		success: createProperty('boolean', 'success', ['success']),
-		fellowships: createProperty('Fellowship', 'fellowships', [], {
+		fellowship: createProperty('Fellowship', 'fellowships', [], {
 			referenceType: ReferenceType.ONE_TO_MANY,
 			mappedBy: 'quest',
 		}),

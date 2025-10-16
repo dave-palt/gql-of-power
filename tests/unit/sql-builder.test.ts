@@ -5,11 +5,12 @@
  * including JSON object construction, subqueries, union all, and lateral joins.
  */
 
-import { describe, it, expect, beforeEach, afterEach, spyOn } from 'bun:test';
+import { afterEach, beforeEach, describe, expect, it } from 'bun:test';
+import { Alias, AliasType } from '../../src';
 import { SQLBuilder } from '../../src/queries/sql-builder';
 import { MappingsType } from '../../src/types';
-import { testEnvironments } from '../setup';
 import '../setup';
+import { testEnvironments } from '../setup';
 
 describe('SQLBuilder', () => {
 	describe('generateJsonObjectSelectStatement', () => {
@@ -43,7 +44,9 @@ describe('SQLBuilder', () => {
 				const jsonFields = ["'ring'", 'ring.ring_name', "'bearer'", 'bearer.person_name'];
 				const result = SQLBuilder.generateJsonObjectSelectStatement(jsonFields, false);
 
-				expect(result).toBe("jsonb_build_object('ring', ring.ring_name, 'bearer', bearer.person_name)");
+				expect(result).toBe(
+					"jsonb_build_object('ring', ring.ring_name, 'bearer', bearer.person_name)"
+				);
 			});
 		});
 
@@ -104,52 +107,30 @@ describe('SQLBuilder', () => {
 
 		it('should include global filter joins', () => {
 			const globalFilterJoin = ['left join rings r on r.bearer_id = p.id'];
-			const result = SQLBuilder.buildSubQuery(
-				['person.id'],
-				'persons',
-				'p1',
-				globalFilterJoin,
-				[]
-			);
+			const result = SQLBuilder.buildSubQuery(['person.id'], 'persons', 'p1', globalFilterJoin, []);
 
 			expect(result).toContain('left join rings r on r.bearer_id = p.id');
 		});
 
 		it('should include where conditions', () => {
 			const globalWhereJoin = ['p.race = :race', 'p.age > :min_age'];
-			const result = SQLBuilder.buildSubQuery(
-				['person.id'],
-				'persons',
-				'p1',
-				[],
-				globalWhereJoin
-			);
+			const result = SQLBuilder.buildSubQuery(['person.id'], 'persons', 'p1', [], globalWhereJoin);
 
 			expect(result).toContain('and ( p.race = :race and p.age > :min_age )');
 		});
 
 		it('should handle additional filter join value', () => {
-			const result = SQLBuilder.buildSubQuery(
-				['person.id'],
-				'persons',
-				'p1',
-				[],
-				[],
-				{ filterJoin: 'inner join fellowships f on f.id = p.fellowship_id' }
-			);
+			const result = SQLBuilder.buildSubQuery(['person.id'], 'persons', 'p1', [], [], {
+				filterJoin: 'inner join fellowships f on f.id = p.fellowship_id',
+			});
 
 			expect(result).toContain('inner join fellowships f on f.id = p.fellowship_id');
 		});
 
 		it('should handle additional where value', () => {
-			const result = SQLBuilder.buildSubQuery(
-				['person.id'],
-				'persons',
-				'p1',
-				[],
-				[],
-				{ where: 'p.name = :name' }
-			);
+			const result = SQLBuilder.buildSubQuery(['person.id'], 'persons', 'p1', [], [], {
+				where: 'p.name = :name',
+			});
 
 			expect(result).toContain('and p.name = :name');
 		});
@@ -168,7 +149,7 @@ describe('SQLBuilder', () => {
 					orderBy: [],
 					_or: [],
 					_and: [],
-					_not: []
+					_not: [],
 				},
 				{
 					select: new Set(),
@@ -180,12 +161,21 @@ describe('SQLBuilder', () => {
 					orderBy: [],
 					_or: [],
 					_and: [],
-					_not: []
-				}
+					_not: [],
+				},
 			];
 
 			let callCount = 0;
-			const mockQueryBuilder = (fields: any, alias: any, tableName: any, filterJoin: any, join: any, whereSQL: any, whereWithValues: any, value?: any) => {
+			const mockQueryBuilder = (
+				fields: any,
+				alias: any,
+				tableName: any,
+				filterJoin: any,
+				join: any,
+				whereSQL: any,
+				whereWithValues: any,
+				value?: any
+			) => {
 				callCount++;
 				if (value && 'filterJoin' in value) {
 					return `query with filterJoin: ${value.filterJoin}`;
@@ -199,7 +189,7 @@ describe('SQLBuilder', () => {
 			const result = SQLBuilder.buildUnionAll(
 				['field1'],
 				'table1',
-				'alias1',
+				new Alias(AliasType.entity, 1, 't'),
 				[],
 				[],
 				'',
@@ -213,19 +203,22 @@ describe('SQLBuilder', () => {
 			// Second mapping has 0 filterJoin + 2 wheres = 2 queries
 			// Total = 4 queries
 			expect(result).toHaveLength(4);
-			expect(result.some(r => r.includes('join1'))).toBe(true);
-			expect(result.some(r => r.includes('where2'))).toBe(true);
-			expect(result.some(r => r.includes('where3'))).toBe(true);
+			expect(result.some((r) => r.includes('join1'))).toBe(true);
+			expect(result.some((r) => r.includes('where2'))).toBe(true);
+			expect(result.some((r) => r.includes('where3'))).toBe(true);
 		});
 
 		it('should handle empty OR conditions', () => {
 			let callCount = 0;
-			const mockQueryBuilder = () => { callCount++; return 'query'; };
-			
+			const mockQueryBuilder = () => {
+				callCount++;
+				return 'query';
+			};
+
 			const result = SQLBuilder.buildUnionAll(
 				['field1'],
 				'table1',
-				'alias1',
+				new Alias(AliasType.entity, 1, 't'),
 				[],
 				[],
 				'',
@@ -241,22 +234,22 @@ describe('SQLBuilder', () => {
 
 	describe('buildOrderBySQL', () => {
 		it('should build ORDER BY SQL from orderBy array', () => {
-			const orderBy = [
+			const orderBy: Array<Record<string, 'asc' | 'desc'>> = [
 				{ name: 'asc' as const },
-				{ age: 'desc' as const, race: 'asc' as const }
+				{ age: 'desc' as const, race: 'asc' as const },
 			];
 
 			const fieldMapper = (field: string) => {
 				const mappings: Record<string, string[]> = {
 					name: ['person_name'],
 					age: ['person_age'],
-					race: ['person_race']
+					race: ['person_race'],
 				};
 				return mappings[field] || [field];
 			};
 
 			const result = SQLBuilder.buildOrderBySQL(orderBy, fieldMapper);
-			
+
 			expect(result).toBe('order by person_name asc, person_age desc, person_race asc');
 		});
 
@@ -280,7 +273,10 @@ describe('SQLBuilder', () => {
 		});
 
 		it('should filter out empty field mappings', () => {
-			const orderBy = [{ validField: 'asc' as const }, { invalidField: 'desc' as const }];
+			const orderBy: Array<Record<string, 'asc' | 'desc'>> = [
+				{ validField: 'asc' as const },
+				{ invalidField: 'desc' as const },
+			];
 			const fieldMapper = (field: string) => {
 				return field === 'validField' ? ['valid_column'] : [];
 			};
@@ -349,17 +345,16 @@ describe('SQLBuilder', () => {
 	describe('integration scenarios', () => {
 		it('should handle complex Middle-earth query components', () => {
 			// Test a realistic Fellowship members query
-			const jsonFields = [
-				"'id'", 'p.id',
-				"'name'", 'p.person_name',
-				"'race'", 'p.race'
-			];
+			const jsonFields = ["'id'", 'p.id', "'name'", 'p.person_name', "'race'", 'p.race'];
 
 			const jsonSelect = SQLBuilder.generateJsonObjectSelectStatement(jsonFields, true);
 			expect(jsonSelect).toContain('json_agg');
 			expect(jsonSelect).toContain('jsonb_build_object');
 
-			const orderBy = [{ name: 'asc' as const }, { race: 'desc' as const }];
+			const orderBy: Array<Record<string, 'asc' | 'desc'>> = [
+				{ name: 'asc' as const },
+				{ race: 'desc' as const },
+			];
 			const fieldMapper = (field: string) => [`p.person_${field}`];
 			const orderBySQL = SQLBuilder.buildOrderBySQL(orderBy, fieldMapper);
 			expect(orderBySQL).toContain('order by p.person_name asc, p.person_race desc');

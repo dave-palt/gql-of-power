@@ -10,7 +10,22 @@ import {
 } from './types';
 import { logger } from './variables';
 
+export const getGQLFields = (...args: Parameters<typeof graphqlFields>) => {
+	try {
+		return graphqlFields(...args) as FieldSelection<any>;
+	} catch (e) {
+		logger.error('Error parsing GraphQL fields from info', e);
+		throw 'Error parsing GraphQL fields from info';
+	}
+};
+
 export class GQLQueryManager {
+	constructor(private opts?: { namedParameterPrefix?: string }) {
+		console.log('');
+		console.log('');
+		console.log('GQLQueryManager - created with prefix', this.opts?.namedParameterPrefix);
+		console.log('');
+	}
 	async getQueryResultsFor<K extends { _____name: string }, T>(
 		{ exists, getMetadata, rawQuery, executeQuery }: MetadataProvider,
 		entity: new () => T,
@@ -18,6 +33,9 @@ export class GQLQueryManager {
 		filter?: GQLEntityFilterInputFieldType<T>,
 		pagination?: Partial<GQLEntityPaginationInputType<T>>
 	): Promise<K[]> {
+		if (!entity) {
+			throw new Error(`Entity not provided`);
+		}
 		const logName = 'GetQueryResultsFor - ' + entity.name;
 		logger.time(logName);
 		logger.timeLog(logName);
@@ -29,9 +47,9 @@ export class GQLQueryManager {
 			logger.timeEnd(logName);
 			throw new Error(`Entity ${entity.name} not found in metadata`);
 		}
-		const fields = graphqlFields(info, {}, { processArguments: true }) as FieldSelection<T>;
+		const fields = getGQLFields(info, {}, { processArguments: true }) as FieldSelection<T>;
 		const customFields = getCustomFieldsFor(getGQLEntityNameForClass(entity));
-		const mapper = new GQLtoSQLMapper({ exists, getMetadata, rawQuery, executeQuery });
+		const mapper = new GQLtoSQLMapper({ exists, getMetadata, rawQuery, executeQuery }, this.opts);
 		const { bindings, querySQL } = mapper.buildQueryAndBindingsFor({
 			fields,
 			customFields,
