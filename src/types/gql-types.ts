@@ -120,9 +120,8 @@ export type GQLEntityFilterInputFieldValueType<T> = Partial<
 	GQLEntityFilterInputFieldType<T>[keyof GQLEntityFilterInputFieldType<T>]
 >;
 
-export type GQLEntityOrderByInputType<T> = Partial<{
-	[Key in string & keyof T]: 'asc' | 'desc';
-}>;
+export type GQLEntityOrderByInputType<T> = Record<string & keyof T, 'asc' | 'desc'>;
+
 export type GQLEntityPaginationInputType<T> = {
 	limit?: number;
 	offset?: number;

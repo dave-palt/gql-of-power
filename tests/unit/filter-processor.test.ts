@@ -8,7 +8,7 @@
 import { beforeEach, describe, expect, it, mock } from 'bun:test';
 import { AliasManager } from '../../src/queries/alias';
 import { FilterProcessor } from '../../src/queries/filter-processor';
-import { newMappings } from '../../src/queries/gql-to-sql-mapper';
+import { QueriesUtils } from '../../src/queries/utils';
 import { EntityMetadata, GQLEntityFilterInputFieldType, MappingsType } from '../../src/types';
 import { Fellowship, Person } from '../fixtures/middle-earth-schema';
 import { createMockMetadataProvider } from '../fixtures/test-data';
@@ -131,7 +131,7 @@ describe('FilterProcessor', () => {
 
 			// Mock the recursive map function to return some mappings
 			const mockRelationshipMappings = new Map<string, MappingsType>();
-			const mockMapping = newMappings();
+			const mockMapping = QueriesUtils.newMappings();
 			mockMapping.where.push('f.fellowship_name = :fellowship_name');
 			mockMapping.values = { fellowship_name: 'Fellowship of the Ring' };
 			mockRelationshipMappings.set('test', mockMapping);
@@ -174,7 +174,7 @@ describe('FilterProcessor', () => {
 
 	describe('applyFilterValue', () => {
 		it('should apply primitive filter values', () => {
-			const mapping = newMappings();
+			const mapping = QueriesUtils.newMappings();
 			const parentAlias = aliasManager.start('p');
 			const alias = aliasManager.start('p');
 
@@ -194,7 +194,7 @@ describe('FilterProcessor', () => {
 		});
 
 		it('should apply object filter values with multiple operations', () => {
-			const mapping = newMappings();
+			const mapping = QueriesUtils.newMappings();
 			const parentAlias = aliasManager.start('p');
 			const alias = aliasManager.start('p');
 
@@ -218,7 +218,7 @@ describe('FilterProcessor', () => {
 		});
 
 		it('should handle null values correctly', () => {
-			const mapping = newMappings();
+			const mapping = QueriesUtils.newMappings();
 			const parentAlias = aliasManager.start('p');
 			const alias = aliasManager.start('p');
 
@@ -239,7 +239,7 @@ describe('FilterProcessor', () => {
 	describe('_or operations', () => {
 		it('should handle OR operations correctly', () => {
 			const personMetadata = mockProvider.getMetadata('Person') as EntityMetadata<Person>;
-			const mapping = newMappings();
+			const mapping = QueriesUtils.newMappings();
 			const mappings = new Map<string, MappingsType>();
 			const parentAlias = aliasManager.start('p');
 			const alias = aliasManager.start('p');
@@ -261,7 +261,7 @@ describe('FilterProcessor', () => {
 
 		it('should skip undefined filter values in OR', () => {
 			const personMetadata = mockProvider.getMetadata('Person') as EntityMetadata<Person>;
-			const mapping = newMappings();
+			const mapping = QueriesUtils.newMappings();
 			const mappings = new Map<string, MappingsType>();
 			const parentAlias = aliasManager.start('p');
 			const alias = aliasManager.start('p');
@@ -286,14 +286,14 @@ describe('FilterProcessor', () => {
 	describe('_and operations', () => {
 		it('should handle AND operations correctly', () => {
 			const personMetadata = mockProvider.getMetadata('Person') as EntityMetadata<Person>;
-			const mapping = newMappings();
+			const mapping = QueriesUtils.newMappings();
 			const mappings = new Map<string, MappingsType>();
 			const parentAlias = aliasManager.start('p');
 			const alias = aliasManager.start('p');
 
 			// Mock recursive map to return some mappings
 			const mockMappings = new Map<string, MappingsType>();
-			const testMapping = newMappings();
+			const testMapping = QueriesUtils.newMappings();
 			testMapping.where.push('test_where');
 			mockMappings.set('test', testMapping);
 			mockRecursiveMapFunction.mockImplementation(() => mockMappings);
@@ -317,7 +317,7 @@ describe('FilterProcessor', () => {
 	describe('_not operations', () => {
 		it('should warn about unimplemented _not operation', () => {
 			const personMetadata = mockProvider.getMetadata('Person') as EntityMetadata<Person>;
-			const mapping = newMappings();
+			const mapping = QueriesUtils.newMappings();
 			const mappings = new Map<string, MappingsType>();
 			const parentAlias = aliasManager.start('p');
 			const alias = aliasManager.start('p');
@@ -390,7 +390,7 @@ describe('FilterProcessor', () => {
 
 			// Mock relationship filtering
 			const mockRelationshipMappings = new Map<string, MappingsType>();
-			const memberMapping = newMappings();
+			const memberMapping = QueriesUtils.newMappings();
 			memberMapping.where.push('p.race = :race');
 			memberMapping.values = { race: 'Hobbit' };
 			mockRelationshipMappings.set('members', memberMapping);

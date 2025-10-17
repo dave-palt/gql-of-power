@@ -81,13 +81,6 @@ export function createGQLTypes<T extends Object>(
 	if (customFields) {
 		CustomFieldsMap[gqlEntityName] = customFields;
 
-		// const fieldsResolverTypeName = getGQLEntityFieldResolverName(gqlEntityName);
-		// class GQLEntityFieldsResolver {
-		// 	[key: string]: Function;
-		// }
-		// Object.defineProperty(GQLEntityFieldsResolver, 'name', { value: fieldsResolverTypeName });
-		// TypeMap[fieldsResolverTypeName] = GQLEntityFieldsResolver;
-
 		logger.info('CustomFieldsMap', gqlEntityName, customFields);
 
 		for (const fieldName of keys(customFields)) {
@@ -110,37 +103,7 @@ export function createGQLTypes<T extends Object>(
 				description: fieldName,
 				deprecationReason: undefined,
 			});
-
-			// const resolve = fieldOptions?.resolve;
-			// if (!resolve) {
-			// 	continue;
-			// }
-
-			// GQLEntityFieldsResolver.prototype[fieldName] = () => ({ id: 1 });
-			// resolve && Object.defineProperty(GQLEntityFieldsResolver, fieldName, resolve);
-
-			// // logger.info('GQLEntityFieldsResolver with field resolver property', GQLEntityFieldsResolver);
-			// metadata.collectFieldResolverMetadata({
-			// 	kind: 'external',
-			// 	complexity: undefined,
-			// 	target: GQLEntityFieldsResolver,
-			// 	methodName: fieldName,
-			// 	schemaName: fieldName,
-			// 	description: fieldName,
-			// 	deprecationReason: undefined,
-			// 	getType: fieldOptions.type,
-			// 	getObjectType: () => GQLEntity,
-			// 	typeOptions: {
-			// 		...(fieldOptions.array ? { array: true, arrayDepth: 1 } : {}),
-			// 		...fieldOptions.options,
-			// 	},
-			// });
 		}
-
-		// metadata.collectResolverClassMetadata({
-		// 	target: GQLEntityFieldsResolver,
-		// 	getObjectType: () => GQLEntity,
-		// });
 	}
 
 	InputType(gqlEntityName + 'OrderBy')(GQLEntityOrderBy);
@@ -202,6 +165,7 @@ export function createGQLTypes<T extends Object>(
 type TypeGQLMetadataStorage = ReturnType<typeof getMetadataStorage>;
 
 type FieldParameter = Parameters<TypeGQLMetadataStorage['collectClassFieldMetadata']>[0];
+
 export function createGQLEntityFields<T, K>(
 	fieldOptions: FieldSettings | RelatedFieldSettings<T>,
 	fieldName: string,

@@ -11,8 +11,8 @@ import {
 import { keys } from '../utils';
 import { logger } from '../variables';
 import { Alias, AliasManager, AliasType } from './alias';
-import { mappingsReducer, newMappings } from './gql-to-sql-mapper';
 import { SQLBuilder } from './sql-builder';
+import { QueriesUtils } from './utils';
 
 const isPrimitive = (filterValue: any): filterValue is string | number | boolean | bigint | null =>
 	typeof filterValue === 'bigint' ||
@@ -226,7 +226,7 @@ export class FilterProcessor extends ClassOperations {
 			return;
 		}
 
-		const mapping = this.getMapping(mappings, gqlFieldNameKey);
+		const mapping = QueriesUtils.getMapping(mappings, gqlFieldNameKey);
 		mapping.alias = alias;
 
 		this[gqlFieldNameKey]({
@@ -270,7 +270,7 @@ export class FilterProcessor extends ClassOperations {
 				this.mapFilter(entityMetadata, newMappings, parentAlias, alias, fieldName, filter);
 			});
 
-			const reduced = mappingsReducer(newMappings);
+			const reduced = QueriesUtils.mappingsReducer(newMappings);
 			const { filterJoin, where, values } = reduced;
 
 			logger.log(
@@ -319,7 +319,7 @@ export class FilterProcessor extends ClassOperations {
 				const newOrs = or ? [...acc.ors, or._or] : acc.ors;
 
 				mapped.delete('_or');
-				const newAnds = !or ? mappingsReducer(mapped, acc.ands) : acc.ands;
+				const newAnds = !or ? QueriesUtils.mappingsReducer(mapped, acc.ands) : acc.ands;
 
 				logger.log('FilterProcessor - _and - mapped', i, 'or', or, 'and', newAnds);
 
@@ -330,7 +330,7 @@ export class FilterProcessor extends ClassOperations {
 			},
 			{
 				ors: [],
-				ands: newMappings(),
+				ands: QueriesUtils.newMappings(),
 			} as {
 				ors: MappingsType[][];
 				ands: MappingsType;
@@ -407,7 +407,7 @@ export class FilterProcessor extends ClassOperations {
 			);
 		}
 
-		const mapping = this.getMapping(mappings, fieldNameKey);
+		const mapping = QueriesUtils.getMapping(mappings, fieldNameKey);
 		mapping.alias = alias;
 
 		const referenceField =
@@ -437,7 +437,7 @@ export class FilterProcessor extends ClassOperations {
 		}
 	}
 
-	private handleReferenceFieldFilter<T>(
+	protected handleReferenceFieldFilter<T>(
 		fieldProps: EntityProperty,
 		referenceField: EntityMetadata<any>,
 		alias: Alias,
@@ -462,7 +462,7 @@ export class FilterProcessor extends ClassOperations {
 			values,
 			filterJoin,
 			_or,
-		} = mappingsReducer(recursiveMapResults);
+		} = QueriesUtils.mappingsReducer(recursiveMapResults);
 
 		logger.log(
 			'FilterProcessor - handleReferenceFieldFilter: referenceField',
@@ -526,7 +526,7 @@ export class FilterProcessor extends ClassOperations {
 		}
 	}
 
-	private handleDirectFieldFilter<T>(
+	protected handleDirectFieldFilter<T>(
 		properties: { [key in string & keyof T]: EntityProperty },
 		fieldNameKey: string,
 		filterValue: any,
@@ -562,7 +562,7 @@ export class FilterProcessor extends ClassOperations {
 		);
 	}
 
-	private mapFieldOperation<T>(
+	protected mapFieldOperation<T>(
 		mappings: Map<string, MappingsType>,
 		gqlFieldNameKey: string,
 		alias: Alias,
@@ -639,17 +639,17 @@ export class FilterProcessor extends ClassOperations {
 		}
 	}
 
-	private getFieldMapping(mappings: Map<string, MappingsType>, gqlFieldNameKey: string) {
+	protected getFieldMapping(mappings: Map<string, MappingsType>, gqlFieldNameKey: string) {
 		const m = mappings.get(gqlFieldNameKey);
 		if (m) {
 			return m;
 		}
-		const newMapping = newMappings();
+		const newMapping = QueriesUtils.newMappings();
 		mappings.set(gqlFieldNameKey, newMapping);
 		return newMapping;
 	}
 
-	private applyFilterOperation({
+	protected applyFilterOperation({
 		fieldOperation,
 		filterValue,
 		parentAlias,
@@ -679,18 +679,7 @@ export class FilterProcessor extends ClassOperations {
 		mapping.values = { ...mapping.values, ...value };
 	}
 
-	private getMapping(mappings: Map<string, MappingsType>, fieldNameKey: string): MappingsType {
-		const m = mappings.get(fieldNameKey);
-		if (m) {
-			return m;
-		}
-
-		const mapping = newMappings();
-		mappings.set(fieldNameKey, mapping);
-		return mapping;
-	}
-
-	private getCombinations(startMappings: MappingsType, matrix: MappingsType[][]): MappingsType[] {
+	protected getCombinations(startMappings: MappingsType, matrix: MappingsType[][]): MappingsType[] {
 		const result: MappingsType[] = [];
 
 		function combine(current: MappingsType, depth: number) {
@@ -719,7 +708,7 @@ export class FilterProcessor extends ClassOperations {
 	/**
 	 * Maps filter for One-to-Many and One-to-One relationships
 	 */
-	private mapFilterOneToX<T>(
+	protected mapFilterOneToX<T>(
 		referenceField: EntityMetadata<unknown>,
 		fieldProps: { [key in string & keyof T]: EntityProperty }[string & keyof T],
 		parentAlias: Alias,
@@ -802,7 +791,7 @@ export class FilterProcessor extends ClassOperations {
 	/**
 	 * Maps filter for Many-to-One relationships
 	 */
-	private mapFilterManyToOne<T>(
+	protected mapFilterManyToOne<T>(
 		fieldProps: { [key in string & keyof T]: EntityProperty }[string & keyof T],
 		referenceField: EntityMetadata<unknown>,
 		parentAlias: Alias,
@@ -879,7 +868,7 @@ export class FilterProcessor extends ClassOperations {
 	/**
 	 * Maps filter for Many-to-Many relationships
 	 */
-	private mapFilterManyToMany<T>(
+	protected mapFilterManyToMany<T>(
 		fieldProps: { [key in string & keyof T]: EntityProperty }[string & keyof T],
 		primaryKeys: string[],
 		referenceField: EntityMetadata<unknown>,
@@ -975,7 +964,7 @@ export class FilterProcessor extends ClassOperations {
 	/**
 	 * Builds a join query for One-to-X relationships
 	 */
-	private buildOneToXJoin(
+	protected buildOneToXJoin(
 		_fields: string[],
 		alias: Alias,
 		tableName: string,
@@ -1000,7 +989,7 @@ export class FilterProcessor extends ClassOperations {
 	/**
 	 * Builds a join query for Many-to-One relationships
 	 */
-	private buildManyToOneJoin(
+	protected buildManyToOneJoin(
 		_fields: string[],
 		alias: Alias,
 		tableName: string,
@@ -1024,7 +1013,7 @@ export class FilterProcessor extends ClassOperations {
 	/**
 	 * Builds a pivot table query for Many-to-Many relationships
 	 */
-	private buildManyToManyPivotTable(
+	protected buildManyToManyPivotTable(
 		fieldNames: string[],
 		alias: Alias,
 		tableName: string,

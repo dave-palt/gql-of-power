@@ -6,8 +6,9 @@
  */
 import { beforeEach, describe, expect, it } from 'bun:test';
 import { EntityMetadata } from '../../src';
-import { GQLtoSQLMapper, mappingsReducer, newMappings } from '../../src/queries/gql-to-sql-mapper';
+import { GQLtoSQLMapper } from '../../src/queries/gql-to-sql-mapper';
 import { SQLBuilder } from '../../src/queries/sql-builder';
+import { QueriesUtils } from '../../src/queries/utils';
 import { Fellowship, Person, Ring } from '../fixtures/middle-earth-schema';
 import { createMockMetadataProvider } from '../fixtures/test-data';
 import '../setup';
@@ -24,7 +25,7 @@ describe('GQLtoSQLMapper - Unit Tests', () => {
 	describe('Utility Functions', () => {
 		describe('newMappings', () => {
 			it('should create a new mapping object with correct initial state', () => {
-				const mapping = newMappings();
+				const mapping = QueriesUtils.newMappings();
 
 				expect(mapping.select).toBeInstanceOf(Set);
 				expect(mapping.select.size).toBe(0);
@@ -56,13 +57,13 @@ describe('GQLtoSQLMapper - Unit Tests', () => {
 
 		describe('mappingsReducer', () => {
 			it('should merge multiple mappings correctly', () => {
-				const mapping1 = newMappings();
+				const mapping1 = QueriesUtils.newMappings();
 				mapping1.select.add('field1');
 				mapping1.json.push("'key1', field1");
 				mapping1.where.push("field1 = 'value1'");
 				mapping1.values = { param1: 'value1' };
 
-				const mapping2 = newMappings();
+				const mapping2 = QueriesUtils.newMappings();
 				mapping2.select.add('field2');
 				mapping2.json.push("'key2', field2");
 				mapping2.where.push("field2 = 'value2'");
@@ -73,7 +74,7 @@ describe('GQLtoSQLMapper - Unit Tests', () => {
 					['map2', mapping2],
 				]);
 
-				const result = mappingsReducer(mappingsMap);
+				const result = QueriesUtils.mappingsReducer(mappingsMap);
 
 				expect(result.select.has('field1')).toBe(true);
 				expect(result.select.has('field2')).toBe(true);
@@ -85,7 +86,7 @@ describe('GQLtoSQLMapper - Unit Tests', () => {
 			});
 
 			it('should handle empty mappings', () => {
-				const result = mappingsReducer(new Map());
+				const result = QueriesUtils.mappingsReducer(new Map());
 
 				expect(result.select.size).toBe(0);
 				expect(result.json).toEqual([]);
@@ -94,13 +95,13 @@ describe('GQLtoSQLMapper - Unit Tests', () => {
 			});
 
 			it('should preserve limit, offset, and orderBy from mappings', () => {
-				const mapping = newMappings();
+				const mapping = QueriesUtils.newMappings();
 				mapping.limit = 10;
 				mapping.offset = 5;
 				mapping.orderBy = [{ name: 'asc' as any }];
 
 				const mappingsMap = new Map([['test', mapping]]);
-				const result = mappingsReducer(mappingsMap);
+				const result = QueriesUtils.mappingsReducer(mappingsMap);
 
 				expect(result.limit).toBe(10);
 				expect(result.offset).toBe(5);
@@ -324,7 +325,7 @@ describe('GQLtoSQLMapper - Unit Tests', () => {
 				fieldName: '_or' as any,
 				parentAlias: { toString: () => 'a1' } as any,
 				alias: { toString: () => 'a1' } as any,
-				mapping: newMappings(),
+				mapping: QueriesUtils.newMappings(),
 				mappings: new Map(),
 			};
 
@@ -339,7 +340,7 @@ describe('GQLtoSQLMapper - Unit Tests', () => {
 				fieldName: '_and' as any,
 				parentAlias: { toString: () => 'a1' } as any,
 				alias: { toString: () => 'a1' } as any,
-				mapping: newMappings(),
+				mapping: QueriesUtils.newMappings(),
 				mappings: new Map(),
 			};
 
@@ -354,7 +355,7 @@ describe('GQLtoSQLMapper - Unit Tests', () => {
 				fieldName: '_not' as any,
 				parentAlias: { toString: () => 'a1' } as any,
 				alias: { toString: () => 'a1' } as any,
-				mapping: newMappings(),
+				mapping: QueriesUtils.newMappings(),
 				mappings: new Map(),
 			};
 

@@ -7,8 +7,8 @@
 
 import { beforeEach, describe, expect, it } from 'bun:test';
 import { AliasManager, AliasType } from '../../src/queries/alias';
-import { newMappings } from '../../src/queries/gql-to-sql-mapper';
 import { RelationshipHandler } from '../../src/queries/relationship-handler';
+import { QueriesUtils } from '../../src/queries/utils';
 import { EntityMetadata, EntityProperty, ReferenceType } from '../../src/types';
 import { Fellowship, Person, Ring } from '../fixtures/middle-earth-schema';
 import { createMockMetadataProvider } from '../fixtures/test-data';
@@ -36,7 +36,7 @@ describe('RelationshipHandler', () => {
 			const fieldProps = fellowshipMetadata.properties.members as EntityProperty;
 			const parentAlias = aliasManager.start('f');
 			const alias = aliasManager.next(AliasType.field, 'p');
-			const mapping = newMappings();
+			const mapping = QueriesUtils.newMappings();
 
 			const mockJson = ["'id'", 'p.id', "'name'", 'p.person_name'];
 			const mockSelect = new Set(['p.id', 'p.person_name']);
@@ -76,7 +76,7 @@ describe('RelationshipHandler', () => {
 			const fieldProps = personMetadata.properties.ring as EntityProperty;
 			const parentAlias = aliasManager.start('p');
 			const alias = aliasManager.next(AliasType.field, 'r');
-			const mapping = newMappings();
+			const mapping = QueriesUtils.newMappings();
 
 			const mockJson = ["'id'", 'r.id', "'name'", 'r.ring_name'];
 			const mockSelect = new Set(['r.id', 'r.ring_name']);
@@ -116,7 +116,7 @@ describe('RelationshipHandler', () => {
 			const fieldProps = fellowshipMetadata.properties.members as EntityProperty;
 			const parentAlias = aliasManager.start('f');
 			const alias = aliasManager.next(AliasType.field, 'p');
-			const mapping = newMappings();
+			const mapping = QueriesUtils.newMappings();
 
 			const mockOrderBy = [{ name: 'asc' as const }, { age: 'desc' as const }];
 
@@ -152,7 +152,7 @@ describe('RelationshipHandler', () => {
 
 			const parentAlias = aliasManager.start('p');
 			const alias = aliasManager.next(AliasType.field, 'r');
-			const mapping = newMappings();
+			const mapping = QueriesUtils.newMappings();
 
 			// Mock invalid reference field with mismatched columns
 			const invalidReferenceField = {
@@ -198,7 +198,7 @@ describe('RelationshipHandler', () => {
 			const fieldProps = personMetadata.properties.fellowship as EntityProperty;
 			const parentAlias = aliasManager.start('p');
 			const alias = aliasManager.next(AliasType.field, 'f');
-			const mapping = newMappings();
+			const mapping = QueriesUtils.newMappings();
 
 			const mockJson = ["'id'", 'f.id', "'name'", 'f.fellowship_name'];
 			const mockSelect = new Set(['f.id', 'f.fellowship_name']);
@@ -243,7 +243,7 @@ describe('RelationshipHandler', () => {
 			// Fellowship has 1 primary key, but fieldNames has 2 - mismatch!
 			const parentAlias = aliasManager.start('p');
 			const alias = aliasManager.next(AliasType.field, 'f');
-			const mapping = newMappings();
+			const mapping = QueriesUtils.newMappings();
 
 			expect(() => {
 				relationshipHandler.mapManyToOne(
@@ -297,7 +297,7 @@ describe('RelationshipHandler', () => {
 
 			const parentAlias = aliasManager.start('p');
 			const alias = aliasManager.next(AliasType.field, 'b');
-			const mapping = newMappings();
+			const mapping = QueriesUtils.newMappings();
 
 			const mockJson = ["'id'", 'b.id', "'name'", 'b.battle_name'];
 			const mockSelect = new Set(['b.id', 'b.battle_name']);
@@ -343,7 +343,7 @@ describe('RelationshipHandler', () => {
 
 			const parentAlias = aliasManager.start('p');
 			const alias = aliasManager.next(AliasType.field, 'b');
-			const mapping = newMappings();
+			const mapping = QueriesUtils.newMappings();
 
 			// Test with empty whereWithValues to simulate null conditions
 			relationshipHandler.mapManyToMany(
@@ -382,7 +382,7 @@ describe('RelationshipHandler', () => {
 
 			const parentAlias = aliasManager.start('p');
 			const alias = aliasManager.next(AliasType.field, 'b');
-			const mapping = newMappings();
+			const mapping = QueriesUtils.newMappings();
 
 			expect(() => {
 				relationshipHandler.mapManyToMany(
@@ -418,7 +418,7 @@ describe('RelationshipHandler', () => {
 
 			const parentAlias = aliasManager.start('p');
 			const alias = aliasManager.next(AliasType.field, 'b');
-			const mapping = newMappings();
+			const mapping = QueriesUtils.newMappings();
 
 			expect(() => {
 				relationshipHandler.mapManyToMany(
@@ -452,7 +452,7 @@ describe('RelationshipHandler', () => {
 			const membersFieldProps = fellowshipMetadata.properties.members as EntityProperty;
 			const parentAlias = aliasManager.start('f');
 			const membersAlias = aliasManager.next(AliasType.field, 'p');
-			const mapping = newMappings();
+			const mapping = QueriesUtils.newMappings();
 
 			// Test with complex filtering and ordering
 			const mockOrderBy = [{ name: 'asc' as const }, { race: 'desc' as const }];

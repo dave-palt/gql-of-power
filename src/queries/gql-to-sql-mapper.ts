@@ -9,6 +9,7 @@ import {
 	GQLEntityOrderByInputType,
 	GQLEntityPaginationInputType,
 	MappingsType,
+	mappingsTypeToString,
 	MetadataProvider,
 	ReferenceType,
 	RelatedFieldSettings,
@@ -19,76 +20,8 @@ import { Alias, AliasManager, AliasType } from './alias';
 import { FilterProcessor } from './filter-processor';
 import { RelationshipHandler } from './relationship-handler';
 import { SQLBuilder } from './sql-builder';
+import { isPrimitive, QueriesUtils } from './utils';
 
-const mappingsToString = (m: MappingsType) => `MappingsType:
-select: ${m.select.size}
-json: ${m.json.length}
-filterJoin: ${m.filterJoin.length}
-join: ${m.join.length}
-where: ${m.where.length}
-values: ${keys(m.values ?? {}).length}
-orderBy: ${m.orderBy.length}
-_or: ${m._or.length}
-_and: ${m._and.length}
-_not: ${m._not.length}
-`;
-
-export const newMappings = () =>
-	({
-		select: new Set<string>(),
-		json: [] as string[],
-		filterJoin: [] as string[],
-		join: [] as string[],
-		where: [] as string[],
-		values: {} as Record<string, any>,
-		orderBy: [] as GQLEntityOrderByInputType<any>[],
-		_or: [] as MappingsType[],
-		_and: [] as MappingsType[],
-		_not: [] as MappingsType[],
-	} as MappingsType);
-
-const isPrimitive = (filterValue: any): filterValue is string | number | boolean | bigint | null =>
-	typeof filterValue === 'bigint' ||
-	typeof filterValue === 'boolean' ||
-	typeof filterValue === 'number' ||
-	typeof filterValue === 'string' ||
-	typeof filterValue === 'symbol' ||
-	filterValue === null;
-
-export const mappingsReducer = (m: Map<string, MappingsType>, startMapping = newMappings()) =>
-	Array.from(m.values()).reduce(
-		(
-			{ select, filterJoin, json, join, where, values, limit, offset, orderBy, _or, _and, _not },
-			mapping
-		) => {
-			mapping.select.forEach((s) => select.add(s));
-			json.push(...mapping.json);
-			filterJoin.push(...mapping.filterJoin);
-			join.push(...mapping.join);
-			where.push(...mapping.where);
-			orderBy.push(...mapping.orderBy);
-			_or.push(...mapping._or);
-			_and.push(...mapping._and);
-			_not.push(...mapping._not);
-			values = { ...values, ...mapping.values };
-
-			return {
-				select,
-				json,
-				filterJoin,
-				join,
-				where,
-				values,
-				limit: mapping.limit ?? limit,
-				offset: mapping.offset ?? offset,
-				orderBy,
-				_or,
-				_and,
-				_not,
-			};
-		},
-		startMapping
-	);
 export type QueryAndBindings = { querySQL: string; bindings: any };
 
 export class GQLtoSQLMapper extends ClassOperations {
@@ -159,7 +92,7 @@ export class GQLtoSQLMapper extends ClassOperations {
 		});
 		logger.log('recursiveMapResults', recursiveMapResults);
 		const { select, json, filterJoin, join, where, values, _or, _and } =
-			mappingsReducer(recursiveMapResults);
+			QueriesUtils.mappingsReducer(recursiveMapResults);
 
 		const orderByFields = (pagination?.orderBy ?? [])
 			.map((obs) =>
@@ -173,32 +106,6 @@ export class GQLtoSQLMapper extends ClassOperations {
 					.flat()
 			)
 			.flat();
-
-		const buildOrderBySQL = (
-			pagination?: Partial<GQLEntityPaginationInputType<T>>,
-			alias?: Alias
-		) =>
-			pagination?.orderBy
-				? `order by ${pagination.orderBy
-						.map((obs) =>
-							keys(obs)
-								.map((ob) => {
-									const fieldMeta = metadata.properties[ob];
-									if (!fieldMeta) {
-										throw new Error(
-											'Unknown pagination field ' + ob + ' for entity ' + entity.name
-										);
-									}
-									return fieldMeta.fieldNames
-										.map((fn) => `${alias?.toColumnName(fn) ?? fn} ${obs[ob]}`)
-										.join(', ');
-								})
-								.filter((o) => o.length > 0)
-								.join(', ')
-						)
-						.filter((o) => o.length > 0)
-						.join(', ')}`
-				: ``;
 
 		// logger.log('orderByFields', orderByFields, 'select', select, 'orderBy', orderBy);
 		const selectFields = [...new Set(orderByFields.concat(Array.from(select)))];
@@ -246,12 +153,26 @@ export class GQLtoSQLMapper extends ClassOperations {
 				})
 		);
 
+		const getFieldMapper =
+			<T>(metadata: EntityMetadata<T>, alias: Alias) =>
+			(ob: string) => {
+				const fieldMeta = metadata.properties[ob];
+				if (!fieldMeta) {
+					throw new Error('Unknown pagination field ' + ob + ' for entity ' + entity.name);
+				}
+				return fieldMeta.fieldNames.map((fn) => `${alias.toColumnName(fn) ?? fn}`);
+			};
+
 		const sourceDataSQL = `${
 			unionAll.length > 0
 				? `select distinct * from (${unionAll.join(' union all ')}) as ${alias.toString()}`
 				: buildSubQueryWrapper(filterJoin, where, alias)
 		}
-		${buildOrderBySQL(pagination, alias)}
+		${
+			pagination?.orderBy
+				? SQLBuilder.buildOrderBySQL(pagination.orderBy, getFieldMapper(metadata, alias))
+				: ''
+		}
 		${pagination?.limit ? `limit ${this.namedParameterPrefix}limit` : ``}
 		${pagination?.offset ? `offset ${this.namedParameterPrefix}offset` : ``}`.replaceAll(
 			/[ \n\t]+/gi,
@@ -348,7 +269,7 @@ export class GQLtoSQLMapper extends ClassOperations {
 							logPrefix,
 							'- using mapping ================================================> for',
 							gqlFieldNameKey,
-							mappingsToString(mapping)
+							mappingsTypeToString(mapping)
 						);
 						const customFieldProps =
 							customFields && gqlFieldNameKey in customFields
@@ -463,7 +384,7 @@ export class GQLtoSQLMapper extends ClassOperations {
 				'recursiveMap || GQLtoSQLMapper - recursiveMap - referenceField latest alias next',
 				alias.toString(),
 				childAlias.toString(),
-				mappingsToString(mapping)
+				mappingsTypeToString(mapping)
 			);
 
 			const {
@@ -476,7 +397,7 @@ export class GQLtoSQLMapper extends ClassOperations {
 				limit,
 				offset,
 				orderBy,
-			} = mappingsReducer(
+			} = QueriesUtils.mappingsReducer(
 				this.recursiveMap({
 					entityMetadata: referenceField,
 					fields: fields[gqlFieldName],
@@ -606,7 +527,14 @@ export class GQLtoSQLMapper extends ClassOperations {
 					isFieldFilter: true,
 				});
 
-				const { filterJoin, where: w, values, _or, _and, _not } = mappingsReducer(mapped);
+				const {
+					filterJoin,
+					where: w,
+					values,
+					_or,
+					_and,
+					_not,
+				} = QueriesUtils.mappingsReducer(mapped);
 
 				mapping.filterJoin.push(...filterJoin);
 				mapping.where.push(...w);
@@ -621,7 +549,7 @@ export class GQLtoSQLMapper extends ClassOperations {
 					'GQLtoSQLMapper - handleFieldArguments - processed',
 					filter,
 					'mapping',
-					mappingsToString(mapping)
+					mappingsTypeToString(mapping)
 				);
 			} else {
 				// m.__arguments = __arguments;
@@ -934,7 +862,7 @@ export class GQLtoSQLMapper extends ClassOperations {
 		if (m) {
 			return m;
 		}
-		const newMapping = newMappings();
+		const newMapping = QueriesUtils.newMappings();
 		mappings.set(gqlFieldNameKey, newMapping);
 		return newMapping;
 	}
@@ -1074,16 +1002,6 @@ export class GQLtoSQLMapper extends ClassOperations {
 			customFields,
 			isFieldFilter
 		);
-	}
-	protected getMapping(mappings: Map<string, MappingsType>, fieldNameKey: string) {
-		const m = mappings.get(fieldNameKey);
-		if (m) {
-			return m;
-		}
-
-		const mapping = newMappings();
-		mappings.set(fieldNameKey, mapping);
-		return mapping;
 	}
 
 	protected mapFieldOperation<T>(
@@ -1701,7 +1619,7 @@ export class GQLtoSQLMapper extends ClassOperations {
 				// mapping._or.push(newMappings);
 			});
 			// this smells bad
-			const reduced = mappingsReducer(newMappings);
+			const reduced = QueriesUtils.mappingsReducer(newMappings);
 			const { filterJoin, where, values } = reduced;
 			logger.log(
 				'GQLtoSQLMapper - new mappings',
@@ -1727,7 +1645,7 @@ export class GQLtoSQLMapper extends ClassOperations {
 		// 	gqlFilters,
 		// 	alias,
 		// });
-		// const { join, filterJoin, where, values, _and, _not, _or } = mappingsReducer(recursiveFilters);
+		// const { join, filterJoin, where, values, _and, _not, _or } = QueriesUtils.mappingsReducer(recursiveFilters);
 		// logger.log(
 		// 	'GQLtoSQLMapper - info - ClassOperations - _or',
 		// 	'join',
@@ -1787,7 +1705,7 @@ export class GQLtoSQLMapper extends ClassOperations {
 				const newOrs = or ? [...acc.ors, or._or] : acc.ors;
 
 				mapped.delete('_or');
-				const newAnds = !or ? mappingsReducer(mapped, acc.ands) : acc.ands;
+				const newAnds = !or ? QueriesUtils.mappingsReducer(mapped, acc.ands) : acc.ands;
 				logger.log('GQLtoSQLMapper - info - ClassOperations - mapped', i, 'or', or, 'and', newAnds);
 				return {
 					ors: newOrs,
@@ -1796,7 +1714,7 @@ export class GQLtoSQLMapper extends ClassOperations {
 			},
 			{
 				ors: [],
-				ands: newMappings(),
+				ands: QueriesUtils.newMappings(),
 			} as {
 				ors: MappingsType[][];
 				ands: MappingsType;
