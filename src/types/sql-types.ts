@@ -62,8 +62,8 @@ export type RelatedFieldSettings<T> = FieldBaseSettings & {
 	type: NonNullable<Parameters<typeof FieldResolver>[0]>;
 	options?: Parameters<typeof FieldResolver>[1];
 	/**
-	 * Required field to resolve the custom field.
-	 * Example: the custom field is for Account and requires crmAccountId => 'crmAccountId'
+	 * Required field/s to resolve the custom field.
+	 * Example: the custom field is for Account and requires accountId set this to 'accountId' and it will be fetched from the entity even if accountId is not requested in the gql query.
 	 */
 	requires?: (string & keyof T) | Array<string & keyof T>;
 	resolve?: (...any: any) => any;

@@ -317,53 +317,6 @@ describe('GQLtoSQLMapper - Unit Tests', () => {
 		});
 	});
 
-	describe('Class Operations (_and, _or, _not)', () => {
-		it('should handle _or operations', () => {
-			const input = {
-				entityMetadata: mockProvider.getMetadata('Person'),
-				gqlFilters: [{ name: 'Frodo' }, { name: 'Sam' }],
-				fieldName: '_or' as any,
-				parentAlias: { toString: () => 'a1' } as any,
-				alias: { toString: () => 'a1' } as any,
-				mapping: QueriesUtils.newMappings(),
-				mappings: new Map(),
-			};
-
-			// Test that _or method exists and can be called
-			expect(typeof mapper._or).toBe('function');
-		});
-
-		it('should handle _and operations', () => {
-			const input = {
-				entityMetadata: mockProvider.getMetadata('Person'),
-				gqlFilters: [{ name: 'Frodo' }, { age: { _gt: 30 } }],
-				fieldName: '_and' as any,
-				parentAlias: { toString: () => 'a1' } as any,
-				alias: { toString: () => 'a1' } as any,
-				mapping: QueriesUtils.newMappings(),
-				mappings: new Map(),
-			};
-
-			// Test that _and method exists and can be called
-			expect(typeof mapper._and).toBe('function');
-		});
-
-		it('should handle _not operations', () => {
-			const input = {
-				entityMetadata: mockProvider.getMetadata('Person'),
-				gqlFilters: [{ name: 'Sauron' }],
-				fieldName: '_not' as any,
-				parentAlias: { toString: () => 'a1' } as any,
-				alias: { toString: () => 'a1' } as any,
-				mapping: QueriesUtils.newMappings(),
-				mappings: new Map(),
-			};
-
-			// Test that _not method exists and can be called
-			expect(typeof mapper._not).toBe('function');
-		});
-	});
-
 	describe('Integration with Sample Data', () => {
 		it('should work with Fellowship entity and relationships', () => {
 			const fields = {

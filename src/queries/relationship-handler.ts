@@ -77,10 +77,11 @@ export class RelationshipHandler {
 				new Set(ons.map((on) => `${alias.toColumnName(on)}`).concat(Array.from(select)))
 			);
 
-			const processedOrderBy = this.processOrderBy(orderBy, referenceField, alias);
-			const orderBySQL =
-				processedOrderBy.length > 0 ? ` order by ${processedOrderBy.join(', ')} ` : '';
-			const isNestedNeeded = offset || limit || processedOrderBy.length > 0;
+			const orderBySQL = SQLBuilder.buildOrderBySQL(
+				orderBy,
+				SQLBuilder.getFieldMapper(referenceField, alias)
+			);
+			const isNestedNeeded = offset || limit || orderBySQL.length > 0;
 
 			const fromSQL = `"${referenceField.tableName}" as ${alias.toString()}`;
 			const subFromSQL = this.buildSubFromSQL(
@@ -286,31 +287,6 @@ export class RelationshipHandler {
 		} else {
 			mapping.json.push(`'${gqlFieldName}', null`);
 		}
-	}
-
-	private processOrderBy(
-		orderBy: GQLEntityOrderByInputType<any>[],
-		referenceField: EntityMetadata<any>,
-		alias: Alias
-	): string[] {
-		return orderBy.reduce((acc, ob) => {
-			keys(ob).forEach((k) => {
-				logger.log(
-					'RelationshipHandler - processedOrderBy',
-					k,
-					ob[k],
-					(referenceField as any).properties[k]
-				);
-				if (k in referenceField.properties) {
-					acc.push(
-						...referenceField.properties[
-							k as keyof typeof referenceField.properties
-						].fieldNames.map((fn) => `${alias.toColumnName(fn)} ${(ob as any)[k]}`)
-					);
-				}
-			});
-			return acc;
-		}, [] as string[]);
 	}
 
 	private buildSubFromSQL(

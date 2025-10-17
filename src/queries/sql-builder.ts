@@ -1,4 +1,4 @@
-import { MappingsType } from '../types';
+import { EntityMetadata, MappingsType } from '../types';
 import { keys } from '../utils';
 import { Alias } from './alias';
 
@@ -131,7 +131,15 @@ export class SQLBuilder {
 			])
 			.flat();
 	}
-
+	public static getFieldMapper =
+		<T>(metadata: EntityMetadata<T>, alias: Alias) =>
+		(ob: string) => {
+			const fieldMeta = metadata.properties[ob];
+			if (!fieldMeta) {
+				throw new Error('Unknown pagination field ' + ob + ' for entity ' + entity.name);
+			}
+			return fieldMeta.fieldNames.map((fn) => `${alias.toColumnName(fn) ?? fn}`);
+		};
 	/**
 	 * Builds ORDER BY SQL clause from pagination input
 	 * @param orderBy Array of order by specifications

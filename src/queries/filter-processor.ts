@@ -154,7 +154,30 @@ export class FilterProcessor extends ClassOperations {
 	}
 
 	/**
-	 * Applies a filter value with the given operation
+	 * Applies filter values to the query based on the provided parameters.
+	 *
+	 * This method handles both primitive values and filter objects, generating
+	 * appropriate SQL query conditions based on the operation and value type.
+	 *
+	 * @template T - The type of entity being filtered
+	 *
+	 * @param options - Object containing filter parameters
+	 * @param options.filterValue - The value to filter by, which can be a primitive or a filter object
+	 * @param options.fieldOperation - The operation to apply (e.g., '_eq', '_gt', etc.). Optional for primitive values
+	 * @param options.fieldName - The GraphQL field name being filtered
+	 * @param options.latestAlias - The latest alias used in the SQL query
+	 * @param options.mapping - The mapping configuration for the field
+	 *
+	 * @example
+	 * // For primitive values:
+	 * // { id_eq: 1 } or { id: 1 }
+	 *
+	 * // For filter objects:
+	 * // { Id: { _eq: 1 } }
+	 *
+	 * @returns {void}
+	 *
+	 * @deprecated
 	 */
 	public applyFilterValue<T>({
 		filterValue,
@@ -649,6 +672,18 @@ export class FilterProcessor extends ClassOperations {
 		return newMapping;
 	}
 
+	/**
+	 * Applies a filter operation to a field based on the provided parameters.
+	 *
+	 * @param options - The options for the filter operation
+	 * @param options.fieldOperation - The operation to apply, must be a key of Operations or FieldOperations
+	 * @param options.fieldName - The name of the field to filter on
+	 * @param options.filterValue - The value to filter against, can be string, number, boolean, or bigint
+	 * @param options.latestAlias - The current alias object for the table
+	 * @param options.mapping - The mapping object that holds where clauses and values
+	 *
+	 * @protected
+	 */
 	protected applyFilterOperation({
 		fieldOperation,
 		filterValue,
