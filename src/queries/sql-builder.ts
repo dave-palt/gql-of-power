@@ -2,8 +2,6 @@ import { EntityMetadata, MappingsType } from '../types';
 import { keys } from '../utils';
 import { Alias } from './alias';
 
-const USE_STRING = process.env.D3GOP_USE_STRING_FOR_JSONB === 'true';
-
 const jsonReducerForString = (
 	/**
 	 * `'id', `
@@ -27,15 +25,18 @@ export class SQLBuilder {
 	 */
 	public static generateJsonObjectSelectStatement(json: string[], isMulti = false): string {
 		return isMulti
-			? !USE_STRING
-				? `coalesce(json_agg(jsonb_build_object(${json.join(', ')})), '[]'::json)`
-				: `'['||coalesce(string_agg('{"' || ${json
-						.map(jsonReducerForString)
-						.join('||')} || '"}', ','), '') || ']'`
-			: !USE_STRING
-			? `jsonb_build_object(${json.join(', ')})`
-			: `'{' || ${json.map(jsonReducerForString).join(' || ')} || '}'`;
+			? `coalesce(json_agg(jsonb_build_object(${json.join(', ')})), '[]'::json)`
+			: `jsonb_build_object(${json.join(', ')})`;
 	}
+
+	/**
+	 * Generates a SQL select statement for converting query results to JSON format.
+	 *
+	 * @param alias - The table or subquery alias to be converted to JSON.
+	 * @param isMulti - If true, generates a statement for aggregating multiple rows into a JSON array;
+	 *                  if false, generates a statement for a single row as a JSON object.
+	 * @returns A SQL string that uses either `row_to_json` for a single row or `json_agg(row_to_json(...))` for multiple rows.
+	 */
 	public static generateJsonSelectStatement = (alias: string, isMulti = false) =>
 		isMulti ? `coalesce(json_agg(row_to_json(${alias})), '[]'::json)` : `row_to_json(${alias})`;
 	/**
@@ -136,7 +137,7 @@ export class SQLBuilder {
 		(ob: string) => {
 			const fieldMeta = metadata.properties[ob];
 			if (!fieldMeta) {
-				throw new Error('Unknown pagination field ' + ob + ' for entity ' + entity.name);
+				throw new Error('Unknown pagination field ' + ob + ' for table ' + metadata.tableName);
 			}
 			return fieldMeta.fieldNames.map((fn) => `${alias.toColumnName(fn) ?? fn}`);
 		};

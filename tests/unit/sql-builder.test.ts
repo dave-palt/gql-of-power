@@ -5,91 +5,13 @@
  * including JSON object construction, subqueries, union all, and lateral joins.
  */
 
-import { afterEach, beforeEach, describe, expect, it } from 'bun:test';
+import { describe, expect, it } from 'bun:test';
 import { Alias, AliasType } from '../../src';
 import { SQLBuilder } from '../../src/queries/sql-builder';
 import { MappingsType } from '../../src/types';
 import '../setup';
-import { testEnvironments } from '../setup';
 
 describe('SQLBuilder', () => {
-	describe('generateJsonObjectSelectStatement', () => {
-		describe('JSONB mode (default)', () => {
-			beforeEach(() => {
-				testEnvironments.jsonb();
-			});
-
-			it('should generate correct JSONB object for single record', () => {
-				const jsonFields = ["'id'", 'person.id', "'name'", 'person.person_name'];
-				const result = SQLBuilder.generateJsonObjectSelectStatement(jsonFields, false);
-
-				expect(result).toBe("jsonb_build_object('id', person.id, 'name', person.person_name)");
-			});
-
-			it('should generate correct JSONB array for multiple records', () => {
-				const jsonFields = ["'id'", 'person.id', "'name'", 'person.person_name'];
-				const result = SQLBuilder.generateJsonObjectSelectStatement(jsonFields, true);
-
-				expect(result).toBe(
-					"coalesce(json_agg(jsonb_build_object('id', person.id, 'name', person.person_name)), '[]'::json)"
-				);
-			});
-
-			it('should handle empty json fields array', () => {
-				const result = SQLBuilder.generateJsonObjectSelectStatement([], false);
-				expect(result).toBe('jsonb_build_object()');
-			});
-
-			it('should handle complex field names with quotes', () => {
-				const jsonFields = ["'ring'", 'ring.ring_name', "'bearer'", 'bearer.person_name'];
-				const result = SQLBuilder.generateJsonObjectSelectStatement(jsonFields, false);
-
-				expect(result).toBe(
-					"jsonb_build_object('ring', ring.ring_name, 'bearer', bearer.person_name)"
-				);
-			});
-		});
-
-		describe('String concatenation mode', () => {
-			beforeEach(() => {
-				testEnvironments.stringConcat();
-			});
-
-			afterEach(() => {
-				testEnvironments.jsonb(); // Reset to default
-			});
-
-			it('should generate string concatenation for single record', () => {
-				// Force reload the module to pick up new env variable
-				delete require.cache[require.resolve('../../src/queries/sql-builder')];
-				const { SQLBuilder: StringSQLBuilder } = require('../../src/queries/sql-builder');
-
-				const jsonFields = ["'id'", 'person.id', "'name'", 'person.person_name'];
-				const result = StringSQLBuilder.generateJsonObjectSelectStatement(jsonFields, false);
-
-				// Check for string concatenation structure
-				expect(result).toContain("'{' ||");
-				expect(result).toContain("|| '}'");
-				// The string concatenation uses coalesce but with different structure
-				expect(result).toContain('coalesce(');
-				expect(result).toContain('::text');
-			});
-
-			it('should generate string concatenation array for multiple records', () => {
-				// Force reload the module to pick up new env variable
-				delete require.cache[require.resolve('../../src/queries/sql-builder')];
-				const { SQLBuilder: StringSQLBuilder } = require('../../src/queries/sql-builder');
-
-				const jsonFields = ["'id'", 'person.id', "'name'", 'person.person_name'];
-				const result = StringSQLBuilder.generateJsonObjectSelectStatement(jsonFields, true);
-
-				expect(result).toContain("'['||");
-				expect(result).toContain("|| ']'");
-				expect(result).toContain('string_agg');
-			});
-		});
-	});
-
 	describe('buildSubQuery', () => {
 		it('should build basic subquery with select and from', () => {
 			const result = SQLBuilder.buildSubQuery(
@@ -344,12 +266,9 @@ describe('SQLBuilder', () => {
 
 	describe('integration scenarios', () => {
 		it('should handle complex Middle-earth query components', () => {
-			// Test a realistic Fellowship members query
-			const jsonFields = ["'id'", 'p.id', "'name'", 'p.person_name', "'race'", 'p.race'];
-
-			const jsonSelect = SQLBuilder.generateJsonObjectSelectStatement(jsonFields, true);
+			const jsonSelect = SQLBuilder.generateJsonSelectStatement('test', true);
 			expect(jsonSelect).toContain('json_agg');
-			expect(jsonSelect).toContain('jsonb_build_object');
+			expect(jsonSelect).toContain('row_to_json(test)');
 
 			const orderBy: Array<Record<string, 'asc' | 'desc'>> = [
 				{ name: 'asc' as const },
