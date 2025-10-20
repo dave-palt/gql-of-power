@@ -42,7 +42,7 @@ export abstract class FieldOperationsClass<T> {
 	abstract _exists: T;
 }
 
-export const getFieldOperations = (namedParameterPrefix: string) => ({
+export const FieldOperations = {
 	_and: ([l]: string[], [_]: Array<string | number | boolean | bigint | null>) => ({
 		where: `and (${l})`,
 		value: undefined,
@@ -56,31 +56,20 @@ export const getFieldOperations = (namedParameterPrefix: string) => ({
 		where: `${l} ${rv !== null && rv !== 'null' ? `!= ${r}` : 'is not null'}`,
 		value: undefined,
 	}),
-	_in: ([l, ...r]: string[], []: Array<string | number | boolean | bigint | null>) => ({
-		where: `${l} in (${r.join(', ')})`,
-		value: undefined,
+	_in: (
+		[l, r, ..._args]: string[],
+		[_, ...values]: Array<string | number | boolean | bigint | null>
+	) => ({
+		where: `${l} in (${values.map((_, i) => r + '__' + i).join(', ')})`,
+		value: values.reduce((acc, v, i) => ({ ...acc, [r.slice(1) + '__' + i]: v }), {}),
 	}),
 	_nin: (
 		[l, r, ..._args]: string[],
 		[_, ...values]: Array<string | number | boolean | bigint | null>
-	) => {
-		console.log(
-			'not in ',
-			l,
-			r,
-			_args,
-			values,
-			`${l} not in (${values.map((_, i) => r + '__' + i).join(', ')})`
-		);
-		console.log(
-			'not in ',
-			values.reduce((acc, v, i) => ({ ...acc, [r.slice(1) + '__' + i]: v }), {})
-		);
-		return {
-			where: `${l} not in (${values.map((_, i) => r + '__' + i).join(', ')})`,
-			value: values.reduce((acc, v, i) => ({ ...acc, [r.slice(1) + '__' + i]: v }), {}),
-		};
-	},
+	) => ({
+		where: `${l} not in (${values.map((_, i) => r + '__' + i).join(', ')})`,
+		value: values.reduce((acc, v, i) => ({ ...acc, [r.slice(1) + '__' + i]: v }), {}),
+	}),
 	_gt: ([l, r]: string[], []: Array<string | number | boolean | bigint | null>) => ({
 		where: `${l} > ${r}`,
 		value: undefined,
@@ -114,12 +103,16 @@ export const getFieldOperations = (namedParameterPrefix: string) => ({
 		value: undefined,
 	}),
 	_overlap: ([l, r]: string[], []: Array<string | number | boolean | bigint | null>) => ({
-		where: `${l} && ${r}`,
+		where: `ARRAY[${l}] && ARRAY[${r}]`,
 		value: undefined,
 	}),
-	_contains: ([l, r]: string[], []: Array<string | number | boolean | bigint | null>) => ({
-		where: `${l} contains ${r}`,
-		value: undefined,
+	// this is possibly not implemented correctly
+	_contains: (
+		[l, r, ..._args]: string[],
+		[_, ...values]: Array<string | number | boolean | bigint | null>
+	) => ({
+		where: `ARRAY[${l}] @> ARRAY[${values.map((_, i) => r + '__' + i).join(', ')}]`,
+		value: values.reduce((acc, v, i) => ({ ...acc, [r.slice(1) + '__' + i]: v }), {}),
 	}),
 	_contained: ([l, r]: string[], []: Array<string | number | boolean | bigint | null>) => ({
 		where: `${l} contained ${r}`,
@@ -133,7 +126,6 @@ export const getFieldOperations = (namedParameterPrefix: string) => ({
 		where: `exists ${l}`,
 		value: undefined,
 	}),
-});
+};
 
-export const FieldOperations = getFieldOperations(':');
 export type FieldOperationsType = typeof FieldOperations;

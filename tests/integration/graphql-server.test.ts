@@ -566,7 +566,7 @@ query TestQuery {
 			it('should filter persons with _like operator', async () => {
 				const query = `
 					query PersonsLike {
-						persons(filter: { name_like: "%lego%" }) {
+						persons(filter: { name_like: "%ego%" }) {
 							id
 							name
 						}
@@ -581,7 +581,7 @@ query TestQuery {
 				const result = await response.json();
 				expect(result.errors).toBeUndefined();
 				const names = result.data.persons.map((p: any) => p.name.toLowerCase());
-				expect(names.some((n: string) => n.includes('lego'))).toBe(true);
+				expect(names.some((n: string) => n.includes('ego'))).toBe(true);
 			});
 
 			it('should filter persons with _re operator', async () => {

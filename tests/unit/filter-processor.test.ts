@@ -67,7 +67,7 @@ describe('FilterProcessor', () => {
 			expect(raceInMapping).toBeDefined();
 			expect(raceInMapping!.where).toHaveLength(1);
 			expect(raceInMapping!.where[0]).toContain('in (');
-			expect(Object.values(raceInMapping!.values)).toEqual([['Hobbit', 'Elf', 'Dwarf']]);
+			expect(Object.values(raceInMapping!.values)).toEqual(['Hobbit', 'Elf', 'Dwarf']);
 		});
 
 		it('should handle direct field filtering with implicit _eq', () => {
