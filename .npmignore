@@ -1,0 +1,10 @@
+# Exclude from npm package
+examples/
+tests/
+*.test.ts
+*.test.js
+.github/
+*.md
+!README.md
+tsconfig.json
+bun.lockb

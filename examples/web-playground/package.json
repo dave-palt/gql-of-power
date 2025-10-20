@@ -1,0 +1,23 @@
+{
+	"name": "@dav3/gql-of-power-playground",
+	"version": "1.0.0",
+	"description": "Interactive playground for @dav3/gql-of-power",
+	"type": "module",
+	"private": true,
+	"scripts": {
+		"dev": "bun run --watch server.ts",
+		"start": "bun run server.ts"
+	},
+	"dependencies": {
+		"@dav3/gql-of-power": "file:../../",
+		"better-sqlite3": "^9.0.0",
+		"graphql": "^16.11.0",
+		"graphql-yoga": "^5.16.0",
+		"knex": "^3.1.0",
+		"reflect-metadata": "^0.2.2",
+		"type-graphql": "^2.0.0-rc.2"
+	},
+	"devDependencies": {
+		"@types/bun": "latest"
+	}
+}
