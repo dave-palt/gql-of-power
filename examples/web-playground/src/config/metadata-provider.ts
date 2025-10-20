@@ -1,9 +1,9 @@
 import type { EntityMetadata, MetadataProvider } from '@dav3/gql-of-power';
-import { AllEntityMetadata } from './entities';
+import { AllEntityMetadata } from 'src/schema/entities';
 import { knexInstance as knex, sql } from './sql';
 
 export class SimpleMetadataProvider implements MetadataProvider {
-	client = 'sqlite3';
+	client = 'pg';
 	constructor() {}
 
 	exists(entityName: string): boolean {
@@ -11,7 +11,7 @@ export class SimpleMetadataProvider implements MetadataProvider {
 	}
 	getMetadata<T, K extends EntityMetadata<T>>(entityName: string) {
 		// Simple mapping for Middle-earth entities
-		return AllEntityMetadata[entityName] as K;
+		return AllEntityMetadata[entityName as keyof typeof AllEntityMetadata] as K;
 	}
 	async executeQuery(rawSQL: string, ...params: any[]) {
 		const bindSQL = knex.raw(rawSQL, params).toString();

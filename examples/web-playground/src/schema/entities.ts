@@ -1,4 +1,4 @@
-import { EntityMetadata, EntityProperty, ReferenceType } from '../../src/types';
+import { EntityMetadata, EntityProperty, ReferenceType } from '@dav3/gql-of-power';
 /**
  * Middle-earth Schema
  *

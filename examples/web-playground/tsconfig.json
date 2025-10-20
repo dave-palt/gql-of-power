@@ -6,7 +6,7 @@
 			"@dav3/gql-of-power": ["../../src/index.ts"]
 		},
 		"experimentalDecorators": true,
-		"moduleResolution": "nodenext",
+		"moduleResolution": "node",
 		"module": "es2022",
 		"lib": ["es2022"],
 		"strict": true,
