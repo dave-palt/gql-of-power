@@ -23,8 +23,15 @@ import { logger } from '../variables';
 const TypeMap: { [key: string]: any } = {};
 
 const CustomFieldsMap: Record<string, CustomFieldsSettings<any>> = {};
+
+let gqlTypesSuffix = '';
+
+export const setGlobalConfig = (config: { gqlTypesSuffix: string }) => {
+	gqlTypesSuffix = config.gqlTypesSuffix;
+};
+
 export const getCustomFieldsFor = (name: string) => CustomFieldsMap[name] ?? {};
-export const getGQLEntityNameFor = (name: string) => `${name}2`;
+export const getGQLEntityNameFor = (name: string) => `${name}${gqlTypesSuffix}`;
 export const getGQLEntityNameForClass = <T>(classType: new () => T) =>
 	getGQLEntityNameFor(classType.name);
 export const getGQLEntityFieldResolverName = (gqlEntityName: string) =>
@@ -35,7 +42,7 @@ export const getGQLEntityTypeFor = <T extends Object, K>(classType: new () => T)
 	getGQLEntityFieldResolverName(TypeMap[getGQLEntityNameForClass(classType)]);
 
 registerEnumType(Sort, {
-	name: 'Sort2',
+	name: `Sort${gqlTypesSuffix}`,
 });
 
 export function createGQLTypes<T extends Object>(
@@ -382,7 +389,9 @@ export function createGQLEntityFields<T, K>(
 				getType: () => TypeMap[relatedEntityName + 'FilterInput'],
 				target: GQLEntity,
 				typeOptions: { nullable: true },
-				validate: false,
+				deprecationReason: undefined,
+				validateFn: undefined,
+				validateSettings: undefined,
 			});
 			metadata.collectHandlerParamMetadata({
 				kind: 'arg',
@@ -393,7 +402,9 @@ export function createGQLEntityFields<T, K>(
 				getType: () => TypeMap[`${relatedEntityName}PaginationInput`],
 				target: GQLEntity,
 				typeOptions: { nullable: true },
-				validate: false,
+				deprecationReason: undefined,
+				validateFn: undefined,
+				validateSettings: undefined,
 			});
 		}
 	}

@@ -215,75 +215,70 @@ export class GQLtoSQLMapper {
 		const logPrefix = alias.concat(prePrefix + 'GQLtoSQLMapper - recursiveMap');
 		logger.log(logPrefix, 'start');
 		const { properties, primaryKeys } = entityMetadata;
-
+		console.log('fields', keys(fields));
 		let res = keys(fields ?? {})
 			.sort((f1, f2) => (f1.startsWith('__') ? -1 : f2.startsWith('__') ? 1 : 0))
 			.reduce(
 				({ mappings }, gqlFieldNameKey) => {
-					logger.log(
+					console.log(
 						logPrefix,
 						'- mapFilter for',
 						gqlFieldNameKey,
-						parentGqlFieldNameKey,
-						'keys:',
-						...mappings.keys()
+						parentGqlFieldNameKey
+						// 'keys:',
+						// ...mappings.keys()
 					);
-					if (gqlFieldNameKey.startsWith('__')) {
+					const { args, fieldsByTypeName, name, alias: gqlFieldAlias } = fields[gqlFieldNameKey];
+					console.log('args', args, { name, gqlFieldAlias });
+					if (args) {
 						this.handleFieldArguments<T>(
 							parentGqlFieldNameKey || gqlFieldNameKey,
-							gqlFieldNameKey,
-							fields,
+							args,
 							alias,
 							entityMetadata,
 							mappings
 						);
-					} else {
-						const mapping = QueriesUtils.getMapping(mappings, gqlFieldNameKey);
-
-						logger.log(
-							logPrefix,
-							'- using mapping for',
-							gqlFieldNameKey,
-							mappingsTypeToString(mapping)
-						);
-						const customFieldProps =
-							customFields && gqlFieldNameKey in customFields
-								? customFields[gqlFieldNameKey as keyof typeof customFields]
-								: undefined;
-
-						const fieldProps =
-							properties[gqlFieldNameKey as keyof EntityMetadata<T>['properties']] ??
-							properties[customFieldProps?.requires as keyof EntityMetadata<T>['properties']];
-
-						const gqlFieldName = (customFieldProps?.requires as string) ?? gqlFieldNameKey;
-						logger.log(
-							'recursiveMap fields | gqlFieldName',
-							gqlFieldName,
-							// mapping
-							fields
-							// gqlFieldNameKey
-						);
-
-						if (!fieldProps) {
-							return this.mapCustomField<T>(
-								customFieldProps,
-								mapping,
-								alias,
-								gqlFieldName,
-								mappings
-							);
-						} else {
-							this.mapField<T>(
-								gqlFieldNameKey,
-								fieldProps,
-								mapping,
-								alias,
-								fields,
-								gqlFieldName,
-								primaryKeys
-							);
-						}
 					}
+					const mapping = QueriesUtils.getMapping(mappings, gqlFieldNameKey);
+
+					logger.log(
+						logPrefix,
+						'- using mapping for',
+						gqlFieldNameKey,
+						mappingsTypeToString(mapping)
+					);
+					const customFieldProps =
+						customFields && gqlFieldNameKey in customFields
+							? customFields[gqlFieldNameKey as keyof typeof customFields]
+							: undefined;
+
+					const fieldProps =
+						properties[gqlFieldNameKey as keyof EntityMetadata<T>['properties']] ??
+						properties[customFieldProps?.requires as keyof EntityMetadata<T>['properties']];
+
+					const gqlFieldName = (customFieldProps?.requires as string) ?? gqlFieldNameKey;
+					logger.log(
+						'recursiveMap fields | gqlFieldName',
+						gqlFieldName,
+						// mapping
+						fieldsByTypeName
+						// gqlFieldNameKey
+					);
+
+					if (!fieldProps) {
+						return this.mapCustomField<T>(customFieldProps, mapping, alias, gqlFieldName, mappings);
+					} else {
+						this.mapField<T>(
+							gqlFieldNameKey,
+							fieldProps,
+							mapping,
+							alias,
+							fieldsByTypeName,
+							gqlFieldName,
+							primaryKeys
+						);
+					}
+
 					return { mappings };
 				},
 				{ mappings: new Map<string, MappingsType>() }
@@ -358,8 +353,18 @@ export class GQLtoSQLMapper {
 			logger.log(
 				'recursiveMap || GQLtoSQLMapper - recursiveMap - referenceField latest alias next',
 				alias.toString(),
-				childAlias.toString(),
-				mappingsTypeToString(mapping)
+				childAlias.toString()
+				// mappingsTypeToString(mapping)
+			);
+
+			console.log(
+				'fields[gqlFieldName]',
+				fieldProps.type,
+				// referenceField,
+				'gqlFieldName',
+				gqlFieldName,
+				'fields',
+				fields[fieldProps.type]
 			);
 
 			const {
@@ -375,7 +380,7 @@ export class GQLtoSQLMapper {
 			} = QueriesUtils.mappingsReducer(
 				this.recursiveMap({
 					entityMetadata: referenceField,
-					fields: fields[gqlFieldName],
+					fields: fields[fieldProps.type],
 					parentAlias: alias,
 					alias: childAlias,
 					parentGqlFieldNameKey: parentGqlFieldNameKey,
@@ -473,66 +478,73 @@ export class GQLtoSQLMapper {
 
 	protected handleFieldArguments<T>(
 		parentGqlFieldNameKey: string,
-		gqlFieldNameKey: string,
-		fields: any,
+		args: any,
 		alias: Alias,
 		entityMetadata: EntityMetadata<T>,
 		mappings: Map<string, MappingsType>
 	) {
-		if (gqlFieldNameKey === '__arguments') {
-			const __arguments = fields[gqlFieldNameKey];
+		// const __arguments = fields[gqlFieldNameKey];
 
-			const mapping = QueriesUtils.getMapping(mappings, parentGqlFieldNameKey);
+		const mapping = QueriesUtils.getMapping(mappings, parentGqlFieldNameKey);
 
-			const filter = __arguments.find((a: any) => a?.filter)?.filter?.value;
-			const pagination = __arguments.find((a: any) => a?.pagination)?.pagination?.value;
+		const { filter, pagination } = args ?? {};
 
+		console.log(
+			'GQLtoSQLMapper - handleFieldArguments args',
+			parentGqlFieldNameKey,
+			{ ...filter },
+			pagination
+		);
+
+		logger.log(
+			'GQLtoSQLMapper - handleFieldArguments for -----',
+			parentGqlFieldNameKey,
+			'filter',
+			filter,
+			'pagination',
+			pagination,
+			'args',
+			args
+		);
+		if (filter || pagination) {
+			const mapped = this.recursiveMap({
+				entityMetadata,
+				parentAlias: alias,
+				alias,
+				gqlFilters: [
+					{ [parentGqlFieldNameKey]: { ...filter } } as GQLEntityFilterInputFieldType<T>,
+				],
+				isFieldFilter: true,
+			});
+
+			const {
+				filterJoin,
+				where: w,
+				values,
+				_or,
+				_and,
+				_not,
+			} = QueriesUtils.mappingsReducer(mapped);
+
+			mapping.filterJoin.push(...filterJoin);
+			mapping.where.push(...w);
+			mapping.values = { ...mapping.values, ...values };
+			mapping.limit = pagination?.limit;
+			mapping.offset = pagination?.offset;
+			mapping._or.push(..._or);
+			mapping._and.push(..._and);
+			mapping._not.push(..._not);
+			mapping.orderBy.push(...(pagination?.orderBy ?? []));
 			logger.log(
-				'GQLtoSQLMapper - handleFieldArguments for -----',
-				parentGqlFieldNameKey,
-				'pagination',
-				pagination,
-				'__arguments',
-				__arguments
+				'GQLtoSQLMapper - handleFieldArguments - processed',
+				filter,
+				'mapping',
+				mappingsTypeToString(mapping)
 			);
-			if (filter || pagination) {
-				const mapped = this.recursiveMap({
-					entityMetadata,
-					parentAlias: alias,
-					alias,
-					gqlFilters: [filter],
-					isFieldFilter: true,
-				});
-
-				const {
-					filterJoin,
-					where: w,
-					values,
-					_or,
-					_and,
-					_not,
-				} = QueriesUtils.mappingsReducer(mapped);
-
-				mapping.filterJoin.push(...filterJoin);
-				mapping.where.push(...w);
-				mapping.values = { ...mapping.values, ...values };
-				mapping.limit = pagination?.limit;
-				mapping.offset = pagination?.offset;
-				mapping._or.push(..._or);
-				mapping._and.push(..._and);
-				mapping._not.push(..._not);
-				mapping.orderBy.push(...(pagination?.orderBy ?? []));
-				logger.log(
-					'GQLtoSQLMapper - handleFieldArguments - processed',
-					filter,
-					'mapping',
-					mappingsTypeToString(mapping)
-				);
-			} else {
-				// m.__arguments = __arguments;
-			}
-			// mappings.set(parentGqlFieldNameKey, m);
+		} else {
+			// m.__arguments = __arguments;
 		}
+		// mappings.set(parentGqlFieldNameKey, m);
 	}
 
 	protected processFieldNames(

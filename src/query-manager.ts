@@ -1,5 +1,9 @@
 import { GraphQLResolveInfo } from 'graphql';
 import graphqlFields from 'graphql-fields';
+import {
+	parseResolveInfo,
+	simplifyParsedResolveInfoFragmentWithType,
+} from 'graphql-parse-resolve-info';
 import knex from 'knex';
 import { getCustomFieldsFor, getGQLEntityNameForClass } from './entities/gql-entity';
 import { GQLtoSQLMapper } from './queries/gql-to-sql-mapper';
@@ -12,9 +16,27 @@ import {
 } from './types';
 import { logger } from './variables';
 
-export const getGQLFields = (...args: Parameters<typeof graphqlFields>) => {
+export const getGQLFields = (info: GraphQLResolveInfo) => {
+	graphqlFields;
 	try {
-		return graphqlFields(...args) as FieldSelection<any>;
+		const resolveInfo = parseResolveInfo(info, {
+			// keepRoot: true,
+			deep: true,
+		});
+		// console.log('resolveInfo', info.returnType, JSON.stringify(resolveInfo, null, 2));
+		if (!resolveInfo) throw 'Could not parse resolve info';
+		if (
+			!('name' in resolveInfo) ||
+			!('alias' in resolveInfo) ||
+			!('fieldsByTypeName' in resolveInfo)
+		)
+			throw 'Could not parse resolve info - no name, alias or fieldsByTypeName';
+
+		const parsed = simplifyParsedResolveInfoFragmentWithType(resolveInfo as any, info.returnType);
+
+		console.log('Parsed GQL fields', JSON.stringify(parsed.fields, null, 2));
+		return parsed.fields as FieldSelection<any>;
+		// return graphqlFields(info as any, {}, { processArguments: true }) as FieldSelection<any>;
 	} catch (e) {
 		logger.error('Error parsing GraphQL fields from info', e);
 		throw 'Error parsing GraphQL fields from info';
@@ -45,8 +67,8 @@ export class GQLQueryManager {
 			logger.timeEnd(logName);
 			throw new Error(`Entity ${entity.name} not found in metadata`);
 		}
-		logger.log(logName, 'info', JSON.stringify(info));
-		const fields = getGQLFields(info, {}, { processArguments: true }) as FieldSelection<T>;
+		// console.log(logName, 'info', JSON.stringify(info));
+		const fields = getGQLFields(info) as FieldSelection<T>;
 		const customFields = getCustomFieldsFor(getGQLEntityNameForClass(entity));
 		const mapper = new GQLtoSQLMapper(provider, this.opts);
 
