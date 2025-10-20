@@ -1,4 +1,5 @@
 [test]
+coverage = true
 # Only run tests from source directories, not dist
 preload = ["./tests/setup.ts"]
 testNamePattern = ".*\\.test\\.(ts|js)$"

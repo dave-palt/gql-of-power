@@ -87,6 +87,11 @@ CREATE TABLE rings (
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
 
+alter table
+    persons
+add
+    column ring_id INTEGER REFERENCES rings(id);
+
 -- Authors (independent table)
 CREATE TABLE authors (
     id SERIAL PRIMARY KEY,

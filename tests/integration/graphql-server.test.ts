@@ -17,7 +17,7 @@ import { afterAll, beforeAll, describe, expect, it } from 'bun:test';
 import { GraphQLResolveInfo } from 'graphql';
 import { createYoga } from 'graphql-yoga';
 import 'reflect-metadata';
-import { Arg, buildSchema, Info, Query, Resolver } from 'type-graphql';
+import { Arg, buildSchema, Field, Info, InputType, Int, Query, Resolver } from 'type-graphql';
 
 import { SQL } from 'bun';
 import { join } from 'path';
@@ -39,11 +39,11 @@ const DB_CONFIG = {
 	database: 'gql_of_power_test',
 	username: process.env.DB_USER || 'postgres',
 	password: process.env.DB_PASSWORD || '',
-	url:
+	url: () =>
 		process.env.DATABASE_URL ||
-		`postgresql://${process.env.DB_USER || 'postgres'}:${process.env.DB_PASSWORD || ''}@${
-			process.env.DB_HOST || 'localhost'
-		}:${process.env.DB_PORT || '5432'}/gql_of_power_test`,
+		`postgresql://${DB_CONFIG.username || 'postgres'}:${DB_CONFIG.password || ''}@${
+			DB_CONFIG.host || 'localhost'
+		}:${DB_CONFIG.port || '5432'}/${DB_CONFIG.database || 'gql_of_power_test'}`,
 };
 
 // GraphQL Server Setup
@@ -68,12 +68,14 @@ const PersonFields: Partial<Record<keyof Person, FieldSettings | RelatedFieldSet
 		options: { nullable: true },
 		generateFilter: true,
 		relatedEntityName: () => 'Ring',
+		getFilterType: () => Int,
 	},
 	fellowship: {
 		type: () => FellowshipGQL.GQLEntity,
 		options: { nullable: true },
 		generateFilter: true,
 		relatedEntityName: () => 'Fellowship',
+		getFilterType: () => Int,
 	},
 	battles: {
 		type: () => BattleGQL.GQLEntity,
@@ -81,6 +83,7 @@ const PersonFields: Partial<Record<keyof Person, FieldSettings | RelatedFieldSet
 		generateFilter: true,
 		array: true,
 		relatedEntityName: () => 'Battle',
+		getFilterType: () => Int,
 	},
 };
 
@@ -94,6 +97,7 @@ const RingFields: Partial<Record<keyof Ring, FieldSettings | RelatedFieldSetting
 		options: { nullable: true },
 		generateFilter: true,
 		relatedEntityName: () => 'Person',
+		getFilterType: () => Int,
 	},
 };
 
@@ -110,6 +114,7 @@ const FellowshipFields: Partial<
 		generateFilter: true,
 		array: true,
 		relatedEntityName: () => 'Person',
+		getFilterType: () => Int,
 	},
 };
 
@@ -124,6 +129,7 @@ const BattleFields: Partial<Record<keyof Battle, FieldSettings | RelatedFieldSet
 		generateFilter: true,
 		array: true,
 		relatedEntityName: () => 'Person',
+		getFilterType: () => Int,
 	},
 };
 
@@ -133,16 +139,25 @@ const RingGQL = createGQLTypes(Ring, RingFields);
 const FellowshipGQL = createGQLTypes(Fellowship, FellowshipFields);
 const BattleGQL = createGQLTypes(Battle, BattleFields);
 
+@InputType('TestInput')
+class TestInput {
+	@Field(() => Int, {
+		nullable: true,
+	})
+	limit?: number;
+}
 // Resolvers using GQLQueryManager
 @Resolver(() => PersonGQL.GQLEntity)
 class PersonResolver {
 	@Query(() => [PersonGQL.GQLEntity], { description: 'Get all persons from Middle-earth' })
 	async persons(
 		@Info() info: GraphQLResolveInfo,
+		@Arg('input', () => TestInput, { nullable: true }) input?: TestInput,
 		@Arg('filter', () => PersonGQL.GQLEntityFilterInput, { nullable: true }) filter?: any,
 		@Arg('pagination', () => PersonGQL.GQLEntityPaginationInputField, { nullable: true })
 		pagination?: any
 	): Promise<any[]> {
+		console.log('Input received in persons query:', input);
 		return await queryManager.getQueryResultsFor(
 			metadataProvider,
 			Person,
@@ -207,7 +222,7 @@ describe('GraphQL Server Integration Tests', () => {
 
 			try {
 				// Create SQL connection
-				sql = new SQL(DB_CONFIG.url);
+				sql = new SQL(DB_CONFIG.url());
 
 				// Try to create test database if it doesn't exist
 				try {
@@ -230,7 +245,7 @@ describe('GraphQL Server Integration Tests', () => {
 				metadataProvider = new DatabaseMetadataProvider(sql);
 
 				// Initialize query manager
-				queryManager = new GQLQueryManager({ namedParameterPrefix: '$' });
+				queryManager = new GQLQueryManager({ namedParameterPrefix: ':' });
 
 				// Build GraphQL schema
 				const schema = await buildSchema({
@@ -431,6 +446,269 @@ query TestQuery {
 				expect(result.data.person).toBeDefined();
 				expect(result.data.person.id).toBe(1);
 				expect(result.data.person.name).toBeDefined();
+			});
+
+			it('should filter persons with _nin operator', async () => {
+				const query = `
+					query PersonsNotIn {
+						persons(filter: { name_nin: ["Legolas", "Frodo"] }) {
+							id
+							name
+						}
+					}
+				`;
+				const response = await fetch(TEST_URL, {
+					method: 'POST',
+					headers: { 'Content-Type': 'application/json' },
+					body: JSON.stringify({ query }),
+				});
+				expect(response.status).toBe(200);
+				const result = await response.json();
+				expect(result.errors).toBeUndefined();
+				expect(result.data.persons).toBeInstanceOf(Array);
+				result.data.persons.forEach((person: any) => {
+					expect(['Legolas', 'Frodo']).not.toContain(person.name);
+				});
+			});
+
+			it('should filter persons with _gt operator', async () => {
+				const query = `
+					query PersonsGt {
+						persons(filter: { age_gt: 100 }) {
+							id
+							name
+							age
+						}
+					}
+				`;
+				const response = await fetch(TEST_URL, {
+					method: 'POST',
+					headers: { 'Content-Type': 'application/json' },
+					body: JSON.stringify({ query }),
+				});
+				expect(response.status).toBe(200);
+				const result = await response.json();
+				expect(result.errors).toBeUndefined();
+				result.data.persons.forEach((person: any) => {
+					expect(person.age).toBeGreaterThan(100);
+				});
+			});
+
+			it('should filter persons with _gte operator', async () => {
+				const query = `
+					query PersonsGte {
+						persons(filter: { age_gte: 2931 }) {
+							id
+							name
+							age
+						}
+					}
+				`;
+				const response = await fetch(TEST_URL, {
+					method: 'POST',
+					headers: { 'Content-Type': 'application/json' },
+					body: JSON.stringify({ query }),
+				});
+				expect(response.status).toBe(200);
+				const result = await response.json();
+				expect(result.errors).toBeUndefined();
+				result.data.persons.forEach((person: any) => {
+					expect(person.age).toBeGreaterThanOrEqual(2931);
+				});
+			});
+
+			it('should filter persons with _lt operator', async () => {
+				const query = `
+					query PersonsLt {
+						persons(filter: { age_lt: 100 }) {
+							id
+							name
+							age
+						}
+					}
+				`;
+				const response = await fetch(TEST_URL, {
+					method: 'POST',
+					headers: { 'Content-Type': 'application/json' },
+					body: JSON.stringify({ query }),
+				});
+				expect(response.status).toBe(200);
+				const result = await response.json();
+				expect(result.errors).toBeUndefined();
+				result.data.persons.forEach((person: any) => {
+					expect(person.age).toBeLessThan(100);
+				});
+			});
+
+			it('should filter persons with _lte operator', async () => {
+				const query = `
+					query PersonsLte {
+						persons(filter: { age_lte: 87 }) {
+							id
+							name
+							age
+						}
+					}
+				`;
+				const response = await fetch(TEST_URL, {
+					method: 'POST',
+					headers: { 'Content-Type': 'application/json' },
+					body: JSON.stringify({ query }),
+				});
+				expect(response.status).toBe(200);
+				const result = await response.json();
+				expect(result.errors).toBeUndefined();
+				result.data.persons.forEach((person: any) => {
+					expect(person.age).toBeLessThanOrEqual(87);
+				});
+			});
+
+			it('should filter persons with _like operator', async () => {
+				const query = `
+					query PersonsLike {
+						persons(filter: { name_like: "%lego%" }) {
+							id
+							name
+						}
+					}
+				`;
+				const response = await fetch(TEST_URL, {
+					method: 'POST',
+					headers: { 'Content-Type': 'application/json' },
+					body: JSON.stringify({ query }),
+				});
+				expect(response.status).toBe(200);
+				const result = await response.json();
+				expect(result.errors).toBeUndefined();
+				const names = result.data.persons.map((p: any) => p.name.toLowerCase());
+				expect(names.some((n: string) => n.includes('lego'))).toBe(true);
+			});
+
+			it('should filter persons with _re operator', async () => {
+				const query = `
+					query PersonsRe {
+						persons(filter: { name_re: "^Legolas$" }) {
+							id
+							name
+						}
+					}
+				`;
+				const response = await fetch(TEST_URL, {
+					method: 'POST',
+					headers: { 'Content-Type': 'application/json' },
+					body: JSON.stringify({ query }),
+				});
+				expect(response.status).toBe(200);
+				const result = await response.json();
+				expect(result.errors).toBeUndefined();
+				expect(result.data.persons.length).toBeGreaterThan(0);
+				result.data.persons.forEach((person: any) => {
+					expect(person.name).toBe('Legolas');
+				});
+			});
+
+			it('should filter persons with _ilike operator', async () => {
+				const query = `
+					query PersonsIlike {
+						persons(filter: { name_ilike: "%LEGOLAS%" }) {
+							id
+							name
+						}
+					}
+				`;
+				const response = await fetch(TEST_URL, {
+					method: 'POST',
+					headers: { 'Content-Type': 'application/json' },
+					body: JSON.stringify({ query }),
+				});
+				expect(response.status).toBe(200);
+				const result = await response.json();
+				expect(result.errors).toBeUndefined();
+				expect(result.data.persons.length).toBeGreaterThan(0);
+				result.data.persons.forEach((person: any) => {
+					expect(person.name.toLowerCase()).toContain('legolas');
+				});
+			});
+
+			it('should filter persons with _fulltext operator', async () => {
+				const query = `
+					query PersonsFulltext {
+						persons(filter: { name_fulltext: "Frodo" }) {
+							id
+							name
+						}
+					}
+				`;
+				const response = await fetch(TEST_URL, {
+					method: 'POST',
+					headers: { 'Content-Type': 'application/json' },
+					body: JSON.stringify({ query }),
+				});
+				expect(response.status).toBe(200);
+				const result = await response.json();
+				expect(result.errors).toBeUndefined();
+				expect(result.data.persons).toBeInstanceOf(Array);
+				// Should find Frodo in results
+				expect(result.data.persons.some((p: any) => p.name.includes('Frodo'))).toBe(true);
+			});
+
+			it('should filter persons with _overlap operator', async () => {
+				const query = `
+					query PersonsOverlap {
+						persons(filter: { battles_overlap: [1, 2] }) {
+							id
+							name
+							battles {
+								id
+								name
+							}
+						}
+					}
+				`;
+				const response = await fetch(TEST_URL, {
+					method: 'POST',
+					headers: { 'Content-Type': 'application/json' },
+					body: JSON.stringify({ query }),
+				});
+				expect(response.status).toBe(200);
+				const result = await response.json();
+				expect(result.errors).toBeUndefined();
+				expect(result.data.persons).toBeInstanceOf(Array);
+				// Should find persons who participated in either battle 1 or 2
+				result.data.persons.forEach((person: any) => {
+					const battleIds = (person.battles ?? []).map((b: any) => b.id);
+					console.log('battleIOds', battleIds);
+					expect(battleIds.some((id: number) => [1, 2].includes(id))).toBe(true);
+				});
+			});
+
+			it('should filter persons with _contains operator', async () => {
+				const query = `
+					query PersonsContains {
+						persons(filter: { battles_contains: [1] }) {
+							id
+							name
+							battles {
+								id
+								name
+							}
+						}
+					}
+				`;
+				const response = await fetch(TEST_URL, {
+					method: 'POST',
+					headers: { 'Content-Type': 'application/json' },
+					body: JSON.stringify({ query }),
+				});
+				expect(response.status).toBe(200);
+				const result = await response.json();
+				expect(result.errors).toBeUndefined();
+				expect(result.data.persons).toBeInstanceOf(Array);
+				// Should find persons who participated in battle 1
+				result.data.persons.forEach((person: any) => {
+					const battleIds = (person.battles ?? []).map((b: any) => b.id);
+					expect(battleIds).toContain(1);
+				});
 			});
 		});
 
@@ -666,6 +944,43 @@ query TestQuery {
 					}
 				});
 			});
+
+			it('should handle many to one relationship', async () => {
+				const query = `
+                query MyQuery {
+					persons {
+						id
+						name
+						ring {
+							id
+							name
+						}
+					}
+				}
+            `;
+
+				const response = await fetch(TEST_URL, {
+					method: 'POST',
+					headers: { 'Content-Type': 'application/json' },
+					body: JSON.stringify({ query }),
+				});
+
+				expect(response.status).toBe(200);
+				const result = await response.json();
+
+				expect(result.errors).toBeUndefined();
+				expect(result.data).toBeDefined();
+				expect(result.data.persons).toBeInstanceOf(Array);
+
+				// All returned persons should be members of Fellowship of the Ring
+				result.data.persons.forEach((person: any) => {
+					if (person.ring) {
+						expect(person.ring).toBeObject();
+						expect(person.ring.id).toBeNumber();
+						expect(person.ring.name).toBeString();
+					}
+				});
+			});
 		});
 
 		describe('Complex Nested Queries', () => {
@@ -740,6 +1055,95 @@ query TestQuery {
 						}
 					}
 				}
+			});
+
+			it('should support GraphQL fragments and field aliasing in nested relationships', async () => {
+				const query = `
+fragment Person on Person2 {
+    id
+    name
+    race
+}
+fragment PersonWithBattles on Person2 {
+    battles(pagination:  {
+      limit: 1
+      offset: 1
+       orderBy: [ {
+          name: ASC
+       }]
+       })
+    {
+      id
+      name
+    }
+}
+
+query GetMixedData {
+  hobbits: persons(
+    filter: {race_eq: "Hobbit"}
+  ) {
+    ...Person
+    ...PersonWithBattles
+  }
+  elfsWithAllBattles: persons(
+    filter: {race_eq: "Elf"}
+  ) {
+    ...Person
+    battles(pagination:  {
+		orderBy: [ {
+			name: DESC
+		}]
+       })
+    {
+      id
+      name
+    }
+  }
+  elfs: persons(
+    filter: {race_eq: "Elf"}
+  ) {
+    ...Person
+    ...PersonWithBattles
+  }
+}
+			`;
+
+				const response = await fetch(TEST_URL, {
+					method: 'POST',
+					headers: { 'Content-Type': 'application/json' },
+					body: JSON.stringify({ query }),
+				});
+
+				expect(response.status).toBe(200);
+				const result = await response.json();
+
+				console.log(JSON.stringify(result, null, 2));
+				expect(result.errors).toBeUndefined();
+				expect(result.data).toBeDefined();
+				expect(result.data.hobbits).toBeArray();
+
+				// No hobbits with battles (just bad data input)
+				result.data.hobbits.forEach((hobbit: any) => {
+					expect(hobbit.battles).toBeArray();
+					expect(hobbit.battles).toBeEmpty();
+				});
+
+				expect(result.data.elfs).toBeArrayOfSize(1);
+				expect(result.data.elfsWithAllBattles).toBeArrayOfSize(1);
+
+				const [legolas] = result.data.elfs;
+				const [legolasBattles] = result.data.elfsWithAllBattles;
+				expect(legolas.battles).toBeArray();
+				expect(legolas.battles).toBeArrayOfSize(1);
+				expect(legolasBattles.battles).toBeArray();
+				expect(legolasBattles.battles).toBeArrayOfSize(2);
+
+				const [boPelennorFields] = legolas.battles;
+				const [boPelennorFields2, boHelmDeep] = legolasBattles.battles;
+
+				expect(boPelennorFields).toEqual(boPelennorFields2);
+				expect(boHelmDeep.name).toBeString();
+				expect(boHelmDeep.name).toContain('Helm');
 			});
 		});
 

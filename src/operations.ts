@@ -41,35 +41,99 @@ export abstract class FieldOperationsClass<T> {
 	abstract _between: T[];
 	abstract _exists: T;
 }
-export const FieldOperations = {
-	_and: ([l]: string[], [_]: Array<string | number | boolean | bigint | null>) => `and (${l})`,
 
-	_eq: ([l, r]: string[], [_, rv]: Array<string | number | boolean | bigint | null>) =>
-		`${l} ${rv !== null && rv !== 'null' ? `= ${r}` : 'is null'}`,
-	_ne: ([l, r]: string[], [_, rv]: Array<string | number | boolean | bigint | null>) =>
-		`${l} ${rv !== null && rv !== 'null' ? `!= ${r}` : 'is not null'}`,
-	_in: ([l, ...r]: string[], []: Array<string | number | boolean | bigint | null>) =>
-		`${l} in (${r.join(', ')})`,
-	_nin: ([l, r]: string[], []: Array<string | number | boolean | bigint | null>) =>
-		`${l} not in (${r})`,
-	_gt: ([l, r]: string[], []: Array<string | number | boolean | bigint | null>) => `${l} > ${r}`,
-	_gte: ([l, r]: string[], []: Array<string | number | boolean | bigint | null>) => `${l} >= ${r}`,
-	_lt: ([l, r]: string[], []: Array<string | number | boolean | bigint | null>) => `${l} < ${r}`,
-	_lte: ([l, r]: string[], []: Array<string | number | boolean | bigint | null>) => `${l} <= ${r}`,
-	_like: ([l, r]: string[], []: Array<string | number | boolean | bigint | null>) =>
-		`${l} like ${r}`,
-	_re: ([l, r]: string[], []: Array<string | number | boolean | bigint | null>) => `${l} ~ ${r}`,
-	_ilike: ([l, r]: string[], []: Array<string | number | boolean | bigint | null>) =>
-		`${l} ilike ${r}`,
-	_fulltext: ([l, r]: string[], []: Array<string | number | boolean | bigint | null>) =>
-		`${l} fulltext ${r}`,
-	_overlap: ([l, r]: string[], []: Array<string | number | boolean | bigint | null>) =>
-		`${l} overlap ${r}`,
-	_contains: ([l, r]: string[], []: Array<string | number | boolean | bigint | null>) =>
-		`${l} contains ${r}`,
-	_contained: ([l, r]: string[], []: Array<string | number | boolean | bigint | null>) =>
-		`${l} contained ${r}`,
-	_between: ([l, r1, r2]: string[], []: Array<string | number | boolean | bigint | null>) =>
-		`${l} between ${r1} and ${r2}`,
-	_exists: ([l]: string[], []: Array<string | number | boolean | bigint | null>) => `exists ${l}`,
-};
+export const getFieldOperations = (namedParameterPrefix: string) => ({
+	_and: ([l]: string[], [_]: Array<string | number | boolean | bigint | null>) => ({
+		where: `and (${l})`,
+		value: undefined,
+	}),
+
+	_eq: ([l, r]: string[], [_, rv]: Array<string | number | boolean | bigint | null>) => ({
+		where: `${l} ${rv !== null && rv !== 'null' ? `= ${r}` : 'is null'}`,
+		value: undefined,
+	}),
+	_ne: ([l, r]: string[], [_, rv]: Array<string | number | boolean | bigint | null>) => ({
+		where: `${l} ${rv !== null && rv !== 'null' ? `!= ${r}` : 'is not null'}`,
+		value: undefined,
+	}),
+	_in: ([l, ...r]: string[], []: Array<string | number | boolean | bigint | null>) => ({
+		where: `${l} in (${r.join(', ')})`,
+		value: undefined,
+	}),
+	_nin: (
+		[l, r, ..._args]: string[],
+		[_, ...values]: Array<string | number | boolean | bigint | null>
+	) => {
+		console.log(
+			'not in ',
+			l,
+			r,
+			_args,
+			values,
+			`${l} not in (${values.map((_, i) => r + '__' + i).join(', ')})`
+		);
+		console.log(
+			'not in ',
+			values.reduce((acc, v, i) => ({ ...acc, [r.slice(1) + '__' + i]: v }), {})
+		);
+		return {
+			where: `${l} not in (${values.map((_, i) => r + '__' + i).join(', ')})`,
+			value: values.reduce((acc, v, i) => ({ ...acc, [r.slice(1) + '__' + i]: v }), {}),
+		};
+	},
+	_gt: ([l, r]: string[], []: Array<string | number | boolean | bigint | null>) => ({
+		where: `${l} > ${r}`,
+		value: undefined,
+	}),
+	_gte: ([l, r]: string[], []: Array<string | number | boolean | bigint | null>) => ({
+		where: `${l} >= ${r}`,
+		value: undefined,
+	}),
+	_lt: ([l, r]: string[], []: Array<string | number | boolean | bigint | null>) => ({
+		where: `${l} < ${r}`,
+		value: undefined,
+	}),
+	_lte: ([l, r]: string[], []: Array<string | number | boolean | bigint | null>) => ({
+		where: `${l} <= ${r}`,
+		value: undefined,
+	}),
+	_like: ([l, r]: string[], []: Array<string | number | boolean | bigint | null>) => ({
+		where: `${l} like ${r}`,
+		value: undefined,
+	}),
+	_re: ([l, r]: string[], []: Array<string | number | boolean | bigint | null>) => ({
+		where: `${l} ~ ${r}`,
+		value: undefined,
+	}),
+	_ilike: ([l, r]: string[], []: Array<string | number | boolean | bigint | null>) => ({
+		where: `${l} ilike ${r}`,
+		value: undefined,
+	}),
+	_fulltext: ([l, r]: string[], []: Array<string | number | boolean | bigint | null>) => ({
+		where: `${l}::tsvector @@ ${r}::tsquery`,
+		value: undefined,
+	}),
+	_overlap: ([l, r]: string[], []: Array<string | number | boolean | bigint | null>) => ({
+		where: `${l} && ${r}`,
+		value: undefined,
+	}),
+	_contains: ([l, r]: string[], []: Array<string | number | boolean | bigint | null>) => ({
+		where: `${l} contains ${r}`,
+		value: undefined,
+	}),
+	_contained: ([l, r]: string[], []: Array<string | number | boolean | bigint | null>) => ({
+		where: `${l} contained ${r}`,
+		value: undefined,
+	}),
+	_between: ([l, r1, r2]: string[], []: Array<string | number | boolean | bigint | null>) => ({
+		where: `${l} between ${r1} and ${r2}`,
+		value: undefined,
+	}),
+	_exists: ([l]: string[], []: Array<string | number | boolean | bigint | null>) => ({
+		where: `exists ${l}`,
+		value: undefined,
+	}),
+});
+
+export const FieldOperations = getFieldOperations(':');
+export type FieldOperationsType = typeof FieldOperations;

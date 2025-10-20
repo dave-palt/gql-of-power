@@ -27,8 +27,8 @@ describe('GQLtoSQLMapper - Relationship Integration Tests', () => {
 
 	beforeEach(() => {
 		mockProvider = createMockMetadataProvider();
-		mapper = new GQLtoSQLMapper(mockProvider, { namedParameterPrefix: '$' });
-		queryManager = new GQLQueryManager({ namedParameterPrefix: '$' });
+		mapper = new GQLtoSQLMapper(mockProvider, { namedParameterPrefix: ':' });
+		queryManager = new GQLQueryManager({ namedParameterPrefix: ':' });
 	});
 
 	describe('1:1 Relationships (Person <-> Ring)', () => {

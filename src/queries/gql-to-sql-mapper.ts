@@ -8,7 +8,7 @@ import {
 	GQLEntityPaginationInputType,
 	MappingsType,
 	mappingsTypeToString,
-	MetadataProvider,
+	MetadataProviderType,
 	ReferenceType,
 	RelatedFieldSettings,
 } from '../types';
@@ -20,6 +20,9 @@ import { RelationshipHandler } from './relationship-handler';
 import { SQLBuilder } from './sql-builder';
 import { QueriesUtils } from './utils';
 
+const DEFAULT_LIMIT_ENV = parseInt(process.env.D3GOP_DEFAULT_QUERY_LIMIT ?? '');
+const DEFAULT_LIMIT = isNaN(DEFAULT_LIMIT_ENV) ? 3_000 : DEFAULT_LIMIT_ENV;
+
 export type QueryAndBindings = { querySQL: string; bindings: any };
 
 export class GQLtoSQLMapper {
@@ -27,12 +30,12 @@ export class GQLtoSQLMapper {
 	private filterProcessor: FilterProcessor;
 	private relationshipHandler: RelationshipHandler;
 
-	private exists: MetadataProvider['exists'];
-	private getMetadata: MetadataProvider['getMetadata'];
+	private exists: MetadataProviderType['exists'];
+	private getMetadata: MetadataProviderType['getMetadata'];
 	private namedParameterPrefix: string;
 
 	constructor(
-		metadataProvider: MetadataProvider,
+		metadataProvider: MetadataProviderType,
 		opts: { namedParameterPrefix?: string } = { namedParameterPrefix: ':' }
 	) {
 		this.exists = metadataProvider.exists;
@@ -105,18 +108,21 @@ export class GQLtoSQLMapper {
 			.flat();
 
 		// logger.log('orderByFields', orderByFields, 'select', select, 'orderBy', orderBy);
-		const selectFields = [...new Set(orderByFields.concat(Array.from(select)))];
+		const selectFields = [...new Set(orderByFields.concat(Array.from(select)).concat(json))];
 
 		// Build subquery using SQLBuilder
 		const buildSubQueryWrapper = (
 			globalFilterJoin: string[],
 			globalFilterWhere: string[],
 			alias: Alias,
-			value?: { filterJoin: string[] } | { where: string[] }
+			value?: { filterJoin: string[] } | { where: string[] } | { join: string[] }
 		) => {
 			const allFilterJoins = [...globalFilterJoin];
 			if (value && 'filterJoin' in value) {
 				allFilterJoins.push(...value.filterJoin);
+			}
+			if (value && 'join' in value) {
+				allFilterJoins.push(...value.join);
 			}
 			const allWhere = [...globalFilterWhere];
 			if (value && 'where' in value) {
@@ -147,13 +153,16 @@ export class GQLtoSQLMapper {
 				buildSubQueryWrapper(filterJoin, where, mapAlias ?? alias, {
 					filterJoin: filterJoins,
 					where: wheres,
+					join,
 				})
 		);
 
-		const sourceDataSQL = `${
+		const querySQL = `${
 			unionAll.length > 0
 				? `select distinct * from (${unionAll.join(' union all ')}) as ${alias.toString()}`
-				: buildSubQueryWrapper(filterJoin, where, alias)
+				: buildSubQueryWrapper(filterJoin, where, alias, {
+						join,
+				  })
 		}
 		${
 			pagination?.orderBy
@@ -166,34 +175,13 @@ export class GQLtoSQLMapper {
 			' '
 		);
 
-		logger.log(logName, 'sourceDataSQL', unionAll.length, sourceDataSQL);
+		logger.log(logName, 'sourceDataSQL', unionAll.length);
 
-		const orderBySQL = pagination?.orderBy
-			? `order by ${pagination.orderBy
-					.map((obs) =>
-						keys(obs)
-							.map((ob) =>
-								metadata.properties[ob].fieldNames
-									.map((fn) => `${alias.toColumnName(fn)} ${obs[ob]}`)
-									.join(', ')
-							)
-							.filter((o) => o.length > 0)
-							.join(', ')
-					)
-					.filter((o) => o.length > 0)
-					.join(', ')}`
-			: ``;
-
-		// Use row_to_json on the final alias to get properly formatted JSON with correct casing
-		const querySQL = `select ${alias.toString()}.*
-								${json.length > 0 ? `, ${json.join(', ')}` : ''}
-								from (${sourceDataSQL}) as ${alias.toString()}
-							${join.join(' \n')}
-					${orderBySQL}`.replaceAll(/[ \n\t]+/gi, ' ');
+		logger.log(logName, 'final querySQL', querySQL);
 
 		const bindings = {
 			...values,
-			limit: 3000,
+			limit: DEFAULT_LIMIT,
 			...(pagination?.limit ? { limit: pagination.limit } : {}),
 			...(pagination?.offset ? { offset: pagination.offset } : {}),
 		};
@@ -234,7 +222,7 @@ export class GQLtoSQLMapper {
 				({ mappings }, gqlFieldNameKey) => {
 					logger.log(
 						logPrefix,
-						'- mapFilter ================================================>',
+						'- mapFilter for',
 						gqlFieldNameKey,
 						parentGqlFieldNameKey,
 						'keys:',
@@ -254,7 +242,7 @@ export class GQLtoSQLMapper {
 
 						logger.log(
 							logPrefix,
-							'- using mapping ================================================> for',
+							'- using mapping for',
 							gqlFieldNameKey,
 							mappingsTypeToString(mapping)
 						);
@@ -405,6 +393,8 @@ export class GQLtoSQLMapper {
 				offset,
 				'orderBy',
 				mapping.orderBy,
+				'reference',
+				fieldProps.reference,
 				fields
 			);
 			if (

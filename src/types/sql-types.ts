@@ -1,3 +1,4 @@
+import { Knex } from 'knex';
 import { Field, FieldResolver, registerEnumType } from 'type-graphql';
 import { FieldOperations } from '../operations';
 import { GQLEntityFilterInputFieldType, GQLEntityPaginationInputType } from './gql-types';
@@ -10,7 +11,7 @@ export enum ReferenceType {
 }
 export type EntityProperty = {
 	type: string;
-	reference?: string;
+	reference?: ReferenceType | string;
 	name: string;
 	fieldNames: string[];
 	mappedBy: string;
@@ -29,12 +30,23 @@ export type EntityMetadata<T> = {
 	};
 };
 
+export type RawSQLHandler = {
+	rawQuery: (sql: string, bindings?: any) => string;
+};
+
+export type SqlClientConfiguration = {
+	client: string | typeof Knex.Client;
+};
+
+export type DatabaseDriver = RawSQLHandler | SqlClientConfiguration;
+
 export type MetadataProvider = {
 	exists: (entityName: string) => boolean;
 	getMetadata: <T, K extends EntityMetadata<T>>(entityName: string) => K;
-	rawQuery: (sql: string, bindings?: any) => string;
 	executeQuery: (sql: string, ...params: any[]) => Promise<any>;
-};
+} & SqlClientConfiguration;
+
+export type MetadataProviderType = MetadataProvider & DatabaseDriver;
 
 export enum Sort {
 	ASC = 'asc',
@@ -46,20 +58,29 @@ export type OrderByOptions = {
 
 export type EnumData = Parameters<typeof registerEnumType>;
 
+type GetFieldType = NonNullable<Parameters<typeof Field>[0]>;
+type GetFieldResolverType = NonNullable<Parameters<typeof FieldResolver>[0]>;
+
 export type FieldBaseSettings = { generateFilter?: boolean; enum?: EnumData } & (
 	| {}
 	| {
 			array: true;
 			relatedEntityName: () => string;
+			/**
+			 * GQL Type for contains or overlap.
+			 * This should match the type of the related field like id (probably Int).
+			 * Without this the filters overlap and contains will not be generated.
+			 */
+			getFilterType?: GetFieldResolverType;
 	  }
 );
 
 export type FieldSettings = FieldBaseSettings & {
-	type: NonNullable<Parameters<typeof Field>[0]>;
+	type: GetFieldType;
 	options?: Parameters<typeof Field>[1];
 };
 export type RelatedFieldSettings<T> = FieldBaseSettings & {
-	type: NonNullable<Parameters<typeof FieldResolver>[0]>;
+	type: GetFieldResolverType;
 	options?: Parameters<typeof FieldResolver>[1];
 	/**
 	 * Required field/s to resolve the custom field.

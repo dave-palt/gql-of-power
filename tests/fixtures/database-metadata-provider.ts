@@ -652,6 +652,8 @@ export class DatabaseMetadataProvider implements MetadataProvider {
 		private sql: SQL // Optional Bun's SQL connection
 	) {}
 
+	client = 'pg';
+
 	exists = (entityName: string): boolean => {
 		return this.metadata.has(entityName);
 	};
@@ -662,17 +664,6 @@ export class DatabaseMetadataProvider implements MetadataProvider {
 			throw new Error(`Entity metadata not found for: ${entityName}`);
 		}
 		return meta as K;
-	};
-
-	rawQuery = (sql: string, bindings?: any): string => {
-		console.log('🔍 Raw SQL:', sql);
-		console.log('📝 With bindings:', bindings);
-
-		// Convert named parameters to inline values like the other tests do
-		const query = this.formatQueryWithBindings(bindings, sql);
-
-		console.log('📝 Compiled query:', query);
-		return query;
 	};
 
 	/**
@@ -689,6 +680,7 @@ export class DatabaseMetadataProvider implements MetadataProvider {
 	};
 
 	executeQuery = async (query: string, bindings?: any): Promise<any[]> => {
+		console.log('🔍 Executing query:', query, bindings);
 		// If using mock data, execute the query against the in-memory data
 		if (this.useMockData) {
 			return this.executeMockQuery(query, bindings);
@@ -788,24 +780,6 @@ export class DatabaseMetadataProvider implements MetadataProvider {
 	};
 
 	/**
-	 * Execute a prepared statement with named parameters
-	 */
-	executePreparedQuery = async (query: string, bindings?: any): Promise<any[]> => {
-		const sql = this.sql;
-		try {
-			const _query = this.formatQueryWithBindings(bindings, query);
-
-			console.log('📝 Compiled prepared query:', _query);
-			// Use prepared statement with SQL template
-			const results = await sql`${sql.unsafe(_query)}`.simple();
-			return results || [];
-		} catch (error) {
-			console.error('❌ Prepared query failed:', error);
-			throw error;
-		}
-	};
-
-	/**
 	 * Close the database connection
 	 */
 	close = async (): Promise<void> => {
@@ -818,53 +792,4 @@ export class DatabaseMetadataProvider implements MetadataProvider {
 			await this.sql.end();
 		}
 	};
-
-	private formatQueryWithBindings(bindings: any, query: string) {
-		if (!bindings) return query;
-
-		// Convert named parameters ($paramName) to inline SQL values
-		return Object.keys(bindings).reduce((currentQuery, key) => {
-			const value = bindings[key];
-			const formattedValue = this.convertValueToSQL(value);
-			// Replace both $paramName and :paramName patterns
-			const dollarPattern = new RegExp(`\\$${key}\\b`, 'g');
-			const colonPattern = new RegExp(`:${key}\\b`, 'g');
-			return currentQuery
-				.replace(dollarPattern, formattedValue)
-				.replace(colonPattern, formattedValue);
-		}, query);
-	}
-
-	private convertValueToSQL(value: any): string {
-		if (value === null || value === undefined) {
-			return 'NULL';
-		}
-
-		if (Array.isArray(value)) {
-			return `(${value.map((v) => this.convertValueToSQL(v)).join(',')})`;
-		}
-
-		if (typeof value === 'string') {
-			// Escape single quotes by doubling them
-			return `'${value.replace(/'/g, "''")}'`;
-		}
-
-		if (typeof value === 'boolean') {
-			return value ? 'TRUE' : 'FALSE';
-		}
-
-		if (typeof value === 'number') {
-			return value.toString();
-		}
-
-		if (typeof value === 'object') {
-			if ('toISOString' in value && typeof value.toISOString === 'function') {
-				return `'${value.toISOString()}'`;
-			}
-			return `'${value.toString()}'`;
-		}
-
-		// Default case
-		return value.toString();
-	}
 }

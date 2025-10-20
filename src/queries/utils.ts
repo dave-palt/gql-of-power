@@ -1,5 +1,4 @@
 import { GQLEntityOrderByInputType, MappingsType } from '../types';
-import { keys } from '../utils';
 
 export class QueriesUtils {
 	public static newMappings = (): MappingsType => ({
@@ -77,16 +76,3 @@ export const isPrimitive = (
 	typeof filterValue === 'string' ||
 	typeof filterValue === 'symbol' ||
 	filterValue === null;
-
-export const mappingsToString = (m: MappingsType) => `MappingsType:
-select: ${m.select.size}
-json: ${m.json.length}
-filterJoin: ${m.filterJoin.length}
-join: ${m.join.length}
-where: ${m.where.length}
-values: ${keys(m.values ?? {}).length}
-orderBy: ${m.orderBy.length}
-_or: ${m._or.length}
-_and: ${m._and.length}
-_not: ${m._not.length}
-`;

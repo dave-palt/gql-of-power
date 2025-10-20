@@ -1,4 +1,4 @@
-import { EntityMetadata, MappingsType } from '../types';
+import { EntityMetadata, GQLEntityOrderByInputType, MappingsType } from '../types';
 import { keys } from '../utils';
 import { Alias } from './alias';
 
@@ -17,18 +17,6 @@ const jsonReducerForString = (
 };
 
 export class SQLBuilder {
-	/**
-	 * Generates a JSON object select statement for PostgreSQL
-	 * @param json Array of JSON field definitions
-	 * @param isMulti Whether to generate an array of objects (json_agg) or single object
-	 * @returns SQL statement for JSON object construction
-	 */
-	public static generateJsonObjectSelectStatement(json: string[], isMulti = false): string {
-		return isMulti
-			? `coalesce(json_agg(jsonb_build_object(${json.join(', ')})), '[]'::json)`
-			: `jsonb_build_object(${json.join(', ')})`;
-	}
-
 	/**
 	 * Generates a SQL select statement for converting query results to JSON format.
 	 *
@@ -148,7 +136,7 @@ export class SQLBuilder {
 	 * @returns SQL ORDER BY clause
 	 */
 	public static buildOrderBySQL(
-		orderBy: Array<Record<string, 'asc' | 'desc'>>,
+		orderBy: GQLEntityOrderByInputType<any>[] | undefined,
 		fieldMapper: (field: string) => string[]
 	): string {
 		if (!orderBy || orderBy.length === 0) {

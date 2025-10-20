@@ -16,6 +16,7 @@
 import { SQL } from 'bun';
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, mock } from 'bun:test';
 import { readFileSync } from 'fs';
+import knex from 'knex';
 import { join } from 'path';
 import { FieldSelection, GQLEntityPaginationInputType } from '../../src';
 import { GQLtoSQLMapper } from '../../src/queries/gql-to-sql-mapper';
@@ -50,6 +51,8 @@ const describeOrSkip = exists ? describe : describe.skip;
 
 const _getGQLFields = mock(getGQLFields);
 
+const k = knex({ client: 'pg' });
+
 describe('GQL-of-Power Database Integration Tests', () => {
 	describeOrSkip('GQL-of-Power Database Integration Tests', () => {
 		let sql: SQL;
@@ -71,8 +74,8 @@ describe('GQL-of-Power Database Integration Tests', () => {
 
 				// Create metadata provider and mapper
 				metadataProvider = new DatabaseMetadataProvider(sql);
-				mapper = new GQLtoSQLMapper(metadataProvider, { namedParameterPrefix: '$' });
-				queryManager = new GQLQueryManager({ namedParameterPrefix: '$' });
+				mapper = new GQLtoSQLMapper(metadataProvider, { namedParameterPrefix: ':' });
+				queryManager = new GQLQueryManager({ namedParameterPrefix: ':' });
 
 				console.log('✅ Test infrastructure initialized');
 			} catch (error) {
@@ -176,7 +179,7 @@ describe('GQL-of-Power Database Integration Tests', () => {
 
 					// Execute the query against real database within transaction
 					const dbResults = await metadataProvider.executeQuery(
-						metadataProvider.rawQuery(result.querySQL, result.bindings)
+						k.raw(result.querySQL, result.bindings).toString()
 					);
 
 					expect(dbResults).toBeDefined();
@@ -213,7 +216,7 @@ describe('GQL-of-Power Database Integration Tests', () => {
 					});
 
 					const dbResults = await metadataProvider.executeQuery(
-						metadataProvider.rawQuery(result.querySQL, result.bindings)
+						k.raw(result.querySQL, result.bindings).toString()
 					);
 
 					expect(dbResults).toBeDefined();
@@ -255,7 +258,7 @@ describe('GQL-of-Power Database Integration Tests', () => {
 					});
 
 					const dbResults = await metadataProvider.executeQuery(
-						metadataProvider.rawQuery(result.querySQL, result.bindings)
+						k.raw(result.querySQL, result.bindings).toString()
 					);
 
 					expect(dbResults).toBeDefined();
@@ -298,7 +301,7 @@ describe('GQL-of-Power Database Integration Tests', () => {
 					});
 
 					const dbResults = await metadataProvider.executeQuery(
-						metadataProvider.rawQuery(result.querySQL, result.bindings)
+						k.raw(result.querySQL, result.bindings).toString()
 					);
 
 					expect(dbResults).toBeDefined();
@@ -330,7 +333,7 @@ describe('GQL-of-Power Database Integration Tests', () => {
 					});
 
 					const dbResults = await metadataProvider.executeQuery(
-						metadataProvider.rawQuery(result.querySQL, result.bindings)
+						k.raw(result.querySQL, result.bindings).toString()
 					);
 
 					expect(dbResults).toBeDefined();
@@ -372,7 +375,7 @@ describe('GQL-of-Power Database Integration Tests', () => {
 					});
 
 					const dbResults = await metadataProvider.executeQuery(
-						metadataProvider.rawQuery(result.querySQL, result.bindings)
+						k.raw(result.querySQL, result.bindings).toString()
 					);
 
 					expect(dbResults).toBeDefined();
@@ -406,7 +409,7 @@ describe('GQL-of-Power Database Integration Tests', () => {
 					});
 
 					const dbResults = await metadataProvider.executeQuery(
-						metadataProvider.rawQuery(result.querySQL, result.bindings)
+						k.raw(result.querySQL, result.bindings).toString()
 					);
 
 					expect(dbResults).toBeDefined();
@@ -436,7 +439,7 @@ describe('GQL-of-Power Database Integration Tests', () => {
 					});
 
 					const dbResults = await metadataProvider.executeQuery(
-						metadataProvider.rawQuery(result.querySQL, result.bindings)
+						k.raw(result.querySQL, result.bindings).toString()
 					);
 
 					expect(dbResults).toBeDefined();
@@ -470,7 +473,7 @@ describe('GQL-of-Power Database Integration Tests', () => {
 					});
 
 					const dbResults = await metadataProvider.executeQuery(
-						metadataProvider.rawQuery(result.querySQL, result.bindings)
+						k.raw(result.querySQL, result.bindings).toString()
 					);
 
 					expect(dbResults).toBeDefined();
@@ -509,7 +512,7 @@ describe('GQL-of-Power Database Integration Tests', () => {
 					});
 
 					const dbResults = await metadataProvider.executeQuery(
-						metadataProvider.rawQuery(result.querySQL, result.bindings)
+						k.raw(result.querySQL, result.bindings).toString()
 					);
 
 					expect(dbResults).toBeDefined();
@@ -544,7 +547,7 @@ describe('GQL-of-Power Database Integration Tests', () => {
 					});
 
 					const dbResults = await metadataProvider.executeQuery(
-						metadataProvider.rawQuery(result.querySQL, result.bindings)
+						k.raw(result.querySQL, result.bindings).toString()
 					);
 
 					expect(dbResults).toBeDefined();
@@ -586,7 +589,7 @@ describe('GQL-of-Power Database Integration Tests', () => {
 					});
 
 					const dbResults = await metadataProvider.executeQuery(
-						metadataProvider.rawQuery(result.querySQL, result.bindings)
+						k.raw(result.querySQL, result.bindings).toString()
 					);
 
 					expect(dbResults).toBeDefined();
@@ -634,7 +637,7 @@ describe('GQL-of-Power Database Integration Tests', () => {
 					});
 
 					const dbResults = await metadataProvider.executeQuery(
-						metadataProvider.rawQuery(result.querySQL, result.bindings)
+						k.raw(result.querySQL, result.bindings).toString()
 					);
 
 					expect(dbResults).toBeDefined();
@@ -676,7 +679,7 @@ describe('GQL-of-Power Database Integration Tests', () => {
 					});
 
 					const dbResults = await metadataProvider.executeQuery(
-						metadataProvider.rawQuery(result.querySQL, result.bindings)
+						k.raw(result.querySQL, result.bindings).toString()
 					);
 					const executionTime = Date.now() - startTime;
 

@@ -33,6 +33,8 @@ export class RelationshipHandler {
 		filterJoin: string[],
 		join: string[]
 	): void {
+		const prefix = 'RelationshipHandler - mapOneToX';
+		logger.log(prefix);
 		const referenceFieldProps = referenceField.properties[
 			fieldProps.mappedBy as keyof typeof referenceField.properties
 		] as EntityProperty;
@@ -53,8 +55,10 @@ export class RelationshipHandler {
 			.join(' and ');
 
 		logger.log(
-			'RelationshipHandler - mapOneToX: field',
+			prefix,
+			'field',
 			referenceField.name,
+			{ where },
 			'whereSQL',
 			whereWithValues,
 			'values',
@@ -81,9 +85,9 @@ export class RelationshipHandler {
 				orderBy,
 				SQLBuilder.getFieldMapper(referenceField, alias)
 			);
-			const isNestedNeeded = offset || limit || orderBySQL.length > 0;
+			const isNestedNeeded = isArray || offset || limit || orderBySQL.length > 0;
 
-			const fromSQL = `"${referenceField.tableName}" as ${alias.toString()}`;
+			// const fromSQL = `"${referenceField.tableName}" as ${alias.toString()}`;
 			const subFromSQL = this.buildSubFromSQL(
 				onFields,
 				referenceField.tableName,
@@ -107,12 +111,23 @@ export class RelationshipHandler {
 
 			const leftOuterJoin = SQLBuilder.buildLateralJoin(
 				jsonSelect,
-				isNestedNeeded ? subFromSQL : fromSQL,
+				subFromSQL,
 				join,
 				whereConditions,
 				alias.toString()
 			);
 
+			logger.log(
+				prefix,
+				'field',
+				referenceField.name,
+				alias.toString(),
+				{ isNestedNeeded },
+				{ subFromSQL },
+				{ leftOuterJoin },
+				{ whereConditions },
+				{ orderBySQL }
+			);
 			mapping.alias = alias;
 			mapping.values = { ...mapping.values, ...values };
 			mapping.join.push(leftOuterJoin);
@@ -138,6 +153,7 @@ export class RelationshipHandler {
 		json: string[],
 		join: string[]
 	): void {
+		logger.log('RelationshipHandler - mapManyToOne');
 		if (fieldProps.fieldNames.length !== referenceField.primaryKeys.length) {
 			throw new Error(
 				`Mismatch in lengths: fieldProps.fieldNames (${fieldProps.fieldNames.length}) and referenceField.primaryKeys (${referenceField.primaryKeys.length}) must have the same length.`
@@ -214,7 +230,7 @@ export class RelationshipHandler {
 	 * Handles Many-to-Many relationships
 	 */
 	public mapManyToMany(
-		referenceField: EntityMetadata<any>,
+		fieldMetadata: EntityMetadata<any>,
 		primaryKeys: string[],
 		fieldProps: EntityProperty,
 		parentAlias: Alias,
@@ -230,15 +246,16 @@ export class RelationshipHandler {
 		offset?: number,
 		orderBy?: GQLEntityOrderByInputType<any>[]
 	): void {
+		logger.log('RelationshipHandler - mapManyToMany');
 		const ons = fieldProps.joinColumns;
 		if (primaryKeys.length !== ons.length) {
 			throw new Error(
-				`m:m joins with different number of columns ${primaryKeys.length} !== ${ons.length} on table ${referenceField.tableName}`
+				`m:m joins with different number of columns ${primaryKeys.length} !== ${ons.length} on table ${fieldMetadata.tableName}`
 			);
 		}
-		if (referenceField.primaryKeys.length !== fieldProps.inverseJoinColumns.length) {
+		if (fieldMetadata.primaryKeys.length !== fieldProps.inverseJoinColumns.length) {
 			throw new Error(
-				`m:m joins with different number of columns ${referenceField.primaryKeys.length} !== ${fieldProps.inverseJoinColumns.length} on reference ${referenceField.tableName}.${fieldProps.pivotTable}`
+				`m:m joins with different number of columns ${fieldMetadata.primaryKeys.length} !== ${fieldProps.inverseJoinColumns.length} on reference ${fieldMetadata.tableName}.${fieldProps.pivotTable}`
 			);
 		}
 
@@ -264,14 +281,17 @@ export class RelationshipHandler {
 			const jsonSQL = SQLBuilder.generateJsonSelectStatement(alias.toString(), true);
 			const refAlias = alias.toString();
 
-			const orderByClause = this.buildManyToManyOrderBy(orderBy, alias);
+			const orderByClause = SQLBuilder.buildOrderBySQL(
+				orderBy,
+				SQLBuilder.getFieldMapper(fieldMetadata, alias)
+			);
 
 			const leftOuterJoin = `left outer join lateral (
 			select ${jsonSQL} as value 
 				from (
 					select ${selectFields.join(', ')} 
-						from "${referenceField.tableName}" as ${refAlias}
-					where (${referenceField.primaryKeys.join(', ')})
+						from "${fieldMetadata.tableName}" as ${refAlias}
+					where (${fieldMetadata.primaryKeys.join(', ')})
 						in (${pivotTableSQL})
 						${whereWithValues.length > 0 ? ` and ( ${whereWithValues.join(' and ')} )` : ''}
 						${orderByClause}

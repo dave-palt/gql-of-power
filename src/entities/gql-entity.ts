@@ -21,7 +21,6 @@ import { keys } from '../utils';
 import { logger } from '../variables';
 
 const TypeMap: { [key: string]: any } = {};
-const CachedTypeNames: Record<any, string> = {};
 
 const CustomFieldsMap: Record<string, CustomFieldsSettings<any>> = {};
 export const getCustomFieldsFor = (name: string) => CustomFieldsMap[name] ?? {};
@@ -109,12 +108,14 @@ export function createGQLTypes<T extends Object>(
 	InputType(gqlEntityName + 'OrderBy')(GQLEntityOrderBy);
 
 	const paginationTypeName = `${gqlEntityName}PaginationInput`;
+
 	@InputType(paginationTypeName)
 	class GQLEntityPaginationInputField {
 		@Field(() => Int, {
 			nullable: true,
 		})
 		limit?: number;
+
 		@Field(() => Int, {
 			nullable: true,
 		})
@@ -179,7 +180,7 @@ export function createGQLEntityFields<T, K>(
 
 	const isArray = 'array' in fieldOptions && fieldOptions.array;
 
-	const fieldCopy = {
+	const field = {
 		target: GQLEntity,
 		name: fieldName,
 		schemaName: fieldName,
@@ -196,7 +197,7 @@ export function createGQLEntityFields<T, K>(
 			...fieldOptions.options,
 		},
 	} as FieldParameter;
-	metadata.collectClassFieldMetadata(fieldCopy);
+	metadata.collectClassFieldMetadata(field);
 
 	if (fieldOptions.enum) {
 		const enumObj = fieldOptions.enum[0];
@@ -254,43 +255,56 @@ export function createGQLEntityFields<T, K>(
 		});
 		TypeMap[inputFieldName] = GQLEntityFilterInputField;
 
-		if ('type' in fieldOptions && !('relatedEntityName' in fieldOptions)) {
-			const options: Array<{
-				key: keyof typeof FieldOperations;
-				array?: boolean;
-			}> = [
-				{ key: '_eq' },
-				{ key: '_ne' },
-				{ key: '_in', array: true },
-				{ key: '_nin', array: true },
-				{ key: '_gt' },
-				{ key: '_gte' },
-				{ key: '_lt' },
-				{ key: '_lte' },
-				{ key: '_like' },
-				{ key: '_re' },
-				{ key: '_ilike' },
-				{ key: '_fulltext' },
-				{ key: '_overlap' },
-				{ key: '_contains', array: true },
-				{ key: '_contained' },
-				{ key: '_exists' },
-				{ key: '_between', array: true },
-			];
-			for (const option of options) {
+		const options: Array<{
+			key: keyof typeof FieldOperations;
+			array?: boolean;
+			appliesToArray?: boolean;
+		}> = [
+			{ key: '_eq' },
+			{ key: '_ne' },
+			{ key: '_in', array: true },
+			{ key: '_nin', array: true },
+			{ key: '_gt' },
+			{ key: '_gte' },
+			{ key: '_lt' },
+			{ key: '_lte' },
+			{ key: '_like' },
+			{ key: '_re' },
+			{ key: '_ilike' },
+			{ key: '_fulltext' },
+			{ key: '_overlap', appliesToArray: true },
+			{ key: '_contains', array: true, appliesToArray: true },
+			{ key: '_contained' },
+			{ key: '_exists' },
+			{ key: '_between', array: true },
+		];
+		const canFilterForField = 'type' in fieldOptions;
+		const includeNotArrays = !('relatedEntityName' in fieldOptions);
+		// const includeAppliesToArray = 'array' in fieldOptions && fieldOptions.array;
+		const getFilterType = 'getFilterType' in fieldOptions && fieldOptions.getFilterType;
+
+		const applicableOptions = canFilterForField
+			? options.filter(
+					({ appliesToArray }) =>
+						(!appliesToArray && includeNotArrays) || (appliesToArray && getFilterType)
+			  )
+			: [];
+
+		if (canFilterForField && applicableOptions.length > 0) {
+			for (const option of applicableOptions) {
 				const optionGQLName = fieldName + option.key;
 				const backCompFieldFilterOpt = {
 					target: GQLEntityFilterInput,
 					name: optionGQLName,
 					schemaName: optionGQLName,
-					getType: getType,
+					getType: option.appliesToArray && getFilterType ? getFilterType : getType,
 					options: {
 						...fieldOptions.options,
-						...(option.array ? { array: true, arrayDepth: 1 } : {}),
+						...(option.array || option.appliesToArray ? { array: true, arrayDepth: 1 } : {}),
 						nullable: true,
 					},
 					typeOptions: {
-						...(option.array ? { array: true, arrayDepth: 1 } : {}),
+						...(option.array || option.appliesToArray ? { array: true, arrayDepth: 1 } : {}),
 						nullable: true,
 					},
 					complexity: undefined,
@@ -303,14 +317,14 @@ export function createGQLEntityFields<T, K>(
 					target: GQLEntityFilterInputField,
 					name: option.key,
 					schemaName: option.key,
-					getType: getType,
+					getType: option.appliesToArray && getFilterType ? getFilterType : getType,
 					options: {
 						...fieldOptions.options,
-						...(option.array ? { array: true, arrayDepth: 1 } : {}),
+						...(option.array || option.appliesToArray ? { array: true, arrayDepth: 1 } : {}),
 						nullable: true,
 					},
 					typeOptions: {
-						...(option.array ? { array: true, arrayDepth: 1 } : {}),
+						...(option.array || option.appliesToArray ? { array: true, arrayDepth: 1 } : {}),
 						nullable: true,
 					},
 					complexity: undefined,
@@ -348,7 +362,7 @@ export function createGQLEntityFields<T, K>(
 							);
 					  }
 					: () => GQLEntityFilterInputField,
-			options: fieldOptions.options,
+			options: { ...fieldOptions.options, nullable: true },
 			typeOptions: { nullable: true },
 			complexity: undefined,
 			description: fieldName,
@@ -368,7 +382,7 @@ export function createGQLEntityFields<T, K>(
 				getType: () => TypeMap[relatedEntityName + 'FilterInput'],
 				target: GQLEntity,
 				typeOptions: { nullable: true },
-				validate: true,
+				validate: false,
 			});
 			metadata.collectHandlerParamMetadata({
 				kind: 'arg',
@@ -379,7 +393,7 @@ export function createGQLEntityFields<T, K>(
 				getType: () => TypeMap[`${relatedEntityName}PaginationInput`],
 				target: GQLEntity,
 				typeOptions: { nullable: true },
-				validate: true,
+				validate: false,
 			});
 		}
 	}

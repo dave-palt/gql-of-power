@@ -417,6 +417,7 @@ export class MockMetadataProvider implements MetadataProvider {
 			this.queryResults.set(tableName, data);
 		});
 	}
+	client = 'pg';
 
 	exists = (entityName: string): boolean => {
 		return this.metadata.has(entityName);

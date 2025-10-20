@@ -1,11 +1,16 @@
-import { ClassOperationInputType, ClassOperations, FieldOperations } from '../operations';
+import {
+	ClassOperationInputType,
+	ClassOperations,
+	FieldOperationsType,
+	getFieldOperations,
+} from '../operations';
 import {
 	CustomFieldsSettings,
 	EntityMetadata,
 	EntityProperty,
 	GQLEntityFilterInputFieldType,
 	MappingsType,
-	MetadataProvider,
+	MetadataProviderType,
 	ReferenceType,
 } from '../types';
 import { keys } from '../utils';
@@ -23,9 +28,10 @@ const isPrimitive = (filterValue: any): filterValue is string | number | boolean
 	filterValue === null;
 
 export class FilterProcessor extends ClassOperations {
+	protected FieldOperations: ReturnType<typeof getFieldOperations>;
 	constructor(
 		private aliasManager: AliasManager,
-		private metadataProvider: MetadataProvider,
+		private metadataProvider: MetadataProviderType,
 		private recursiveMapFunction: <T>(params: {
 			entityMetadata: EntityMetadata<T>;
 			parentAlias: Alias;
@@ -35,6 +41,7 @@ export class FilterProcessor extends ClassOperations {
 		private namedParameterPrefix: string = ':'
 	) {
 		super();
+		this.FieldOperations = getFieldOperations(namedParameterPrefix);
 	}
 
 	/**
@@ -87,13 +94,13 @@ export class FilterProcessor extends ClassOperations {
 		const filterValue = gqlFilter[gqlFieldNameKey as keyof typeof gqlFilter];
 
 		// Handle field operations (id_in, id_eq, etc.)
-		const fieldOperation = keys(FieldOperations).find((k) => gqlFieldNameKey.endsWith(k));
+		const fieldOperation = keys(this.FieldOperations).find((k) => gqlFieldNameKey.endsWith(k));
 
 		// Handle nested field operations like { id: { _in }, id: { _eq }, ... }
 		const fieldOperations =
 			typeof filterValue === 'object'
 				? keys(filterValue ?? ({} as Partial<typeof filterValue>)).reduce((acc, key) => {
-						const k = keys(FieldOperations).find((k) => k.toString() === key.toString());
+						const k = keys(this.FieldOperations).find((k) => k.toString() === key.toString());
 						if (k) {
 							acc.push({
 								fieldOperation: k,
@@ -101,8 +108,8 @@ export class FilterProcessor extends ClassOperations {
 							});
 						}
 						return acc;
-				  }, [] as Array<{ fieldOperation: keyof typeof FieldOperations; value: any }>)
-				: ([] as Array<{ fieldOperation: keyof typeof FieldOperations; value: any }>);
+				  }, [] as Array<{ fieldOperation: keyof FieldOperationsType; value: any }>)
+				: ([] as Array<{ fieldOperation: keyof FieldOperationsType; value: any }>);
 
 		if (fieldOperation) {
 			fieldOperations.push({
@@ -188,7 +195,7 @@ export class FilterProcessor extends ClassOperations {
 		mapping,
 	}: {
 		filterValue: GQLEntityFilterInputFieldType<T> | any;
-		fieldOperation: string & keyof typeof FieldOperations;
+		fieldOperation: string & keyof FieldOperationsType;
 		fieldName: string;
 		parentAlias: Alias;
 		alias: Alias;
@@ -203,9 +210,9 @@ export class FilterProcessor extends ClassOperations {
 
 		if (filterValueIsPrimitive) {
 			// Example: { id_eq: 1 } or { id: 1 }
-			const op = fieldOperation ?? ('_eq' as keyof typeof FieldOperations);
+			const op = fieldOperation ?? ('_eq' as keyof FieldOperationsType);
 			this.applyFilterOperation({
-				fieldOperation: op as keyof typeof FieldOperations,
+				fieldOperation: op as keyof FieldOperationsType,
 				filterValue,
 				fieldName,
 				parentAlias,
@@ -214,14 +221,14 @@ export class FilterProcessor extends ClassOperations {
 			});
 		} else if (!filterValueIsPrimitive && filterValue) {
 			// Example: { Id: { _eq: 1 } }
-			for (const op of keys(FieldOperations)) {
+			for (const op of keys(this.FieldOperations)) {
 				if (op in filterValue) {
 					const filterActualValue = filterValue[op as keyof typeof filterValue] as any;
 					if (filterActualValue === undefined || !isPrimitive(filterActualValue)) {
 						continue;
 					}
 					this.applyFilterOperation({
-						fieldOperation: op as string & keyof typeof FieldOperations,
+						fieldOperation: op as string & keyof FieldOperationsType,
 						filterValue: filterActualValue,
 						fieldName,
 						parentAlias,
@@ -599,14 +606,14 @@ export class FilterProcessor extends ClassOperations {
 			gqlFieldNameKey.indexOf(fieldOperation) > 0
 				? // id_eq
 				  gqlFieldNameKey.slice(0, -fieldOperation.length)
-				: // id: { _eq }
-				  gqlFieldNameKey;
+				: // Id: { _eq }
+				  gqlFieldNameKey.charAt(0).toLowerCase() + gqlFieldNameKey.slice(1);
 
 		if (
 			Array.isArray(fieldValue) &&
 			fieldNameBeforeOperation in properties &&
-			(fieldOperation as keyof typeof FieldOperations) !== '_in' &&
-			(fieldOperation as keyof typeof FieldOperations) !== '_nin'
+			(fieldOperation as keyof FieldOperationsType) !== '_in' &&
+			(fieldOperation as keyof FieldOperationsType) !== '_nin'
 		) {
 			mapping.where.push(
 				...properties[fieldNameBeforeOperation as keyof typeof properties].fieldNames.map(
@@ -623,10 +630,10 @@ export class FilterProcessor extends ClassOperations {
 							}
 						);
 
-						return FieldOperations[fieldOperation as keyof typeof FieldOperations](
+						return this.FieldOperations[fieldOperation as keyof FieldOperationsType](
 							[alias.toColumnName(fieldName), ...values],
 							['', ...fieldValue]
-						);
+						).where;
 					}
 				)
 			);
@@ -647,18 +654,26 @@ export class FilterProcessor extends ClassOperations {
 				throw new Error('fieldNames not found in properties for field ' + fieldNameBeforeOperation);
 			}
 
-			mapping.where.push(
-				...fieldNames.map((fieldName) =>
-					FieldOperations[fieldOperation as keyof typeof FieldOperations](
-						[
-							alias.toColumnName(fieldName),
-							`${this.namedParameterPrefix}${nextValueAlias.toParamName(1)}`,
-						],
-						['', ...(Array.isArray(fieldValue) ? fieldValue : [fieldValue])]
-					)
+			const calcs = fieldNames.map((fieldName) =>
+				this.FieldOperations[fieldOperation as keyof FieldOperationsType](
+					[
+						alias.toColumnName(fieldName),
+						`${this.namedParameterPrefix}${nextValueAlias.toParamName(1)}`,
+					],
+					['', ...(Array.isArray(fieldValue) ? fieldValue : [fieldValue])]
 				)
 			);
-			mapping.values[nextValueAlias.toParamName(1)] = fieldValue;
+			mapping.where.push(...calcs.map((c) => c.where));
+			const valuesOverride = calcs.reduce((acc, { value }) => ({ ...acc, ...value }), {});
+
+			if (keys(valuesOverride).length > 0) {
+				mapping.values = {
+					...mapping.values,
+					...valuesOverride,
+				};
+			} else {
+				mapping.values[nextValueAlias.toParamName(1)] = fieldValue;
+			}
 		}
 	}
 
@@ -692,7 +707,7 @@ export class FilterProcessor extends ClassOperations {
 		fieldName,
 		mapping,
 	}: {
-		fieldOperation: string & keyof typeof FieldOperations;
+		fieldOperation: string & keyof FieldOperationsType;
 		fieldName: string;
 		filterValue: string | number | boolean | bigint | null;
 		parentAlias: Alias;
@@ -704,12 +719,19 @@ export class FilterProcessor extends ClassOperations {
 			.next(AliasType.entity, fieldName)
 			.toParamName(fieldName)}`;
 
-		const where = FieldOperations[fieldOperation](
+		const calc = this.FieldOperations[fieldOperation](
 			[filterFieldWithAlias, this.namedParameterPrefix + filterParameterName],
 			['_', filterValue]
 		);
-		const value = { [filterParameterName]: filterValue };
+		const { value: valOverride, where } = calc;
+		const value = valOverride ?? { [filterParameterName]: filterValue };
 
+		console.log('');
+		console.log('');
+		console.log('');
+		console.log('operation', fieldOperation, where, value, valOverride);
+		console.log('');
+		console.log('');
 		mapping.where.push(where);
 		mapping.values = { ...mapping.values, ...value };
 	}
