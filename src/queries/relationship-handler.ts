@@ -3,6 +3,7 @@ import {
 	EntityProperty,
 	GQLEntityOrderByInputType,
 	MappingsType,
+	mappingsTypeToString,
 	ReferenceType,
 } from '../types';
 import { keys } from '../utils';
@@ -30,7 +31,7 @@ export class RelationshipHandler {
 		gqlFieldName: string,
 		json: string[],
 		select: Set<string>,
-		filterJoin: string[],
+		innerJoin: string[],
 		join: string[]
 	): void {
 		const prefix = 'RelationshipHandler - mapOneToX';
@@ -92,7 +93,7 @@ export class RelationshipHandler {
 				onFields,
 				referenceField.tableName,
 				alias,
-				filterJoin,
+				innerJoin,
 				where,
 				whereWithValues,
 				orderBySQL,
@@ -130,7 +131,7 @@ export class RelationshipHandler {
 			);
 			mapping.alias = alias;
 			mapping.values = { ...mapping.values, ...values };
-			mapping.join.push(leftOuterJoin);
+			mapping.outerJoin.push(leftOuterJoin);
 		}
 	}
 
@@ -145,7 +146,7 @@ export class RelationshipHandler {
 		mapping: MappingsType,
 		whereWithValues: string[],
 		values: Record<string, any>,
-		filterJoin: string[],
+		innerJoin: string[],
 		limit: number | undefined,
 		offset: number | undefined,
 		gqlFieldName: string,
@@ -179,8 +180,8 @@ export class RelationshipHandler {
 				whereWithValues,
 				'values',
 				values,
-				'filterJoin',
-				filterJoin,
+				'innerJoin',
+				innerJoin,
 				limit,
 				offset
 			);
@@ -188,6 +189,7 @@ export class RelationshipHandler {
 			mapping.select.add(
 				`${fieldProps.fieldNames.map((fn) => parentAlias.toColumnName(fn)).join(', ')}`
 			);
+			mapping.rawSelect.add(`${fieldProps.fieldNames.join(', ')}`);
 			mapping.json.push(`${alias.toColumnName('value')} as "${gqlFieldName}"`);
 
 			const selectFields = [
@@ -200,7 +202,7 @@ export class RelationshipHandler {
 				selectFields,
 				referenceField.tableName,
 				alias,
-				filterJoin,
+				innerJoin,
 				where,
 				whereWithValues,
 				'',
@@ -221,7 +223,7 @@ export class RelationshipHandler {
 				alias.toString()
 			);
 
-			mapping.join.push(leftOuterJoin);
+			mapping.outerJoin.push(leftOuterJoin);
 			mapping.values = { ...mapping.values, ...values };
 		}
 	}
@@ -237,7 +239,7 @@ export class RelationshipHandler {
 		alias: Alias,
 		select: Set<string>,
 		whereWithValues: string[],
-		join: string[],
+		outerJoin: string[],
 		json: string[],
 		mapping: MappingsType,
 		gqlFieldName: string,
@@ -271,7 +273,18 @@ export class RelationshipHandler {
 			offset,
 			orderBy
 		);
-		logger.log('RelationshipHandler - mapManyToMany', pivotTableWhereSQL, whereWithValues, join);
+		logger.log(
+			'RelationshipHandler - mapManyToMany',
+			pivotTableWhereSQL,
+			whereWithValues,
+			outerJoin
+		);
+
+		logger.log(
+			'RelationshipHandler - mapManyToMany - leftOuterJoin',
+			[...select.entries()],
+			mappingsTypeToString(mapping, true)
+		);
 
 		if (pivotTableWhereSQL.length > 0) {
 			const pivotTableSQL = `select ${fieldProps.inverseJoinColumns.join(', ')} 
@@ -298,12 +311,17 @@ export class RelationshipHandler {
 					${limit && !isNaN(limit) ? `limit ${limit}` : ''}
 					${offset && !isNaN(offset) ? `offset ${offset}` : ''}
 				) as ${refAlias}
-				${join.join(' \n')}
+				${outerJoin.join(' \n')}
 			) as ${refAlias} on true`.replaceAll(/[ \n\t]+/gi, ' ');
 
 			mapping.json.push(`${alias.toColumnName('value')} as "${gqlFieldName}"`);
-			mapping.join.push(leftOuterJoin);
+			mapping.outerJoin.push(leftOuterJoin);
 			mapping.values = { ...mapping.values, ...values };
+
+			logger.log(
+				'RelationshipHandler - mapManyToMany - leftOuterJoin',
+				mappingsTypeToString(mapping, true)
+			);
 		} else {
 			mapping.json.push(`'${gqlFieldName}', null`);
 		}
@@ -313,7 +331,7 @@ export class RelationshipHandler {
 		onFields: string[],
 		tableName: string,
 		alias: Alias,
-		filterJoin: string[],
+		innerJoin: string[],
 		where: string,
 		whereWithValues: string[],
 		orderBySQL: string,
@@ -323,7 +341,7 @@ export class RelationshipHandler {
 		return `(
 			select ${onFields.join(', ')}
 				from "${tableName}" as ${alias.toString()}
-				${filterJoin.join(' \n')}
+				${innerJoin.join(' \n')}
 			where ${where}
 				${whereWithValues.length > 0 ? ` and ( ${whereWithValues.join(' and ')} )` : ''}
 				${orderBySQL}

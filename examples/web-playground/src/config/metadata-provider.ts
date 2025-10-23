@@ -14,9 +14,12 @@ export class SimpleMetadataProvider implements MetadataProvider {
 		return AllEntityMetadata[entityName as keyof typeof AllEntityMetadata] as K;
 	}
 	async executeQuery(rawSQL: string, ...params: any[]) {
+		const time = 'Executing SQL';
+		console.time(time);
 		const bindSQL = knex.raw(rawSQL, params).toString();
-		console.log('Executing SQL:', bindSQL);
+		console.timeLog(time, bindSQL);
 		const res = await sql`${sql.unsafe(bindSQL)}`;
+		console.timeEnd(time);
 		return res;
 	}
 }

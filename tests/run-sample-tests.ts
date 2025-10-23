@@ -2,14 +2,14 @@
 
 /**
  * Sample Test Runner
- * 
+ *
  * This script runs a few key tests to validate that the test infrastructure
  * and Middle-earth schema work correctly before the full refactoring.
  */
 
 import { GQLtoSQLMapper } from '../src/queries/gql-to-sql-mapper';
+import { Fellowship, Person } from './fixtures/middle-earth-schema';
 import { createMockMetadataProvider } from './fixtures/test-data';
-import { Person, Fellowship, Ring } from './fixtures/middle-earth-schema';
 
 async function runSampleTests() {
 	console.log('🧪 Running sample tests to validate infrastructure...\n');
@@ -34,7 +34,10 @@ async function runSampleTests() {
 		});
 
 		console.log('   Generated SQL contains "persons":', personResult.querySQL.includes('persons'));
-		console.log('   Generated SQL contains "jsonb_build_object":', personResult.querySQL.includes('jsonb_build_object'));
+		console.log(
+			'   Generated SQL contains "jsonb_build_object":',
+			personResult.querySQL.includes('jsonb_build_object')
+		);
 		console.log('   Bindings defined:', !!personResult.bindings);
 		console.log('   SQL length:', personResult.querySQL.length, 'characters\n');
 
@@ -44,9 +47,13 @@ async function runSampleTests() {
 			id: {},
 			name: {},
 			ring: {
-				id: {},
-				name: {},
-				power: {},
+				fieldsByTypeName: {
+					EditMe: {
+						id: {},
+						name: {},
+						power: {},
+					},
+				},
 			},
 		};
 
@@ -56,9 +63,15 @@ async function runSampleTests() {
 			customFields: {},
 		});
 
-		console.log('   Generated SQL contains "persons":', personRingResult.querySQL.includes('persons'));
+		console.log(
+			'   Generated SQL contains "persons":',
+			personRingResult.querySQL.includes('persons')
+		);
 		console.log('   Generated SQL contains "rings":', personRingResult.querySQL.includes('rings'));
-		console.log('   Generated SQL contains "ring_id":', personRingResult.querySQL.includes('ring_id'));
+		console.log(
+			'   Generated SQL contains "ring_id":',
+			personRingResult.querySQL.includes('ring_id')
+		);
 		console.log('   SQL length:', personRingResult.querySQL.length, 'characters\n');
 
 		// Test 3: Fellowship with Members (1:m relationship)
@@ -68,9 +81,13 @@ async function runSampleTests() {
 			name: {},
 			purpose: {},
 			members: {
-				id: {},
-				name: {},
-				race: {},
+				fieldsByTypeName: {
+					EditMe: {
+						id: {},
+						name: {},
+						race: {},
+					},
+				},
 			},
 		};
 
@@ -80,9 +97,18 @@ async function runSampleTests() {
 			customFields: {},
 		});
 
-		console.log('   Generated SQL contains "fellowships":', fellowshipResult.querySQL.includes('fellowships'));
-		console.log('   Generated SQL contains "persons":', fellowshipResult.querySQL.includes('persons'));
-		console.log('   Generated SQL contains "json_agg":', fellowshipResult.querySQL.includes('json_agg'));
+		console.log(
+			'   Generated SQL contains "fellowships":',
+			fellowshipResult.querySQL.includes('fellowships')
+		);
+		console.log(
+			'   Generated SQL contains "persons":',
+			fellowshipResult.querySQL.includes('persons')
+		);
+		console.log(
+			'   Generated SQL contains "json_agg":',
+			fellowshipResult.querySQL.includes('json_agg')
+		);
 		console.log('   SQL length:', fellowshipResult.querySQL.length, 'characters\n');
 
 		// Test 4: Filtering
@@ -97,8 +123,14 @@ async function runSampleTests() {
 			} as any,
 		});
 
-		console.log('   Generated SQL contains WHERE clause:', filterResult.querySQL.toLowerCase().includes('where'));
-		console.log('   Bindings include filter values:', Object.keys(filterResult.bindings).length > 1);
+		console.log(
+			'   Generated SQL contains WHERE clause:',
+			filterResult.querySQL.toLowerCase().includes('where')
+		);
+		console.log(
+			'   Bindings include filter values:',
+			Object.keys(filterResult.bindings).length > 1
+		);
 		console.log('   SQL length:', filterResult.querySQL.length, 'characters\n');
 
 		// Test 5: Pagination
@@ -114,8 +146,14 @@ async function runSampleTests() {
 			},
 		});
 
-		console.log('   Generated SQL contains ORDER BY:', paginationResult.querySQL.toLowerCase().includes('order by'));
-		console.log('   Generated SQL contains LIMIT:', paginationResult.querySQL.toLowerCase().includes('limit'));
+		console.log(
+			'   Generated SQL contains ORDER BY:',
+			paginationResult.querySQL.toLowerCase().includes('order by')
+		);
+		console.log(
+			'   Generated SQL contains LIMIT:',
+			paginationResult.querySQL.toLowerCase().includes('limit')
+		);
 		console.log('   Bindings limit:', paginationResult.bindings.limit);
 		console.log('   Bindings offset:', paginationResult.bindings.offset);
 		console.log('   SQL length:', paginationResult.querySQL.length, 'characters\n');
@@ -127,14 +165,22 @@ async function runSampleTests() {
 			name: {},
 			race: {},
 			ring: {
-				id: {},
-				name: {},
-				power: {},
+				fieldsByTypeName: {
+					EditMe: {
+						id: {},
+						name: {},
+						power: {},
+					},
+				},
 			},
 			fellowship: {
-				id: {},
-				name: {},
-				purpose: {},
+				fieldsByTypeName: {
+					EditMe: {
+						id: {},
+						name: {},
+						purpose: {},
+					},
+				},
 			},
 		};
 
@@ -146,7 +192,10 @@ async function runSampleTests() {
 
 		console.log('   Generated SQL contains "persons":', complexResult.querySQL.includes('persons'));
 		console.log('   Generated SQL contains "rings":', complexResult.querySQL.includes('rings'));
-		console.log('   Generated SQL contains "fellowships":', complexResult.querySQL.includes('fellowships'));
+		console.log(
+			'   Generated SQL contains "fellowships":',
+			complexResult.querySQL.includes('fellowships')
+		);
 		console.log('   SQL length:', complexResult.querySQL.length, 'characters\n');
 
 		console.log('🎉 All sample tests completed successfully!');
@@ -158,7 +207,6 @@ async function runSampleTests() {
 		console.log('   - Pagination: ✅');
 		console.log('   - Complex nested queries: ✅');
 		console.log('\n🚀 Ready for comprehensive testing and refactoring!');
-
 	} catch (error) {
 		console.error('❌ Test failed:', error);
 		process.exit(1);

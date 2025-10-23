@@ -57,14 +57,14 @@ describe('RelationshipHandler', () => {
 				'members',
 				mockJson,
 				mockSelect,
-				[], // filterJoin
+				[], // innerJoin
 				[] // join
 			);
 
 			expect(mapping.json).toContain('f_p1.value as "members"');
-			expect(mapping.join).toHaveLength(1);
-			expect(mapping.join[0]).toContain('left outer join lateral');
-			expect(mapping.join[0]).toContain('json_agg');
+			expect(mapping.outerJoin).toHaveLength(1);
+			expect(mapping.outerJoin[0]).toContain('left outer join lateral');
+			expect(mapping.outerJoin[0]).toContain('json_agg');
 			expect(mapping.values).toEqual(mockValues);
 		});
 
@@ -95,16 +95,16 @@ describe('RelationshipHandler', () => {
 				'ring',
 				mockJson,
 				mockSelect,
-				[], // filterJoin
+				[], // innerJoin
 				[] // join
 			);
 
 			expect(mapping.json).toContain('f_r1.value as "ring"');
-			expect(mapping.join).toHaveLength(1);
-			expect(mapping.join[0]).toContain('left outer join lateral');
+			expect(mapping.outerJoin).toHaveLength(1);
+			expect(mapping.outerJoin[0]).toContain('left outer join lateral');
 			// One-to-One should NOT have json_agg
-			expect(mapping.join[0]).toContain('row_to_json');
-			expect(mapping.join[0]).not.toContain('json_agg');
+			expect(mapping.outerJoin[0]).toContain('row_to_json');
+			expect(mapping.outerJoin[0]).not.toContain('json_agg');
 		});
 
 		it('should handle pagination and ordering for One-to-Many', () => {
@@ -134,13 +134,13 @@ describe('RelationshipHandler', () => {
 				'members',
 				["'id'", 'p.id'],
 				new Set(['p.id']),
-				[], // filterJoin
+				[], // innerJoin
 				[] // join
 			);
 
-			expect(mapping.join[0]).toContain('limit 10');
-			expect(mapping.join[0]).toContain('offset 5');
-			expect(mapping.join[0]).toContain('order by');
+			expect(mapping.outerJoin[0]).toContain('limit 10');
+			expect(mapping.outerJoin[0]).toContain('offset 5');
+			expect(mapping.outerJoin[0]).toContain('order by');
 		});
 
 		it('should throw error for mismatched join column lengths', () => {
@@ -211,7 +211,7 @@ describe('RelationshipHandler', () => {
 				mapping,
 				[], // whereWithValues
 				{}, // values
-				[], // filterJoin
+				[], // innerJoin
 				undefined, // limit
 				undefined, // offset
 				'fellowship',
@@ -223,9 +223,9 @@ describe('RelationshipHandler', () => {
 			// The RelationshipHandler should add the join field to select
 			expect(mapping.select.size).toBeGreaterThan(0);
 			expect(mapping.json).toContain('f_f1.value as "fellowship"');
-			expect(mapping.join).toHaveLength(1);
-			expect(mapping.join[0]).toContain('left outer join lateral');
-			expect(mapping.join[0]).toContain('row_to_json');
+			expect(mapping.outerJoin).toHaveLength(1);
+			expect(mapping.outerJoin[0]).toContain('left outer join lateral');
+			expect(mapping.outerJoin[0]).toContain('row_to_json');
 		});
 
 		it('should throw error for mismatched field lengths', () => {
@@ -321,10 +321,10 @@ describe('RelationshipHandler', () => {
 			);
 
 			expect(mapping.json).toContain('f_b1.value as "battles"');
-			expect(mapping.join).toHaveLength(1);
-			expect(mapping.join[0]).toContain('left outer join lateral');
-			expect(mapping.join[0]).toContain('person_battles');
-			expect(mapping.join[0]).toContain('json_agg');
+			expect(mapping.outerJoin).toHaveLength(1);
+			expect(mapping.outerJoin[0]).toContain('left outer join lateral');
+			expect(mapping.outerJoin[0]).toContain('person_battles');
+			expect(mapping.outerJoin[0]).toContain('json_agg');
 		});
 
 		it('should handle null values when no pivot table conditions', () => {
@@ -366,7 +366,7 @@ describe('RelationshipHandler', () => {
 
 			// Should still create a join even with empty conditions
 			expect(mapping.json).toContain('f_b1.value as "battles"');
-			expect(mapping.join).toHaveLength(1);
+			expect(mapping.outerJoin).toHaveLength(1);
 		});
 
 		it('should throw error for mismatched primary key lengths', () => {
@@ -478,11 +478,11 @@ describe('RelationshipHandler', () => {
 				'members',
 				["'id'", 'p.id', "'name'", 'p.person_name', "'race'", 'p.race'],
 				new Set(['p.id', 'p.person_name', 'p.race']),
-				[], // filterJoin
+				[], // innerJoin
 				[] // join
 			);
 
-			const generatedJoin = mapping.join[0];
+			const generatedJoin = mapping.outerJoin[0];
 
 			// Verify the query structure
 			expect(generatedJoin).toContain('left outer join lateral');

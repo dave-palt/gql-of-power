@@ -27,20 +27,19 @@ export class PersonResolver {
 		})
 		pagination?: any
 	) {
-		const results = await queryManager.getQueryResultsFor<any, Person>(
+		const results = await queryManager.getQueryResultsForInfo<any, Person>(
 			metadataProvider,
 			Person,
 			info,
 			filter,
 			pagination
 		);
-		console.log('Persons query results:', results);
 		return results;
 	}
 
 	@Query(() => PersonGQL.GQLEntity, { nullable: true, description: 'Get a person by ID' })
 	async person(@Arg('id', () => Number) id: number, @Info() info: GraphQLResolveInfo) {
-		const results = await queryManager.getQueryResultsFor<any, Person>(
+		const results = await queryManager.getQueryResultsForInfo<any, Person>(
 			metadataProvider,
 			Person,
 			info,
@@ -66,7 +65,7 @@ export class RingResolver {
 		})
 		filter?: GQLEntityFilterInputFieldType<Ring>
 	) {
-		return await queryManager.getQueryResultsFor(metadataProvider, Ring, info, filter);
+		return await queryManager.getQueryResultsForInfo(metadataProvider, Ring, info, filter);
 	}
 }
 
@@ -84,7 +83,7 @@ export class FellowshipResolver {
 		})
 		filter?: GQLEntityFilterInputFieldType<Fellowship>
 	) {
-		return await queryManager.getQueryResultsFor(metadataProvider, Fellowship, info, filter);
+		return await queryManager.getQueryResultsForInfo(metadataProvider, Fellowship, info, filter);
 	}
 }
 
@@ -102,7 +101,7 @@ export class BattleResolver {
 		})
 		filter?: GQLEntityFilterInputFieldType<Battle>
 	) {
-		return await queryManager.getQueryResultsFor(metadataProvider, Battle, info, filter);
+		return await queryManager.getQueryResultsForInfo(metadataProvider, Battle, info, filter);
 	}
 }
 

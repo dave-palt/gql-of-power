@@ -162,9 +162,13 @@ describe('GQL-of-Power Database Integration Tests', () => {
 						name: {},
 						age: {},
 						ring: {
-							id: {},
-							name: {},
-							power: {},
+							fieldsByTypeName: {
+								EditMe: {
+									id: {},
+									name: {},
+									power: {},
+								},
+							},
 						},
 					};
 
@@ -203,9 +207,13 @@ describe('GQL-of-Power Database Integration Tests', () => {
 						name: {},
 						power: {},
 						bearer: {
-							id: {},
-							name: {},
-							race: {},
+							fieldsByTypeName: {
+								EditMe: {
+									id: {},
+									name: {},
+									race: {},
+								},
+							},
 						},
 					};
 
@@ -241,10 +249,14 @@ describe('GQL-of-Power Database Integration Tests', () => {
 						name: {},
 						purpose: {},
 						members: {
-							id: {},
-							name: {},
-							race: {},
-							age: {},
+							fieldsByTypeName: {
+								EditMe: {
+									id: {},
+									name: {},
+									race: {},
+									age: {},
+								},
+							},
 						},
 					};
 					_getGQLFields.mockReturnValue(fields);
@@ -280,9 +292,13 @@ describe('GQL-of-Power Database Integration Tests', () => {
 						id: {},
 						name: {},
 						members: {
-							id: {},
-							name: {},
-							race: {},
+							fieldsByTypeName: {
+								EditMe: {
+									id: {},
+									name: {},
+									race: {},
+								},
+							},
 						},
 					};
 					_getGQLFields.mockReturnValue(fields);
@@ -320,9 +336,13 @@ describe('GQL-of-Power Database Integration Tests', () => {
 						name: {},
 						race: {},
 						fellowship: {
-							id: {},
-							name: {},
-							purpose: {},
+							fieldsByTypeName: {
+								EditMe: {
+									id: {},
+									name: {},
+									purpose: {},
+								},
+							},
 						},
 					};
 
@@ -355,8 +375,12 @@ describe('GQL-of-Power Database Integration Tests', () => {
 						id: {},
 						name: {},
 						fellowship: {
-							id: {},
-							name: {},
+							fieldsByTypeName: {
+								EditMe: {
+									id: {},
+									name: {},
+								},
+							},
 						},
 					};
 					_getGQLFields.mockReturnValue(fields);
@@ -395,10 +419,14 @@ describe('GQL-of-Power Database Integration Tests', () => {
 						name: {},
 						race: {},
 						battles: {
-							id: {},
-							name: {},
-							outcome: {},
-							casualties: {},
+							fieldsByTypeName: {
+								EditMe: {
+									id: {},
+									name: {},
+									outcome: {},
+									casualties: {},
+								},
+							},
 						},
 					};
 
@@ -426,9 +454,13 @@ describe('GQL-of-Power Database Integration Tests', () => {
 						name: {},
 						outcome: {},
 						warriors: {
-							id: {},
-							name: {},
-							race: {},
+							fieldsByTypeName: {
+								EditMe: {
+									id: {},
+									name: {},
+									race: {},
+								},
+							},
 						},
 					};
 
@@ -567,16 +599,28 @@ describe('GQL-of-Power Database Integration Tests', () => {
 						id: {},
 						name: {},
 						fellowship: {
-							id: {},
-							name: {},
-							quest: {
-								id: {},
-								name: {},
-								description: {},
-								locations: {
+							fieldsByTypeName: {
+								Fellowship: {
 									id: {},
 									name: {},
-									type: {},
+									quest: {
+										fieldsByTypeName: {
+											Quest: {
+												id: {},
+												name: {},
+												description: {},
+												locations: {
+													fieldsByTypeName: {
+														Location: {
+															id: {},
+															name: {},
+															type: {},
+														},
+													},
+												},
+											},
+										},
+									},
 								},
 							},
 						},
@@ -612,21 +656,33 @@ describe('GQL-of-Power Database Integration Tests', () => {
 						race: {},
 						// 1:1 relationship
 						ring: {
-							id: {},
-							name: {},
-							power: {},
+							fieldsByTypeName: {
+								EditMe: {
+									id: {},
+									name: {},
+									power: {},
+								},
+							},
 						},
 						// m:1 relationship
 						fellowship: {
-							id: {},
-							name: {},
-							purpose: {},
+							fieldsByTypeName: {
+								EditMe: {
+									id: {},
+									name: {},
+									purpose: {},
+								},
+							},
 						},
 						// m:m relationship
 						battles: {
-							id: {},
-							name: {},
-							outcome: {},
+							fieldsByTypeName: {
+								EditMe: {
+									id: {},
+									name: {},
+									outcome: {},
+								},
+							},
 						},
 					};
 

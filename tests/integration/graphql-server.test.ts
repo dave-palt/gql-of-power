@@ -158,7 +158,7 @@ class PersonResolver {
 		pagination?: any
 	): Promise<any[]> {
 		console.log('Input received in persons query:', input);
-		return await queryManager.getQueryResultsFor(
+		return await queryManager.getQueryResultsForInfo(
 			metadataProvider,
 			Person,
 			info,
@@ -172,7 +172,7 @@ class PersonResolver {
 		@Arg('id', () => Number) id: number,
 		@Info() info: GraphQLResolveInfo
 	): Promise<any> {
-		const results = await queryManager.getQueryResultsFor(metadataProvider, Person, info, {
+		const results = await queryManager.getQueryResultsForInfo(metadataProvider, Person, info, {
 			id,
 		} as any);
 		return results[0] || null;
@@ -186,7 +186,7 @@ class RingResolver {
 		@Info() info: GraphQLResolveInfo,
 		@Arg('filter', () => RingGQL.GQLEntityFilterInput, { nullable: true }) filter?: any
 	): Promise<any[]> {
-		return await queryManager.getQueryResultsFor(metadataProvider, Ring, info, filter);
+		return await queryManager.getQueryResultsForInfo(metadataProvider, Ring, info, filter);
 	}
 }
 
@@ -197,7 +197,7 @@ class FellowshipResolver {
 		@Info() info: GraphQLResolveInfo,
 		@Arg('filter', () => FellowshipGQL.GQLEntityFilterInput, { nullable: true }) filter?: any
 	): Promise<any[]> {
-		return await queryManager.getQueryResultsFor(metadataProvider, Fellowship, info, filter);
+		return await queryManager.getQueryResultsForInfo(metadataProvider, Fellowship, info, filter);
 	}
 }
 
@@ -208,7 +208,7 @@ class BattleResolver {
 		@Info() info: GraphQLResolveInfo,
 		@Arg('filter', () => BattleGQL.GQLEntityFilterInput, { nullable: true }) filter?: any
 	): Promise<any[]> {
-		return await queryManager.getQueryResultsFor(metadataProvider, Battle, info, filter);
+		return await queryManager.getQueryResultsForInfo(metadataProvider, Battle, info, filter);
 	}
 }
 
@@ -224,6 +224,9 @@ describe('GraphQL Server Integration Tests', () => {
 				// Create SQL connection
 				sql = new SQL(DB_CONFIG.url());
 
+				await sql`select 1`;
+				console.log('✅ Database connection established');
+
 				// Try to create test database if it doesn't exist
 				try {
 					await sql`CREATE DATABASE gql_of_power_test;`;
@@ -232,14 +235,17 @@ describe('GraphQL Server Integration Tests', () => {
 					// Database might already exist, which is fine
 					console.log('📝 Test database already exists or creation failed - continuing...');
 				}
+				try {
+					// Load and execute schema
+					await sql.file(schemaPath);
+					console.log('✅ Database schema created');
 
-				// Load and execute schema
-				await sql.file(schemaPath);
-				console.log('✅ Database schema created');
-
-				// Load test data
-				await loadTestData();
-				console.log('✅ Test data loaded');
+					// Load test data
+					await loadTestData();
+					console.log('✅ Test data loaded');
+				} catch (e) {
+					console.error('❌ Error setting up database schema or loading data:', e);
+				}
 
 				// Create real metadata provider with database connection
 				metadataProvider = new DatabaseMetadataProvider(sql);
@@ -380,10 +386,10 @@ query TestQuery {
 
 				// Should contain our generated types
 				const typeNames = result.data.__schema.types.map((t: any) => t.name);
-				expect(typeNames).toContain('Person2');
-				expect(typeNames).toContain('Ring2');
-				expect(typeNames).toContain('Fellowship2');
-				expect(typeNames).toContain('Battle2');
+				expect(typeNames).toContain('Person');
+				expect(typeNames).toContain('Ring');
+				expect(typeNames).toContain('Fellowship');
+				expect(typeNames).toContain('Battle');
 			});
 
 			it('should query persons with basic fields', async () => {
@@ -1059,12 +1065,12 @@ query TestQuery {
 
 			it('should support GraphQL fragments and field aliasing in nested relationships', async () => {
 				const query = `
-fragment Person on Person2 {
+fragment Person on Person {
     id
     name
     race
 }
-fragment PersonWithBattles on Person2 {
+fragment PersonWithBattles on Person {
     battles(pagination:  {
       limit: 1
       offset: 1
@@ -1079,26 +1085,26 @@ fragment PersonWithBattles on Person2 {
 }
 
 query GetMixedData {
-  hobbits: persons(
-    filter: {race_eq: "Hobbit"}
-  ) {
-    ...Person
-    ...PersonWithBattles
-  }
-  elfsWithAllBattles: persons(
-    filter: {race_eq: "Elf"}
-  ) {
-    ...Person
-    battles(pagination:  {
-		orderBy: [ {
-			name: DESC
-		}]
-       })
-    {
-      id
-      name
-    }
-  }
+   hobbits: persons(
+     filter: {race_eq: "Hobbit"}
+   ) {
+     ...Person
+     ...PersonWithBattles
+   }
+   elfsWithAllBattles: persons(
+     filter: {race_eq: "Elf"}
+   ) {
+     ...Person
+     battles(pagination:  {
+ 		orderBy: [ {
+ 			name: DESC
+ 		}]
+        })
+     {
+       id
+       name
+     }
+   }
   elfs: persons(
     filter: {race_eq: "Elf"}
   ) {

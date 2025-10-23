@@ -7,12 +7,17 @@
 import { beforeEach, describe, expect, it } from 'bun:test';
 import { GQLtoSQLMapper } from '../../src/queries/gql-to-sql-mapper';
 import { GQLQueryManager } from '../../src/query-manager';
-import { FieldSelection, GQLEntityFilterInputFieldType } from '../../src/types';
+import {
+	FieldSelection,
+	GQLArgumentsFilterAndPagination,
+	GQLEntityFilterInputFieldType,
+} from '../../src/types';
 import {
 	Author,
 	Battle,
 	Book,
 	Fellowship,
+	Location,
 	Person,
 	Region,
 	Ring,
@@ -60,9 +65,13 @@ describe('GQLtoSQLMapper - Relationship Integration Tests', () => {
 				name: {},
 				power: {},
 				bearer: {
-					id: {},
-					name: {},
-					race: {},
+					fieldsByTypeName: {
+						Person: {
+							id: {},
+							name: {},
+							race: {},
+						},
+					},
 				},
 			};
 
@@ -83,8 +92,12 @@ describe('GQLtoSQLMapper - Relationship Integration Tests', () => {
 				id: {},
 				name: {},
 				ring: {
-					id: {},
-					name: {},
+					fieldsByTypeName: {
+						Ring: {
+							id: {},
+							name: {},
+						},
+					},
 				},
 			};
 
@@ -115,10 +128,14 @@ describe('GQLtoSQLMapper - Relationship Integration Tests', () => {
 				name: {},
 				purpose: {},
 				members: {
-					id: {},
-					name: {},
-					race: {},
-					age: {},
+					fieldsByTypeName: {
+						Person: {
+							id: {},
+							name: {},
+							race: {},
+							age: {},
+						},
+					},
 				},
 			};
 
@@ -141,10 +158,14 @@ describe('GQLtoSQLMapper - Relationship Integration Tests', () => {
 				name: {},
 				ruler: {},
 				locations: {
-					id: {},
-					name: {},
-					type: {},
-					description: {},
+					fieldsByTypeName: {
+						location: {
+							id: {},
+							name: {},
+							type: {},
+							description: {},
+						},
+					},
 				},
 			};
 
@@ -166,9 +187,13 @@ describe('GQLtoSQLMapper - Relationship Integration Tests', () => {
 				id: {},
 				name: {},
 				members: {
-					id: {},
-					name: {},
-					race: {},
+					fieldsByTypeName: {
+						Person: {
+							id: {},
+							name: {},
+							race: {},
+						},
+					},
 				},
 			};
 
@@ -205,9 +230,13 @@ describe('GQLtoSQLMapper - Relationship Integration Tests', () => {
 				name: {},
 				race: {},
 				fellowship: {
-					id: {},
-					name: {},
-					purpose: {},
+					fieldsByTypeName: {
+						Fellowship: {
+							id: {},
+							name: {},
+							purpose: {},
+						},
+					},
 				},
 			};
 
@@ -229,10 +258,14 @@ describe('GQLtoSQLMapper - Relationship Integration Tests', () => {
 				title: {},
 				publishedYear: {},
 				author: {
-					id: {},
-					name: {},
-					birthYear: {},
-					nationality: {},
+					fieldsByTypeName: {
+						Person: {
+							id: {},
+							name: {},
+							birthYear: {},
+							nationality: {},
+						},
+					},
 				},
 			};
 
@@ -253,8 +286,12 @@ describe('GQLtoSQLMapper - Relationship Integration Tests', () => {
 				id: {},
 				name: {},
 				fellowship: {
-					id: {},
-					name: {},
+					fieldsByTypeName: {
+						Fellowship: {
+							id: {},
+							name: {},
+						},
+					},
 				},
 			};
 
@@ -284,10 +321,14 @@ describe('GQLtoSQLMapper - Relationship Integration Tests', () => {
 				name: {},
 				race: {},
 				battles: {
-					id: {},
-					name: {},
-					date: {},
-					outcome: {},
+					fieldsByTypeName: {
+						Battle: {
+							id: {},
+							name: {},
+							date: {},
+							outcome: {},
+						},
+					},
 				},
 			};
 
@@ -311,9 +352,13 @@ describe('GQLtoSQLMapper - Relationship Integration Tests', () => {
 				date: {},
 				outcome: {},
 				warriors: {
-					id: {},
-					name: {},
-					race: {},
+					fieldsByTypeName: {
+						Person: {
+							id: {},
+							name: {},
+							race: {},
+						},
+					},
 				},
 			};
 
@@ -335,9 +380,13 @@ describe('GQLtoSQLMapper - Relationship Integration Tests', () => {
 				id: {},
 				title: {},
 				genres: {
-					id: {},
-					name: {},
-					description: {},
+					fieldsByTypeName: {
+						Genre: {
+							id: {},
+							name: {},
+							description: {},
+						},
+					},
 				},
 			};
 
@@ -359,9 +408,13 @@ describe('GQLtoSQLMapper - Relationship Integration Tests', () => {
 				id: {},
 				name: {},
 				battles: {
-					id: {},
-					name: {},
-					outcome: {},
+					fieldsByTypeName: {
+						Battle: {
+							id: {},
+							name: {},
+							outcome: {},
+						},
+					},
 				},
 			};
 
@@ -392,19 +445,35 @@ describe('GQLtoSQLMapper - Relationship Integration Tests', () => {
 				id: {},
 				name: {},
 				fellowship: {
-					id: {},
-					name: {},
-					quest: {
-						id: {},
-						name: {},
-						description: {},
-						locations: {
+					fieldsByTypeName: {
+						Fellowship: {
 							id: {},
 							name: {},
-							region: {
-								id: {},
-								name: {},
-								ruler: {},
+							quest: {
+								fieldsByTypeName: {
+									Quest: {
+										id: {},
+										name: {},
+										description: {},
+										locations: {
+											fieldsByTypeName: {
+												Location: {
+													id: {},
+													name: {},
+													region: {
+														fieldsByTypeName: {
+															Region: {
+																id: {},
+																name: {},
+																ruler: {},
+															},
+														},
+													},
+												},
+											},
+										},
+									},
+								},
 							},
 						},
 					},
@@ -432,21 +501,33 @@ describe('GQLtoSQLMapper - Relationship Integration Tests', () => {
 				race: {},
 				// 1:1 relationship
 				ring: {
-					id: {},
-					name: {},
-					power: {},
+					fieldsByTypeName: {
+						Ring: {
+							id: {},
+							name: {},
+							power: {},
+						},
+					},
 				},
 				// m:1 relationship
 				fellowship: {
-					id: {},
-					name: {},
-					purpose: {},
+					fieldsByTypeName: {
+						Fellowship: {
+							id: {},
+							name: {},
+							purpose: {},
+						},
+					},
 				},
 				// m:m relationship
 				battles: {
-					id: {},
-					name: {},
-					outcome: {},
+					fieldsByTypeName: {
+						Battle: {
+							id: {},
+							name: {},
+							outcome: {},
+						},
+					},
 				},
 			};
 
@@ -472,8 +553,12 @@ describe('GQLtoSQLMapper - Relationship Integration Tests', () => {
 				name: {},
 				race: {},
 				fellowship: {
-					id: {},
-					name: {},
+					fieldsByTypeName: {
+						Fellowship: {
+							id: {},
+							name: {},
+						},
+					},
 				},
 			};
 
@@ -503,9 +588,13 @@ describe('GQLtoSQLMapper - Relationship Integration Tests', () => {
 				name: {},
 				purpose: {},
 				members: {
-					id: {},
-					name: {},
-					race: {},
+					fieldsByTypeName: {
+						Person: {
+							id: {},
+							name: {},
+							race: {},
+						},
+					},
 				},
 			};
 
@@ -534,9 +623,13 @@ describe('GQLtoSQLMapper - Relationship Integration Tests', () => {
 				id: {},
 				name: {},
 				ring: {
-					id: {},
-					name: {},
-					power: {},
+					fieldsByTypeName: {
+						Ring: {
+							id: {},
+							name: {},
+							power: {},
+						},
+					},
 				},
 			};
 
@@ -560,15 +653,19 @@ describe('GQLtoSQLMapper - Relationship Integration Tests', () => {
 			expect(result.bindings).toBeDefined();
 		});
 
-		it('should filter Region by Location name', () => {
+		it('should filter Region by location name', () => {
 			const fields = {
 				id: {},
 				name: {},
 				ruler: {},
 				locations: {
-					id: {},
-					name: {},
-					type: {},
+					fieldsByTypeName: {
+						location: {
+							id: {},
+							name: {},
+							type: {},
+						},
+					},
 				},
 			};
 
@@ -598,9 +695,13 @@ describe('GQLtoSQLMapper - Relationship Integration Tests', () => {
 				name: {},
 				race: {},
 				battles: {
-					id: {},
-					name: {},
-					outcome: {},
+					fieldsByTypeName: {
+						Battle: {
+							id: {},
+							name: {},
+							outcome: {},
+						},
+					},
 				},
 			};
 
@@ -630,9 +731,13 @@ describe('GQLtoSQLMapper - Relationship Integration Tests', () => {
 				id: {},
 				title: {},
 				author: {
-					id: {},
-					name: {},
-					nationality: {},
+					fieldsByTypeName: {
+						Person: {
+							id: {},
+							name: {},
+							nationality: {},
+						},
+					},
 				},
 			};
 
@@ -656,18 +761,26 @@ describe('GQLtoSQLMapper - Relationship Integration Tests', () => {
 			expect(result.bindings).toBeDefined();
 		});
 
-		it('should filter Battle by Location region name (nested relationship)', () => {
+		it('should filter Battle by location region name (nested relationship)', () => {
 			const fields = {
 				id: {},
 				name: {},
 				outcome: {},
 				location: {
-					id: {},
-					name: {},
-					region: {
-						id: {},
-						name: {},
-						ruler: {},
+					fieldsByTypeName: {
+						location: {
+							id: {},
+							name: {},
+							region: {
+								fieldsByTypeName: {
+									Region: {
+										id: {},
+										name: {},
+										ruler: {},
+									},
+								},
+							},
+						},
 					},
 				},
 			};
@@ -700,9 +813,13 @@ describe('GQLtoSQLMapper - Relationship Integration Tests', () => {
 				id: {},
 				name: {},
 				members: {
-					id: {},
-					name: {},
-					age: {},
+					fieldsByTypeName: {
+						EditMe: {
+							id: {},
+							name: {},
+							age: {},
+						},
+					},
 				},
 			};
 
@@ -731,12 +848,20 @@ describe('GQLtoSQLMapper - Relationship Integration Tests', () => {
 				id: {},
 				name: {},
 				ring: {
-					id: {},
-					name: {},
+					fieldsByTypeName: {
+						EditMe: {
+							id: {},
+							name: {},
+						},
+					},
 				},
 				fellowship: {
-					id: {},
-					name: {},
+					fieldsByTypeName: {
+						EditMe: {
+							id: {},
+							name: {},
+						},
+					},
 				},
 			};
 
@@ -768,9 +893,13 @@ describe('GQLtoSQLMapper - Relationship Integration Tests', () => {
 				id: {},
 				name: {},
 				battles: {
-					id: {},
-					name: {},
-					outcome: {},
+					fieldsByTypeName: {
+						EditMe: {
+							id: {},
+							name: {},
+							outcome: {},
+						},
+					},
 				},
 			};
 
@@ -799,12 +928,20 @@ describe('GQLtoSQLMapper - Relationship Integration Tests', () => {
 				id: {},
 				name: {},
 				fellowship: {
-					id: {},
-					name: {},
-					quest: {
-						id: {},
-						name: {},
-						success: {},
+					fieldsByTypeName: {
+						EditMe: {
+							id: {},
+							name: {},
+							quest: {
+								fieldsByTypeName: {
+									EditMe: {
+										id: {},
+										name: {},
+										success: {},
+									},
+								},
+							},
+						},
 					},
 				},
 			};
@@ -836,23 +973,24 @@ describe('GQLtoSQLMapper - Relationship Integration Tests', () => {
 
 	describe('Reference List Filtering and Pagination', () => {
 		it('should filter Fellowship members by name pattern', () => {
-			const fields = {
+			const fields: FieldSelection<Fellowship> = {
 				id: {},
 				name: {},
 				purpose: {},
 				members: {
-					id: {},
-					name: {},
-					race: {},
-					__arguments: [
-						{
-							filter: {
-								value: {
-									name: { _like: 'Frodo%' },
-								},
-							},
+					name: 'members',
+					args: {
+						filter: {
+							name: { _like: 'Frodo%' },
 						},
-					],
+					} as GQLArgumentsFilterAndPagination<Person>,
+					fieldsByTypeName: {
+						Person: {
+							id: {},
+							name: {},
+							race: {},
+						},
+					},
 				},
 			};
 
@@ -866,27 +1004,29 @@ describe('GQLtoSQLMapper - Relationship Integration Tests', () => {
 			expect(result.querySQL).toContain('persons');
 			expect(result.querySQL).toContain('person_name');
 			expect(result.querySQL.toLowerCase()).toContain('where');
+			// expect(result.querySQL).toContain('Frodo%');
 			expect(result.bindings).toBeDefined();
+			expect(result.bindings).toContainAnyValues(['Frodo%']);
 		});
 
-		it('should filter Region locations by type', () => {
-			const fields = {
+		it('should filter Region Locations by type', () => {
+			const fields: FieldSelection<Region> = {
 				id: {},
 				name: {},
 				ruler: {},
 				locations: {
-					id: {},
-					name: {},
-					type: {},
-					__arguments: [
-						{
-							filter: {
-								value: {
-									type: 'City',
-								},
-							},
+					args: {
+						filter: {
+							type: 'City',
 						},
-					],
+					} as GQLArgumentsFilterAndPagination<Location>,
+					fieldsByTypeName: {
+						EditMe: {
+							id: {},
+							name: {},
+							type: {},
+						},
+					},
 				},
 			};
 
@@ -904,25 +1044,25 @@ describe('GQLtoSQLMapper - Relationship Integration Tests', () => {
 		});
 
 		it('should filter Person battles by outcome with complex conditions', () => {
-			const fields = {
+			const fields: FieldSelection<Person> = {
 				id: {},
 				name: {},
 				race: {},
 				battles: {
-					id: {},
-					name: {},
-					outcome: {},
-					casualties: {},
-					__arguments: [
-						{
-							filter: {
-								value: {
-									outcome: 'Victory',
-									casualties: { _lt: 500 },
-								},
-							},
+					args: {
+						filter: {
+							outcome: 'Victory',
+							casualties: { _lt: 500 },
 						},
-					],
+					},
+					fieldsByTypeName: {
+						EditMe: {
+							id: {},
+							name: {},
+							outcome: {},
+							casualties: {},
+						},
+					},
 				},
 			};
 
@@ -948,18 +1088,18 @@ describe('GQLtoSQLMapper - Relationship Integration Tests', () => {
 				name: {},
 				nationality: {},
 				books: {
-					id: {},
-					title: {},
-					publishedYear: {},
-					__arguments: [
-						{
-							filter: {
-								value: {
-									publishedYear: { _between: [1930, 1960] },
-								},
-							},
+					args: {
+						filter: {
+							publishedYear: { _between: [1930, 1960] },
 						},
-					],
+					},
+					fieldsByTypeName: {
+						EditMe: {
+							id: {},
+							title: {},
+							publishedYear: {},
+						},
+					},
 				},
 			};
 
@@ -977,24 +1117,24 @@ describe('GQLtoSQLMapper - Relationship Integration Tests', () => {
 		});
 
 		it.skip('should filter reference list with OR conditions', () => {
-			const fields = {
+			const fields: FieldSelection<Fellowship> = {
 				id: {},
 				name: {},
 				purpose: {},
 				members: {
-					id: {},
-					name: {},
-					race: {},
-					age: {},
-					__arguments: [
-						{
-							filter: {
-								value: {
-									_or: [{ race: 'Hobbit' }, { age: { _gt: 500 } }],
-								},
-							},
+					args: {
+						filter: {
+							_or: [{ race: 'Hobbit' }, { age: { _gt: 500 } }],
 						},
-					],
+					},
+					fieldsByTypeName: {
+						EditMe: {
+							id: {},
+							name: {},
+							race: {},
+							age: {},
+						},
+					},
 				},
 			};
 
@@ -1016,24 +1156,25 @@ describe('GQLtoSQLMapper - Relationship Integration Tests', () => {
 		});
 
 		it('should paginate Fellowship members to get only first member', () => {
-			const fields = {
+			const fields: FieldSelection<Fellowship> = {
 				id: {},
 				name: {},
 				purpose: {},
 				members: {
-					id: {},
-					name: {},
-					race: {},
-					__arguments: [
-						{
-							pagination: {
-								value: {
-									limit: 1,
-									orderBy: [{ name: 'asc' as any }],
-								},
-							},
+					name: 'members',
+					args: {
+						pagination: {
+							limit: 1,
+							orderBy: [{ name: 'asc' as any }],
 						},
-					],
+					},
+					fieldsByTypeName: {
+						Person: {
+							id: {},
+							name: {},
+							race: {},
+						},
+					},
 				},
 			};
 
@@ -1050,26 +1191,26 @@ describe('GQLtoSQLMapper - Relationship Integration Tests', () => {
 			expect(result.bindings).toBeDefined();
 		});
 
-		it('should paginate Region locations with offset', () => {
-			const fields = {
+		it('should paginate Region Locations with offset', () => {
+			const fields: FieldSelection<Region> = {
 				id: {},
 				name: {},
 				ruler: {},
 				locations: {
-					id: {},
-					name: {},
-					type: {},
-					__arguments: [
-						{
-							pagination: {
-								value: {
-									limit: 3,
-									offset: 2,
-									orderBy: [{ name: 'desc' as any }],
-								},
-							},
+					args: {
+						pagination: {
+							limit: 3,
+							offset: 2,
+							orderBy: [{ name: 'desc' as any }],
 						},
-					],
+					},
+					fieldsByTypeName: {
+						EditMe: {
+							id: {},
+							name: {},
+							type: {},
+						},
+					},
 				},
 			};
 
@@ -1088,25 +1229,25 @@ describe('GQLtoSQLMapper - Relationship Integration Tests', () => {
 		});
 
 		it('should paginate Person battles (m:m) with ordering by date', () => {
-			const fields = {
+			const fields: FieldSelection<Person> = {
 				id: {},
 				name: {},
 				race: {},
 				battles: {
-					id: {},
-					name: {},
-					date: {},
-					outcome: {},
-					__arguments: [
-						{
-							pagination: {
-								value: {
-									limit: 2,
-									orderBy: [{ date: 'desc' as any }],
-								},
-							},
+					args: {
+						pagination: {
+							limit: 2,
+							orderBy: [{ date: 'desc' as any }],
 						},
-					],
+					},
+					fieldsByTypeName: {
+						Battle: {
+							id: {},
+							name: {},
+							date: {},
+							outcome: {},
+						},
+					},
 				},
 			};
 
@@ -1126,30 +1267,28 @@ describe('GQLtoSQLMapper - Relationship Integration Tests', () => {
 		});
 
 		it('should combine filtering and pagination on reference list', () => {
-			const fields = {
+			const fields: FieldSelection<Author> = {
 				id: {},
 				name: {},
 				nationality: {},
 				books: {
-					id: {},
-					title: {},
-					publishedYear: {},
-					pages: {},
-					__arguments: [
-						{
-							filter: {
-								value: {
-									pages: { _gt: 200 },
-								},
-							},
-							pagination: {
-								value: {
-									limit: 1,
-									orderBy: [{ publishedYear: 'desc' as any }],
-								},
-							},
+					args: {
+						filter: {
+							pages: { _gt: 200 },
 						},
-					],
+						pagination: {
+							limit: 1,
+							orderBy: [{ publishedYear: 'desc' as any }],
+						},
+					},
+					fieldsByTypeName: {
+						EditMe: {
+							id: {},
+							title: {},
+							publishedYear: {},
+							pages: {},
+						},
+					},
 				},
 			};
 
@@ -1170,36 +1309,36 @@ describe('GQLtoSQLMapper - Relationship Integration Tests', () => {
 		});
 
 		it('should handle nested relationship with reference list pagination', () => {
-			const fields = {
+			const fields: FieldSelection<Region> = {
 				id: {},
 				name: {},
 				locations: {
-					id: {},
-					name: {},
-					battles: {
-						id: {},
-						name: {},
-						outcome: {},
-						__arguments: [
-							{
-								pagination: {
-									value: {
+					args: {
+						filter: {
+							type: 'City',
+						},
+					},
+					fieldsByTypeName: {
+						Location: {
+							id: {},
+							name: {},
+							battles: {
+								args: {
+									pagination: {
 										limit: 1,
 										orderBy: [{ name: 'asc' as any }],
 									},
 								},
-							},
-						],
-					},
-					__arguments: [
-						{
-							filter: {
-								value: {
-									type: 'City',
+								fieldsByTypeName: {
+									Battle: {
+										id: {},
+										name: {},
+										outcome: {},
+									},
 								},
 							},
 						},
-					],
+					},
 				},
 			};
 
@@ -1303,8 +1442,12 @@ describe('GQLtoSQLMapper - Relationship Integration Tests', () => {
 				id: {},
 				name: {},
 				fellowship: {
-					id: {},
-					name: {},
+					fieldsByTypeName: {
+						EditMe: {
+							id: {},
+							name: {},
+						},
+					},
 				},
 			};
 
@@ -1361,8 +1504,12 @@ describe('GQLtoSQLMapper - Relationship Integration Tests', () => {
 				id: {},
 				name: {},
 				fellowship: {
-					id: {},
-					name: {},
+					fieldsByTypeName: {
+						EditMe: {
+							id: {},
+							name: {},
+						},
+					},
 				},
 			};
 
@@ -1453,13 +1600,21 @@ describe('GQLtoSQLMapper - Relationship Integration Tests', () => {
 				id: {},
 				name: {},
 				fellowship: {
-					id: {},
-					name: {},
-					members: {
-						id: {},
-						name: {},
-						// This would create a circular reference in a real scenario
-						// but should be handled gracefully
+					fieldsByTypeName: {
+						EditMe: {
+							id: {},
+							name: {},
+							members: {
+								fieldsByTypeName: {
+									EditMe: {
+										id: {},
+										name: {},
+										// This would create a circular reference in a real scenario
+										// but should be handled gracefully
+									},
+								},
+							},
+						},
 					},
 				},
 			};
@@ -1479,13 +1634,37 @@ describe('GQLtoSQLMapper - Relationship Integration Tests', () => {
 			const fields = {
 				id: {},
 				fellowship: {
-					quest: {
-						locations: {
-							region: {
-								locations: {
-									battles: {
-										id: {},
-										name: {},
+					fieldsByTypeName: {
+						EditMe: {
+							quest: {
+								fieldsByTypeName: {
+									EditMe: {
+										locations: {
+											fieldsByTypeName: {
+												EditMe: {
+													region: {
+														fieldsByTypeName: {
+															EditMe: {
+																locations: {
+																	fieldsByTypeName: {
+																		EditMe: {
+																			battles: {
+																				fieldsByTypeName: {
+																					EditMe: {
+																						id: {},
+																						name: {},
+																					},
+																				},
+																			},
+																		},
+																	},
+																},
+															},
+														},
+													},
+												},
+											},
+										},
 									},
 								},
 							},
@@ -1514,19 +1693,39 @@ describe('GQLtoSQLMapper - Relationship Integration Tests', () => {
 				age: {},
 				race: {},
 				home: {},
-				ring: { id: {}, name: {}, power: {}, forgedBy: {} },
-				fellowship: { id: {}, name: {}, purpose: {}, disbanded: {} },
+				ring: {
+					fieldsByTypeName: {
+						EditMe: { id: {}, name: {}, power: {}, forgedBy: {} },
+					},
+				},
+				fellowship: {
+					fieldsByTypeName: {
+						EditMe: { id: {}, name: {}, purpose: {}, disbanded: {} },
+					},
+				},
 				battles: {
-					id: {},
-					name: {},
-					date: {},
-					outcome: {},
-					casualties: {},
-					location: {
-						id: {},
-						name: {},
-						type: {},
-						region: { id: {}, name: {}, ruler: {} },
+					fieldsByTypeName: {
+						EditMe: {
+							id: {},
+							name: {},
+							date: {},
+							outcome: {},
+							casualties: {},
+							location: {
+								fieldsByTypeName: {
+									EditMe: {
+										id: {},
+										name: {},
+										type: {},
+										region: {
+											fieldsByTypeName: {
+												EditMe: { id: {}, name: {}, ruler: {} },
+											},
+										},
+									},
+								},
+							},
+						},
 					},
 				},
 			};

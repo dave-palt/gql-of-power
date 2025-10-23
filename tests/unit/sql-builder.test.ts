@@ -11,48 +11,85 @@ import { SQLBuilder } from '../../src/queries/sql-builder';
 import { MappingsType } from '../../src/types';
 import '../setup';
 
+const alias = new Alias(AliasType.entity, 1, 'p');
 describe('SQLBuilder', () => {
 	describe('buildSubQuery', () => {
 		it('should build basic subquery with select and from', () => {
 			const result = SQLBuilder.buildSubQuery(
 				['person.id', 'person.person_name'],
+				['person.id', 'person.person_name'],
 				'persons',
-				'p1',
+				alias,
+				[],
 				[],
 				[]
 			);
 
 			expect(result).toContain('select person.id, person.person_name');
-			expect(result).toContain('from persons as p1');
+			expect(result).toContain('from persons as e_p1');
 			expect(result).toContain('where true');
 		});
 
 		it('should include global filter joins', () => {
-			const globalFilterJoin = ['left join rings r on r.bearer_id = p.id'];
-			const result = SQLBuilder.buildSubQuery(['person.id'], 'persons', 'p1', globalFilterJoin, []);
+			const globalInnerJoin = ['left join rings r on r.bearer_id = p.id'];
+			const result = SQLBuilder.buildSubQuery(
+				['person.id'],
+				['person.id'],
+				'persons',
+				alias,
+				globalInnerJoin,
+				[],
+				[]
+			);
 
 			expect(result).toContain('left join rings r on r.bearer_id = p.id');
 		});
 
 		it('should include where conditions', () => {
 			const globalWhereJoin = ['p.race = :race', 'p.age > :min_age'];
-			const result = SQLBuilder.buildSubQuery(['person.id'], 'persons', 'p1', [], globalWhereJoin);
+			const result = SQLBuilder.buildSubQuery(
+				['person.id'],
+				['person.id'],
+				'persons',
+				alias,
+				[],
+				[],
+				globalWhereJoin
+			);
 
 			expect(result).toContain('and ( p.race = :race and p.age > :min_age )');
 		});
 
 		it('should handle additional filter join value', () => {
-			const result = SQLBuilder.buildSubQuery(['person.id'], 'persons', 'p1', [], [], {
-				filterJoin: 'inner join fellowships f on f.id = p.fellowship_id',
-			});
+			const result = SQLBuilder.buildSubQuery(
+				['person.id'],
+				['person.id'],
+				'persons',
+				alias,
+				[],
+				[],
+				[],
+				{
+					innerJoin: 'inner join fellowships f on f.id = p.fellowship_id',
+				}
+			);
 
 			expect(result).toContain('inner join fellowships f on f.id = p.fellowship_id');
 		});
 
 		it('should handle additional where value', () => {
-			const result = SQLBuilder.buildSubQuery(['person.id'], 'persons', 'p1', [], [], {
-				where: 'p.name = :name',
-			});
+			const result = SQLBuilder.buildSubQuery(
+				['person.id'],
+				['person.id'],
+				'persons',
+				alias,
+				[],
+				[],
+				[],
+				{
+					where: 'p.name = :name',
+				}
+			);
 
 			expect(result).toContain('and p.name = :name');
 		});
@@ -63,9 +100,10 @@ describe('SQLBuilder', () => {
 			const orConditions: MappingsType[] = [
 				{
 					select: new Set(),
+					rawSelect: new Set(),
 					json: [],
-					join: [],
-					filterJoin: ['join1'],
+					outerJoin: [],
+					innerJoin: ['join1'],
 					where: ['where1'],
 					values: {},
 					orderBy: [],
@@ -75,9 +113,10 @@ describe('SQLBuilder', () => {
 				},
 				{
 					select: new Set(),
+					rawSelect: new Set(),
 					json: [],
-					join: [],
-					filterJoin: [],
+					outerJoin: [],
+					innerJoin: [],
 					where: ['where2', 'where3'],
 					values: {},
 					orderBy: [],
@@ -92,15 +131,15 @@ describe('SQLBuilder', () => {
 				fields: any,
 				alias: any,
 				tableName: any,
-				filterJoin: any,
+				innerJoin: any,
 				join: any,
 				whereSQL: any,
 				whereWithValues: any,
 				value?: any
 			) => {
 				callCount++;
-				if (value && 'filterJoin' in value) {
-					return `query with filterJoin: ${value.filterJoin}`;
+				if (value && 'innerJoin' in value) {
+					return `query with innerJoin: ${value.innerJoin}`;
 				}
 				if (value && 'where' in value) {
 					return `query with where: ${value.where}`;
@@ -120,9 +159,9 @@ describe('SQLBuilder', () => {
 				mockQueryBuilder
 			);
 
-			// Should generate queries for each filterJoin and where condition
-			// First mapping has 1 filterJoin + 1 where = 2 queries
-			// Second mapping has 0 filterJoin + 2 wheres = 2 queries
+			// Should generate queries for each innerJoin and where condition
+			// First mapping has 1 innerJoin + 1 where = 2 queries
+			// Second mapping has 0 innerJoin + 2 wheres = 2 queries
 			// Total = 4 queries
 			expect(result).toHaveLength(4);
 			expect(result.some((r) => r.includes('join1'))).toBe(true);
@@ -280,13 +319,15 @@ describe('SQLBuilder', () => {
 
 			const subQuery = SQLBuilder.buildSubQuery(
 				['p.id', 'p.person_name', 'p.race'],
+				['p.id', 'p.person_name', 'p.race'],
 				'persons',
-				'p1',
+				alias,
 				['left join fellowships f on f.id = p.fellowship_id'],
+				[],
 				['f.fellowship_name = :fellowship_name']
 			);
 
-			expect(subQuery).toContain('persons as p1');
+			expect(subQuery).toContain('persons as e_p1');
 			expect(subQuery).toContain('left join fellowships f');
 			expect(subQuery).toContain('f.fellowship_name = :fellowship_name');
 		});

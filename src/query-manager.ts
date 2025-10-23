@@ -23,7 +23,7 @@ export const getGQLFields = (info: GraphQLResolveInfo) => {
 			// keepRoot: true,
 			deep: true,
 		});
-		// console.log('resolveInfo', info.returnType, JSON.stringify(resolveInfo, null, 2));
+		// console.log('resolveInfo', JSON.stringify(resolveInfo, null, 2));
 		if (!resolveInfo) throw 'Could not parse resolve info';
 		if (
 			!('name' in resolveInfo) ||
@@ -34,7 +34,7 @@ export const getGQLFields = (info: GraphQLResolveInfo) => {
 
 		const parsed = simplifyParsedResolveInfoFragmentWithType(resolveInfo as any, info.returnType);
 
-		console.log('Parsed GQL fields', JSON.stringify(parsed.fields, null, 2));
+		// console.log('Parsed GQL fields', JSON.stringify(parsed.fields, null, 2));
 		return parsed.fields as FieldSelection<any>;
 		// return graphqlFields(info as any, {}, { processArguments: true }) as FieldSelection<any>;
 	} catch (e) {
@@ -45,10 +45,39 @@ export const getGQLFields = (info: GraphQLResolveInfo) => {
 
 export class GQLQueryManager {
 	constructor(private opts?: { namedParameterPrefix?: string }) {}
-	async getQueryResultsFor<K extends { _____name: string }, T>(
+	async getQueryResultsForInfo<K extends { _____name: string }, T>(
 		provider: MetadataProviderType,
 		entity: new () => T,
 		info: GraphQLResolveInfo,
+		filter?: GQLEntityFilterInputFieldType<T>,
+		pagination?: Partial<GQLEntityPaginationInputType<T>>
+	): Promise<K[]> {
+		if (!entity) {
+			throw new Error(`Entity not provided`);
+		}
+		const logName = 'GetQueryResultsFor - ' + entity.name;
+		logger.time(logName);
+		logger.timeLog(logName);
+		if (!entity || !entity.name) {
+			logger.timeEnd(logName);
+			throw new Error(`Entity ${entity} not compatible`);
+		}
+		const { exists } = provider;
+		if (!exists(entity.name)) {
+			logger.timeEnd(logName);
+			throw new Error(`Entity ${entity.name} not found in metadata`);
+		}
+		// console.log(logName, 'info', JSON.stringify(info));
+		const fields = getGQLFields(info) as FieldSelection<T>;
+		console.log(logName, 'fields', JSON.stringify(fields, null, 2));
+
+		return this.getQueryResultsForFields<K, T>(provider, entity, fields, filter, pagination);
+	}
+
+	async getQueryResultsForFields<K extends { _____name: string }, T>(
+		provider: MetadataProviderType,
+		entity: new () => T,
+		fields: FieldSelection<T>,
 		filter?: GQLEntityFilterInputFieldType<T>,
 		pagination?: Partial<GQLEntityPaginationInputType<T>>
 	): Promise<K[]> {
@@ -67,8 +96,7 @@ export class GQLQueryManager {
 			logger.timeEnd(logName);
 			throw new Error(`Entity ${entity.name} not found in metadata`);
 		}
-		// console.log(logName, 'info', JSON.stringify(info));
-		const fields = getGQLFields(info) as FieldSelection<T>;
+		// console.log(logName, 'fields', JSON.stringify(fields, null, 2));
 		const customFields = getCustomFieldsFor(getGQLEntityNameForClass(entity));
 		const mapper = new GQLtoSQLMapper(provider, this.opts);
 

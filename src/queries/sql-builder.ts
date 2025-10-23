@@ -32,26 +32,32 @@ export class SQLBuilder {
 	 * @param selectFields Fields to select
 	 * @param tableName Table name
 	 * @param alias Table alias
-	 * @param globalFilterJoin Global filter joins
+	 * @param globalInnerJoin Global filter joins
 	 * @param globalWhereJoin Global where conditions
 	 * @param value Optional additional conditions
 	 * @returns SQL subquery string
 	 */
 	public static buildSubQuery(
 		selectFields: string[],
+		rawSelect: string[],
 		tableName: string,
-		alias: string,
-		globalFilterJoin: string[],
+		alias: Alias,
+		globalInnerJoin: string[],
+		globalOuterJoin: string[],
 		globalWhereJoin: string[],
-		value?: { filterJoin: string } | { where: string }
+		value?: { innerJoin: string } | { where: string }
 	): string {
-		return `select ${selectFields.join(', ')} 
-            from ${tableName} as ${alias}
-            ${globalFilterJoin.join(' \n')}
-			${value && 'filterJoin' in value ? value.filterJoin : ''}
-		where true 
-		${globalWhereJoin.length > 0 ? ` and ( ${globalWhereJoin.join(' and ')} )` : ''}
-		${value && 'where' in value ? `and ${value.where}` : ''}`;
+		return `select ${selectFields.join(', ')}
+            from (
+				select ${rawSelect.join(', ')}
+					from ${tableName} as ${alias}
+					${globalInnerJoin.join(' \n')}
+					${value && 'innerJoin' in value ? value.innerJoin : ''}
+				where true 
+				${globalWhereJoin.length > 0 ? ` and ( ${globalWhereJoin.join(' and ')} )` : ''}
+				${value && 'where' in value ? `and ${value.where}` : ''}
+			) as ${alias}
+			${globalOuterJoin.join(' \n')}`;
 	}
 
 	/**
@@ -59,8 +65,8 @@ export class SQLBuilder {
 	 * @param fields Fields to select
 	 * @param tableName Table name
 	 * @param alias Table alias
-	 * @param globalFilterJoin Global filter joins
-	 * @param join Join conditions
+	 * @param globalInnerJoin Global filter joins
+	 * @param outerJoin Join conditions
 	 * @param whereSQL Where conditions
 	 * @param globalFilterWhere Global where conditions
 	 * @param orConditions OR condition mappings
@@ -71,8 +77,8 @@ export class SQLBuilder {
 		fields: string[],
 		tableName: string,
 		alias: Alias,
-		globalFilterJoin: string[],
-		join: string[],
+		globalInnerJoin: string[],
+		outerJoin: string[],
 		whereSQL: string,
 		globalFilterWhere: string[],
 		orConditions: MappingsType[],
@@ -80,26 +86,26 @@ export class SQLBuilder {
 			fields: string[],
 			alias: Alias,
 			tableName: string,
-			filterJoin: string[],
+			innerJoin: string[],
 			join: string[],
 			whereSQL: string,
 			whereWithValues: string[],
-			value?: { filterJoin: string } | { where: string }
+			value?: { innerJoin: string } | { where: string }
 		) => string
 	): string[] {
 		return orConditions
-			.map(({ filterJoin: filterJoins, where: wheres }) => [
-				...filterJoins.map((filterJ) =>
+			.map(({ innerJoin: innerJoins, where: wheres }) => [
+				...innerJoins.map((filterJ) =>
 					queryBuilder(
 						fields,
 						alias,
 						tableName,
-						globalFilterJoin,
-						join,
+						globalInnerJoin,
+						outerJoin,
 						whereSQL,
 						globalFilterWhere,
 						{
-							filterJoin: filterJ,
+							innerJoin: filterJ,
 						}
 					)
 				),
@@ -108,8 +114,8 @@ export class SQLBuilder {
 						fields,
 						alias,
 						tableName,
-						globalFilterJoin,
-						join,
+						globalInnerJoin,
+						outerJoin,
 						whereSQL,
 						globalFilterWhere,
 						{
@@ -189,7 +195,7 @@ export class SQLBuilder {
 	 * @param fieldNames Fields to select
 	 * @param alias Table alias
 	 * @param tableName Table name
-	 * @param filterJoin Filter join conditions
+	 * @param innerJoin Filter join conditions
 	 * @param join Join conditions
 	 * @param whereSQL Where conditions
 	 * @param whereWithValues Where conditions with values
@@ -200,17 +206,17 @@ export class SQLBuilder {
 		fieldNames: string[],
 		alias: Alias,
 		tableName: string,
-		filterJoin: string[],
+		innerJoin: string[],
 		join: string[],
 		whereSQL: string,
 		whereWithValues: string[],
-		value?: { filterJoin: string } | { where: string }
+		value?: { innerJoin: string } | { where: string }
 	): string {
 		return `select ${fieldNames.join(', ')} 
 					from ${tableName} as ${alias.toString()}
 						${join.join(' \n')}
-						${value && 'filterJoin' in value ? value.filterJoin : ''}
-						${filterJoin.join(' \n')}
+						${value && 'innerJoin' in value ? value.innerJoin : ''}
+						${innerJoin.join(' \n')}
 				${whereSQL.length > 0 ? ` where ${whereSQL}` : ''}
 				${whereWithValues.length > 0 ? ` and ${whereWithValues.join(' and ')}` : ''}
 				${value && 'where' in value ? `and ${value.where}` : ''}`.replaceAll(/[ \n\t]+/gi, ' ');
@@ -221,7 +227,7 @@ export class SQLBuilder {
 	 * @param fields Fields to select
 	 * @param alias Table alias
 	 * @param tableName Table name
-	 * @param filterJoin Filter join conditions
+	 * @param innerJoin Filter join conditions
 	 * @param join Join conditions
 	 * @param whereSQL Where conditions
 	 * @param whereWithValues Where conditions with values
@@ -232,17 +238,17 @@ export class SQLBuilder {
 		fields: string[],
 		alias: Alias,
 		tableName: string,
-		filterJoin: string[],
+		innerJoin: string[],
 		join: string[],
 		whereSQL: string,
 		whereWithValues: string[],
-		value?: { filterJoin: string } | { where: string }
+		value?: { innerJoin: string } | { where: string }
 	): string {
 		return `select ${alias.toColumnName('*')} 
 					from "${tableName}" as ${alias}
-					${filterJoin.join(' \n')}
+					${innerJoin.join(' \n')}
 					${join.join(' \n')}
-					${value && 'filterJoin' in value ? value.filterJoin : ''}
+					${value && 'innerJoin' in value ? value.innerJoin : ''}
 				where ${whereSQL} 
 				${whereWithValues.length > 0 ? ' and ' : ''}
 				${whereWithValues.join(' and ')}
@@ -254,7 +260,7 @@ export class SQLBuilder {
 	 * @param fields Fields to select
 	 * @param alias Table alias
 	 * @param tableName Table name
-	 * @param filterJoin Filter join conditions
+	 * @param innerJoin Filter join conditions
 	 * @param join Join conditions
 	 * @param whereSQL Where conditions
 	 * @param whereWithValues Where conditions with values
@@ -265,17 +271,17 @@ export class SQLBuilder {
 		fields: string[],
 		alias: Alias,
 		tableName: string,
-		filterJoin: string[],
+		innerJoin: string[],
 		join: string[],
 		whereSQL: string,
 		whereWithValues: string[],
-		value?: { filterJoin: string } | { where: string }
+		value?: { innerJoin: string } | { where: string }
 	): string {
 		return `select ${alias.toColumnName('*')} 
 					from "${tableName}" as ${alias}
-					${filterJoin.join(' \n')}
+					${innerJoin.join(' \n')}
 					${join.join(' \n')}
-					${value && 'filterJoin' in value ? value.filterJoin : ''}
+					${value && 'innerJoin' in value ? value.innerJoin : ''}
 				where ${whereSQL} 
 				${whereWithValues.length > 0 ? ' and ' : ''}
 				${whereWithValues.join(' and ')}

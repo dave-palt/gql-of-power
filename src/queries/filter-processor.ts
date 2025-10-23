@@ -299,7 +299,7 @@ export class FilterProcessor extends ClassOperations {
 			});
 
 			const reduced = QueriesUtils.mappingsReducer(newMappings);
-			const { filterJoin, where, values } = reduced;
+			const { innerJoin, where, values } = reduced;
 
 			logger.log(
 				'FilterProcessor - new mappings',
@@ -308,7 +308,7 @@ export class FilterProcessor extends ClassOperations {
 				i,
 				fieldName,
 				'reduced to',
-				filterJoin,
+				innerJoin,
 				where,
 				values
 			);
@@ -499,10 +499,10 @@ export class FilterProcessor extends ClassOperations {
 		});
 
 		const {
-			join,
+			outerJoin,
 			where: whereWithValues,
 			values,
-			filterJoin,
+			innerJoin,
 			_or,
 		} = QueriesUtils.mappingsReducer(recursiveMapResults);
 
@@ -530,8 +530,8 @@ export class FilterProcessor extends ClassOperations {
 				childAlias,
 				gqlFieldName,
 				whereWithValues,
-				join,
-				filterJoin,
+				outerJoin,
+				innerJoin,
 				values,
 				mapping,
 				_or
@@ -543,8 +543,8 @@ export class FilterProcessor extends ClassOperations {
 				alias,
 				childAlias,
 				whereWithValues,
-				join,
-				filterJoin,
+				outerJoin,
+				innerJoin,
 				mapping,
 				values,
 				_or
@@ -557,8 +557,8 @@ export class FilterProcessor extends ClassOperations {
 				alias,
 				childAlias,
 				whereWithValues,
-				join,
-				filterJoin,
+				outerJoin,
+				innerJoin,
 				mapping,
 				values,
 				_or
@@ -798,8 +798,8 @@ export class FilterProcessor extends ClassOperations {
 			for (const obj of matrix[depth]) {
 				const newOrs = {
 					...obj,
-					join: current.join.concat(obj.join),
-					filterJoin: current.filterJoin.concat(obj.filterJoin),
+					join: current.outerJoin.concat(obj.outerJoin),
+					innerJoin: current.innerJoin.concat(obj.innerJoin),
 					where: current.where.concat(obj.where),
 					values: { ...current.values, ...obj.values },
 				};
@@ -822,8 +822,8 @@ export class FilterProcessor extends ClassOperations {
 		alias: Alias,
 		gqlFieldName: string,
 		whereWithValues: string[],
-		join: string[],
-		filterJoin: string[],
+		outerJoin: string[],
+		innerJoin: string[],
 		values: Record<string, any>,
 		mapping: MappingsType,
 		_or: MappingsType[]
@@ -858,14 +858,14 @@ export class FilterProcessor extends ClassOperations {
 		if (
 			referenceField.tableName &&
 			whereSQL.length > 0 &&
-			(filterJoin.length > 0 || whereWithValues.length > 0 || join.length > 0 || _or.length > 0)
+			(innerJoin.length > 0 || whereWithValues.length > 0 || outerJoin.length > 0 || _or.length > 0)
 		) {
 			const unionAll = SQLBuilder.buildUnionAll(
 				[],
 				referenceField.tableName,
 				alias,
-				filterJoin,
-				join,
+				innerJoin,
+				outerJoin,
 				whereSQL,
 				whereWithValues,
 				_or,
@@ -880,8 +880,8 @@ export class FilterProcessor extends ClassOperations {
 												[],
 												alias,
 												referenceField.tableName,
-												filterJoin,
-												join,
+												innerJoin,
+												outerJoin,
 												whereSQL,
 												whereWithValues
 										  )
@@ -890,7 +890,7 @@ export class FilterProcessor extends ClassOperations {
 
 			logger.log('FilterProcessor - mapFilterOneToX', gqlFieldName, 'unionAll', unionAll);
 
-			mapping.filterJoin.push(jsonSQL);
+			mapping.innerJoin.push(jsonSQL);
 			mapping.values = { ...mapping.values, ...values };
 		}
 	}
@@ -904,8 +904,8 @@ export class FilterProcessor extends ClassOperations {
 		parentAlias: Alias,
 		alias: Alias,
 		whereWithValues: string[],
-		join: string[],
-		filterJoin: string[],
+		outerJoin: string[],
+		innerJoin: string[],
 		mapping: MappingsType,
 		values: Record<string, any>,
 		_or: MappingsType[]
@@ -934,14 +934,17 @@ export class FilterProcessor extends ClassOperations {
 
 			if (
 				whereSQL.length > 0 &&
-				(filterJoin.length > 0 || whereWithValues.length > 0 || join.length > 0 || _or.length > 0)
+				(innerJoin.length > 0 ||
+					whereWithValues.length > 0 ||
+					outerJoin.length > 0 ||
+					_or.length > 0)
 			) {
 				const unionAll = SQLBuilder.buildUnionAll(
 					[],
 					referenceField.tableName,
 					alias,
-					filterJoin,
-					join,
+					innerJoin,
+					outerJoin,
 					whereSQL,
 					whereWithValues,
 					_or,
@@ -958,15 +961,15 @@ export class FilterProcessor extends ClassOperations {
 												[],
 												alias,
 												referenceField.tableName,
-												filterJoin,
-												join,
+												innerJoin,
+												outerJoin,
 												whereSQL,
 												whereWithValues
 										  )
 								}
 							) as ${alias.toString()} on true`.replaceAll(/[ \n\t]+/gi, ' ');
 
-				mapping.filterJoin.push(jsonSQL);
+				mapping.innerJoin.push(jsonSQL);
 				mapping.values = { ...mapping.values, ...values };
 			}
 		}
@@ -982,8 +985,8 @@ export class FilterProcessor extends ClassOperations {
 		parentAlias: Alias,
 		alias: Alias,
 		whereWithValues: string[],
-		join: string[],
-		filterJoin: string[],
+		outerJoin: string[],
+		innerJoin: string[],
 		mapping: MappingsType,
 		values: Record<string, any>,
 		_or: MappingsType[]
@@ -1009,20 +1012,20 @@ export class FilterProcessor extends ClassOperations {
 			alias.toString(),
 			'pivotTableWhereSQLs',
 			pivotTableWhereSQLs.length,
-			filterJoin.length,
+			innerJoin.length,
 			whereWithValues.length,
-			join.length,
+			outerJoin.length,
 			_or.length
 		);
 
 		if (
 			pivotTableWhereSQLs.length > 0 &&
-			(filterJoin.length > 0 || whereWithValues.length > 0 || join.length > 0 || _or.length > 0)
+			(innerJoin.length > 0 || whereWithValues.length > 0 || outerJoin.length > 0 || _or.length > 0)
 		) {
 			const ptAlias = this.aliasManager.next(AliasType.entity, 'pt');
 			const ptSQL = `select ${fieldProps.inverseJoinColumns.join(', ')} 
 					from ${fieldProps.pivotTable}
-						${join.join(' \n')}
+						${outerJoin.join(' \n')}
 				where ${pivotTableWhereSQLs.join(' and ')}`.replaceAll(/[ \n\t]+/gi, ' ');
 
 			const onSQL = `(${fieldProps.inverseJoinColumns
@@ -1035,8 +1038,8 @@ export class FilterProcessor extends ClassOperations {
 				[alias.toColumnName('*')],
 				referenceField.tableName,
 				alias,
-				filterJoin,
-				join.concat(`inner join ${ptAlias} on ${onSQL}`),
+				innerJoin,
+				outerJoin.concat(`inner join ${ptAlias} on ${onSQL}`),
 				'',
 				whereWithValues,
 				_or,
@@ -1044,7 +1047,7 @@ export class FilterProcessor extends ClassOperations {
 			);
 
 			const whereSQL = `(${referenceField.primaryKeys.join(', ')}) in (${ptSQL})`;
-			const innerJoin = `inner join lateral (
+			const innerJoinSQL = `inner join lateral (
 			${
 				unionAll.length > 0
 					? `with ${ptAlias} as (${ptSQL}) 
@@ -1053,8 +1056,8 @@ export class FilterProcessor extends ClassOperations {
 							[alias.toColumnName('*')],
 							alias,
 							referenceField.tableName,
-							filterJoin,
-							join,
+							innerJoin,
+							outerJoin,
 							whereSQL,
 							whereWithValues
 					  )
@@ -1063,7 +1066,7 @@ export class FilterProcessor extends ClassOperations {
 
 			logger.log('FilterProcessor - mapFilterManyToMany: whereSQL', alias.toString(), unionAll);
 
-			mapping.filterJoin.push(innerJoin);
+			mapping.innerJoin.push(innerJoinSQL);
 			mapping.values = { ...mapping.values, ...values };
 		}
 	}
@@ -1075,21 +1078,24 @@ export class FilterProcessor extends ClassOperations {
 		_fields: string[],
 		alias: Alias,
 		tableName: string,
-		filterJoin: string[],
-		join: string[],
+		innerJoin: string[],
+		outerJoin: string[],
 		whereSQL: string,
 		whereWithValues: string[],
-		value?: { filterJoin: string } | { where: string }
+		value?: { innerJoin: string } | { where: string }
 	): string {
 		return `select ${alias.toColumnName('*')} 
-					from "${tableName}" as ${alias}
-					${filterJoin.join(' \n')}
-					${join.join(' \n')}
-					${value && 'filterJoin' in value ? value.filterJoin : ''}
-				where ${whereSQL} 
-				${whereWithValues.length > 0 ? ' and ' : ''}
-				${whereWithValues.join(' and ')}
-				${value && 'where' in value ? `and ${value.where}` : ''}
+					from (
+						select ${alias.toColumnName('*')} 
+							from "${tableName}" as ${alias}
+							${innerJoin.join(' \n')}
+							${value && 'innerJoin' in value ? value.innerJoin : ''}
+							where ${whereSQL} 
+							${whereWithValues.length > 0 ? ' and ' : ''}
+							${whereWithValues.join(' and ')}
+							${value && 'where' in value ? `and ${value.where}` : ''}
+					) as ${alias}
+				${outerJoin.join(' \n')}
 				`.replaceAll(/[ \n\t]+/gi, ' ');
 	}
 
@@ -1100,21 +1106,25 @@ export class FilterProcessor extends ClassOperations {
 		_fields: string[],
 		alias: Alias,
 		tableName: string,
-		filterJoin: string[],
-		join: string[],
+		innerJoin: string[],
+		outerJoin: string[],
 		whereSQL: string,
 		whereWithValues: string[],
-		value?: { filterJoin: string } | { where: string }
+		value?: { innerJoin: string } | { where: string }
 	): string {
 		return `select ${alias.toColumnName('*')} 
-					from "${tableName}" as ${alias}
-					${filterJoin.join(' \n')}
-					${join.join(' \n')}
-					${value && 'filterJoin' in value ? value.filterJoin : ''}
-				where ${whereSQL} 
-				${whereWithValues.length > 0 ? ' and ' : ''}
-				${whereWithValues.join(' and ')}
-				${value && 'where' in value ? `and ${value.where}` : ''}`.replaceAll(/[ \n\t]+/gi, ' ');
+					from (
+						select ${alias.toColumnName('*')} 
+							from "${tableName}" as ${alias}
+							${innerJoin.join(' \n')}
+							${value && 'innerJoin' in value ? value.innerJoin : ''}
+						where ${whereSQL} 
+						${whereWithValues.length > 0 ? ' and ' : ''}
+						${whereWithValues.join(' and ')}
+						${value && 'where' in value ? `and ${value.where}` : ''}
+					) as ${alias}
+				${outerJoin.join(' \n')}
+				`.replaceAll(/[ \n\t]+/gi, ' ');
 	}
 
 	/**
@@ -1124,19 +1134,23 @@ export class FilterProcessor extends ClassOperations {
 		fieldNames: string[],
 		alias: Alias,
 		tableName: string,
-		filterJoin: string[],
-		join: string[],
+		innerJoin: string[],
+		outerJoin: string[],
 		whereSQL: string,
 		whereWithValues: string[],
-		value?: { filterJoin: string } | { where: string }
+		value?: { innerJoin: string } | { where: string }
 	): string {
 		return `select ${fieldNames.join(', ')} 
-					from ${tableName} as ${alias.toString()}
-						${join.join(' \n')}
-						${value && 'filterJoin' in value ? value.filterJoin : ''}
-						${filterJoin.join(' \n')}
-				${whereSQL.length > 0 ? ` where ${whereSQL}` : ''}
-				${whereWithValues.length > 0 ? ` and ${whereWithValues.join(' and ')}` : ''}
-				${value && 'where' in value ? `and ${value.where}` : ''}`.replaceAll(/[ \n\t]+/gi, ' ');
+					from (
+						select ${alias.toColumnName('*')}
+							from "${tableName}" as ${alias.toString()}
+							${value && 'innerJoin' in value ? value.innerJoin : ''}
+							${innerJoin.join(' \n')}
+						${whereSQL.length > 0 ? ` where ${whereSQL}` : ''}
+						${whereWithValues.length > 0 ? ` and ${whereWithValues.join(' and ')}` : ''}
+						${value && 'where' in value ? `and ${value.where}` : ''}
+					) as ${alias.toString()}
+					${outerJoin.join(' \n')}
+						`.replaceAll(/[ \n\t]+/gi, ' ');
 	}
 }

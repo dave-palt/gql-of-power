@@ -30,8 +30,8 @@ describe('GQLtoSQLMapper - Unit Tests', () => {
 				expect(mapping.select).toBeInstanceOf(Set);
 				expect(mapping.select.size).toBe(0);
 				expect(mapping.json).toEqual([]);
-				expect(mapping.filterJoin).toEqual([]);
-				expect(mapping.join).toEqual([]);
+				expect(mapping.innerJoin).toEqual([]);
+				expect(mapping.outerJoin).toEqual([]);
 				expect(mapping.where).toEqual([]);
 				expect(mapping.values).toEqual({});
 				expect(mapping.orderBy).toEqual([]);
@@ -324,9 +324,13 @@ describe('GQLtoSQLMapper - Unit Tests', () => {
 				name: {},
 				purpose: {},
 				members: {
-					id: {},
-					name: {},
-					race: {},
+					fieldsByTypeName: {
+						EditMe: {
+							id: {},
+							name: {},
+							race: {},
+						},
+					},
 				},
 			};
 
@@ -348,9 +352,13 @@ describe('GQLtoSQLMapper - Unit Tests', () => {
 				name: {},
 				power: {},
 				bearer: {
-					id: {},
-					name: {},
-					race: {},
+					fieldsByTypeName: {
+						EditMe: {
+							id: {},
+							name: {},
+							race: {},
+						},
+					},
 				},
 			};
 
@@ -442,14 +450,22 @@ describe('GQLtoSQLMapper - Unit Tests', () => {
 				race: {},
 				home: {},
 				fellowship: {
-					id: {},
-					name: {},
-					purpose: {},
+					fieldsByTypeName: {
+						EditMe: {
+							id: {},
+							name: {},
+							purpose: {},
+						},
+					},
 				},
 				ring: {
-					id: {},
-					name: {},
-					power: {},
+					fieldsByTypeName: {
+						EditMe: {
+							id: {},
+							name: {},
+							power: {},
+						},
+					},
 				},
 			};
 

@@ -2,6 +2,7 @@ import { Knex } from 'knex';
 import { Field, FieldResolver, registerEnumType } from 'type-graphql';
 import { FieldOperations } from '../operations';
 import { GQLEntityFilterInputFieldType, GQLEntityPaginationInputType } from './gql-types';
+import { ExtractArrayType } from './utils';
 
 export enum ReferenceType {
 	ONE_TO_ONE = '1:1',
@@ -97,30 +98,34 @@ export type CustomFieldsSettings<T> = {
 	[key in Exclude<string, keyof T>]: RelatedFieldSettings<T>;
 };
 
-type GQLArgumentsFilterAndPagination<T> = {
-	__arguments: Array<
-		| {
-				filter: GQLEntityFilterInputFieldType<T>;
-		  }
-		| {
-				pagination: GQLEntityPaginationInputType<T>;
-		  }
-	>;
-};
+export type GQLArgumentsFilterAndPagination<T> =
+	| {
+			filter: GQLEntityFilterInputFieldType<T>;
+	  }
+	| {
+			pagination: GQLEntityPaginationInputType<T>;
+	  };
 
 export type ActualValueType<T> = Exclude<T, undefined | null>;
 export type ExtractType<T> = ActualValueType<T> extends Array<infer K>
 	? ActualValueType<K>
 	: ActualValueType<T>;
 
-// Simple field selection type for GraphQL field selection (like graphql-fields output)
-export type FieldSelection<T> = {
-	[K in keyof T]?: ActualValueType<T[K]> extends Array<infer U>
-		? FieldSelection<U> | { __arguments?: any; is_array: true }
-		: ActualValueType<T[K]> extends object
-		? FieldSelection<ActualValueType<T[K]>> | { __arguments?: any; is_array: false }
-		: {} | { __arguments?: any; is_unk: true };
+export type FieldsDetailsMap<T> = {
+	[key in keyof ExtractArrayType<T>]?: FieldDetails<ExtractArrayType<T>, key>;
 };
+export type FieldDetails<T, K extends keyof T> = {
+	name?: K;
+	alias?: string;
+	args?: Record<string, any> | GQLArgumentsFilterAndPagination<ExtractArrayType<T[K]>>;
+	fieldsByTypeName?: Partial<{
+		[key: string]: FieldsDetailsMap<ExtractArrayType<T[K]>>;
+	}>;
+};
+// Simple field selection type for GraphQL field selection (like graphql-parse-resolve-info output)
+export type FieldSelection<T> = Partial<{
+	[K in keyof ExtractArrayType<T>]?: FieldDetails<ExtractArrayType<T>, K> | {};
+}>;
 
 // Keep the original complex Fields type for when it's needed
 export type Fields<

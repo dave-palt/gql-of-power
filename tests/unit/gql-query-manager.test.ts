@@ -6,8 +6,7 @@
  * Tests focus on Middle-earth lore as per project guidelines.
  */
 import { beforeEach, describe, expect, it } from 'bun:test';
-import { GraphQLResolveInfo } from 'graphql';
-import { GQLEntityFilterInputFieldType } from '../../src';
+import { FieldSelection, GQLEntityFilterInputFieldType } from '../../src';
 import { GQLQueryManager } from '../../src/query-manager';
 import { Fellowship, Person, Quest, Ring } from '../fixtures/middle-earth-schema';
 import { createMockMetadataProvider } from '../fixtures/test-data';
@@ -25,53 +24,19 @@ describe('GQLQueryManager - Unit Tests', () => {
 	/**
 	 * Helper function to create a mock GraphQL ResolveInfo object
 	 */
-	const createMockInfo = (fieldSelection: any = {}): GraphQLResolveInfo => {
-		return {
-			fieldName: 'testQuery',
-			fieldNodes: [
-				{
-					kind: 'Field',
-					name: { kind: 'Name', value: 'testQuery' },
-					selectionSet: {
-						kind: 'SelectionSet',
-						selections: Object.keys(fieldSelection).map((key) => ({
-							kind: 'Field',
-							name: { kind: 'Name', value: key },
-							selectionSet:
-								fieldSelection[key] && Object.keys(fieldSelection[key]).length > 0
-									? {
-											kind: 'SelectionSet',
-											selections: Object.keys(fieldSelection[key]).map((subKey) => ({
-												kind: 'Field',
-												name: { kind: 'Name', value: subKey },
-											})),
-									  }
-									: undefined,
-						})),
-					},
-				},
-			],
-			returnType: {} as any,
-			parentType: {} as any,
-			path: { key: 'testQuery', prev: undefined, typename: undefined },
-			schema: {} as any,
-			fragments: {},
-			rootValue: {},
-			operation: {} as any,
-			variableValues: {},
-		} as GraphQLResolveInfo;
-	};
+	const createMockFields = <T>(fieldSelection: FieldSelection<T>): FieldSelection<T> =>
+		fieldSelection;
 
-	describe('getQueryResultsFor - Basic Functionality', () => {
+	describe('getQueryResultsForFields - Basic Functionality', () => {
 		it('should execute a simple query for Person entity with basic fields', async () => {
-			const info = createMockInfo({
+			const info = createMockFields({
 				id: {},
 				name: {},
 				race: {},
 				age: {},
 			});
 			type GQLPerson = Person & { _____name: 'Person' };
-			const result = await queryManager.getQueryResultsFor<GQLPerson, Person>(
+			const result = await queryManager.getQueryResultsForFields<GQLPerson, Person>(
 				mockProvider,
 				Person,
 				info
@@ -88,14 +53,18 @@ describe('GQLQueryManager - Unit Tests', () => {
 		});
 
 		it('should execute a simple query for Ring entity with basic fields', async () => {
-			const info = createMockInfo({
+			const info = createMockFields({
 				id: {},
 				name: {},
 				power: {},
 				forgedBy: {},
 			});
 			type GQLRing = Ring & { _____name: 'Ring' };
-			const result = await queryManager.getQueryResultsFor<GQLRing, Ring>(mockProvider, Ring, info);
+			const result = await queryManager.getQueryResultsForFields<GQLRing, Ring>(
+				mockProvider,
+				Ring,
+				info
+			);
 
 			expect(Array.isArray(result)).toBe(true);
 			expect(result.length).toBeGreaterThan(0);
@@ -108,14 +77,14 @@ describe('GQLQueryManager - Unit Tests', () => {
 		});
 
 		it('should execute a simple query for Fellowship entity', async () => {
-			const info = createMockInfo({
+			const info = createMockFields({
 				id: {},
 				name: {},
 				purpose: {},
 				disbanded: {},
 			});
 			type GQLFellowship = Fellowship & { _____name: 'Fellowship' };
-			const result = await queryManager.getQueryResultsFor<GQLFellowship, Fellowship>(
+			const result = await queryManager.getQueryResultsForFields<GQLFellowship, Fellowship>(
 				mockProvider,
 				Fellowship,
 				info
@@ -131,9 +100,9 @@ describe('GQLQueryManager - Unit Tests', () => {
 		});
 
 		it('should handle empty field selection gracefully', async () => {
-			const info = createMockInfo({});
+			const info = createMockFields({});
 
-			const result = await queryManager.getQueryResultsFor(mockProvider, Person, info);
+			const result = await queryManager.getQueryResultsForFields(mockProvider, Person, info);
 
 			expect(Array.isArray(result)).toBe(true);
 			// Even with no fields, should still return results
@@ -141,9 +110,9 @@ describe('GQLQueryManager - Unit Tests', () => {
 		});
 	});
 
-	describe('getQueryResultsFor - Filtering', () => {
+	describe('getQueryResultsForFields - Filtering', () => {
 		it('should apply simple field filters', async () => {
-			const info = createMockInfo({
+			const info = createMockFields({
 				id: {},
 				name: {},
 				race: {},
@@ -153,7 +122,12 @@ describe('GQLQueryManager - Unit Tests', () => {
 				race_eq: 'Hobbit',
 			};
 
-			const result = await queryManager.getQueryResultsFor(mockProvider, Person, info, filter);
+			const result = await queryManager.getQueryResultsForFields(
+				mockProvider,
+				Person,
+				info,
+				filter
+			);
 
 			expect(Array.isArray(result)).toBe(true);
 			// Filter should be processed (actual filtering happens in SQL execution)
@@ -161,7 +135,7 @@ describe('GQLQueryManager - Unit Tests', () => {
 		});
 
 		it('should apply comparison filters', async () => {
-			const info = createMockInfo({
+			const info = createMockFields({
 				id: {},
 				name: {},
 				age: {},
@@ -171,7 +145,7 @@ describe('GQLQueryManager - Unit Tests', () => {
 				age: { _gt: 100 },
 			};
 
-			const result = await queryManager.getQueryResultsFor(
+			const result = await queryManager.getQueryResultsForFields(
 				mockProvider,
 				Person,
 				info,
@@ -182,7 +156,7 @@ describe('GQLQueryManager - Unit Tests', () => {
 		});
 
 		it('should apply complex nested filters with _or conditions', async () => {
-			const info = createMockInfo({
+			const info = createMockFields({
 				id: {},
 				name: {},
 				race: {},
@@ -197,7 +171,7 @@ describe('GQLQueryManager - Unit Tests', () => {
 				],
 			};
 
-			const result = await queryManager.getQueryResultsFor(
+			const result = await queryManager.getQueryResultsForFields(
 				mockProvider,
 				Person,
 				info,
@@ -208,7 +182,7 @@ describe('GQLQueryManager - Unit Tests', () => {
 		});
 
 		it('should apply _and conditions', async () => {
-			const info = createMockInfo({
+			const info = createMockFields({
 				id: {},
 				name: {},
 				race: {},
@@ -219,7 +193,7 @@ describe('GQLQueryManager - Unit Tests', () => {
 				_and: [{ race: 'Hobbit' }, { age: { _lt: 40 } }],
 			};
 
-			const result = await queryManager.getQueryResultsFor(
+			const result = await queryManager.getQueryResultsForFields(
 				mockProvider,
 				Person,
 				info,
@@ -230,7 +204,7 @@ describe('GQLQueryManager - Unit Tests', () => {
 		});
 
 		it('should apply _not conditions', async () => {
-			const info = createMockInfo({
+			const info = createMockFields({
 				id: {},
 				name: {},
 				race: {},
@@ -240,7 +214,7 @@ describe('GQLQueryManager - Unit Tests', () => {
 				_not: [{ race: 'Orc' }],
 			};
 
-			const result = await queryManager.getQueryResultsFor(
+			const result = await queryManager.getQueryResultsForFields(
 				mockProvider,
 				Person,
 				info,
@@ -251,7 +225,7 @@ describe('GQLQueryManager - Unit Tests', () => {
 		});
 
 		it('should handle multiple field operations', async () => {
-			const info = createMockInfo({
+			const info = createMockFields({
 				id: {},
 				name: {},
 				age: {},
@@ -262,7 +236,7 @@ describe('GQLQueryManager - Unit Tests', () => {
 				age: { _gte: 30, _lte: 60 },
 			};
 
-			const result = await queryManager.getQueryResultsFor(
+			const result = await queryManager.getQueryResultsForFields(
 				mockProvider,
 				Person,
 				info,
@@ -273,9 +247,9 @@ describe('GQLQueryManager - Unit Tests', () => {
 		});
 	});
 
-	describe('getQueryResultsFor - Pagination', () => {
+	describe('getQueryResultsForFields - Pagination', () => {
 		it('should apply limit pagination', async () => {
-			const info = createMockInfo({
+			const info = createMockFields({
 				id: {},
 				name: {},
 			});
@@ -284,7 +258,7 @@ describe('GQLQueryManager - Unit Tests', () => {
 				limit: 3,
 			};
 
-			const result = await queryManager.getQueryResultsFor(
+			const result = await queryManager.getQueryResultsForFields(
 				mockProvider,
 				Person,
 				info,
@@ -296,7 +270,7 @@ describe('GQLQueryManager - Unit Tests', () => {
 		});
 
 		it('should apply offset pagination', async () => {
-			const info = createMockInfo({
+			const info = createMockFields({
 				id: {},
 				name: {},
 			});
@@ -306,7 +280,7 @@ describe('GQLQueryManager - Unit Tests', () => {
 				offset: 2,
 			};
 
-			const result = await queryManager.getQueryResultsFor(
+			const result = await queryManager.getQueryResultsForFields(
 				mockProvider,
 				Person,
 				info,
@@ -318,7 +292,7 @@ describe('GQLQueryManager - Unit Tests', () => {
 		});
 
 		it('should apply orderBy with single field ascending', async () => {
-			const info = createMockInfo({
+			const info = createMockFields({
 				id: {},
 				name: {},
 				age: {},
@@ -328,7 +302,7 @@ describe('GQLQueryManager - Unit Tests', () => {
 				orderBy: [{ name: 'asc' as const }],
 			};
 
-			const result = await queryManager.getQueryResultsFor(
+			const result = await queryManager.getQueryResultsForFields(
 				mockProvider,
 				Person,
 				info,
@@ -340,7 +314,7 @@ describe('GQLQueryManager - Unit Tests', () => {
 		});
 
 		it('should apply orderBy with single field descending', async () => {
-			const info = createMockInfo({
+			const info = createMockFields({
 				id: {},
 				name: {},
 				age: {},
@@ -350,7 +324,7 @@ describe('GQLQueryManager - Unit Tests', () => {
 				orderBy: [{ age: 'desc' as const }],
 			};
 
-			const result = await queryManager.getQueryResultsFor(
+			const result = await queryManager.getQueryResultsForFields(
 				mockProvider,
 				Person,
 				info,
@@ -362,7 +336,7 @@ describe('GQLQueryManager - Unit Tests', () => {
 		});
 
 		it('should apply orderBy with multiple fields', async () => {
-			const info = createMockInfo({
+			const info = createMockFields({
 				id: {},
 				name: {},
 				race: {},
@@ -373,7 +347,7 @@ describe('GQLQueryManager - Unit Tests', () => {
 				orderBy: [{ race: 'asc' as const }, { age: 'desc' as const }, { name: 'asc' as const }],
 			};
 
-			const result = await queryManager.getQueryResultsFor(
+			const result = await queryManager.getQueryResultsForFields(
 				mockProvider,
 				Person,
 				info,
@@ -385,7 +359,7 @@ describe('GQLQueryManager - Unit Tests', () => {
 		});
 
 		it('should apply complete pagination with filter', async () => {
-			const info = createMockInfo({
+			const info = createMockFields({
 				id: {},
 				name: {},
 				race: {},
@@ -402,7 +376,7 @@ describe('GQLQueryManager - Unit Tests', () => {
 				orderBy: [{ name: 'asc' as const }],
 			};
 
-			const result = await queryManager.getQueryResultsFor(
+			const result = await queryManager.getQueryResultsForFields(
 				mockProvider,
 				Person,
 				info,
@@ -414,118 +388,158 @@ describe('GQLQueryManager - Unit Tests', () => {
 		});
 	});
 
-	describe('getQueryResultsFor - Relationships', () => {
+	describe('getQueryResultsForFields - Relationships', () => {
 		it('should handle 1:1 relationship (Ring -> Bearer)', async () => {
-			const info = createMockInfo({
+			const info = createMockFields<Ring>({
 				id: {},
 				name: {},
 				power: {},
 				bearer: {
-					id: {},
-					name: {},
-					race: {},
+					fieldsByTypeName: {
+						Bearer: {
+							id: {},
+							name: {},
+							race: {},
+						},
+					},
 				},
 			});
 
-			const result = await queryManager.getQueryResultsFor(mockProvider, Ring, info);
+			const result = await queryManager.getQueryResultsForFields(mockProvider, Ring, info);
 
 			expect(Array.isArray(result)).toBe(true);
 		});
 
 		it('should handle 1:m relationship (Fellowship -> Members)', async () => {
-			const info = createMockInfo({
+			const info = createMockFields({
 				id: {},
 				name: {},
 				purpose: {},
 				members: {
-					id: {},
-					name: {},
-					race: {},
-					age: {},
+					fieldsByTypeName: {
+						Member: {
+							id: {},
+							name: {},
+							race: {},
+							age: {},
+						},
+					},
 				},
 			});
 
-			const result = await queryManager.getQueryResultsFor(mockProvider, Fellowship, info);
+			const result = await queryManager.getQueryResultsForFields(mockProvider, Fellowship, info);
 
 			expect(Array.isArray(result)).toBe(true);
 		});
 
 		it('should handle m:1 relationship (Person -> Fellowship)', async () => {
-			const info = createMockInfo({
+			const info = createMockFields({
 				id: {},
 				name: {},
 				race: {},
 				fellowship: {
-					id: {},
-					name: {},
-					purpose: {},
+					fieldsByTypeName: {
+						Fellowship: {
+							id: {},
+							name: {},
+							purpose: {},
+						},
+					},
 				},
 			});
 
-			const result = await queryManager.getQueryResultsFor(mockProvider, Person, info);
+			const result = await queryManager.getQueryResultsForFields(mockProvider, Person, info);
 
 			expect(Array.isArray(result)).toBe(true);
 		});
 
 		it('should handle nested relationships (Fellowship -> Quest -> Locations)', async () => {
-			const info = createMockInfo({
+			const info = createMockFields({
 				id: {},
 				name: {},
 				purpose: {},
 				quest: {
-					id: {},
-					name: {},
-					description: {},
-					locations: {
-						id: {},
-						name: {},
-						type: {},
-					},
-				},
-			});
-
-			const result = await queryManager.getQueryResultsFor(mockProvider, Fellowship, info);
-
-			expect(Array.isArray(result)).toBe(true);
-		});
-
-		it('should handle deep nested relationships with multiple levels', async () => {
-			const info = createMockInfo({
-				id: {},
-				name: {},
-				race: {},
-				fellowship: {
-					id: {},
-					name: {},
-					quest: {
-						id: {},
-						name: {},
-						locations: {
+					fieldsByTypeName: {
+						Quest: {
 							id: {},
 							name: {},
-							region: {
-								id: {},
-								name: {},
-								ruler: {},
+							description: {},
+							locations: {
+								fieldsByTypeName: {
+									Location: {
+										id: {},
+										name: {},
+										type: {},
+									},
+								},
 							},
 						},
 					},
 				},
 			});
 
-			const result = await queryManager.getQueryResultsFor(mockProvider, Person, info);
+			const result = await queryManager.getQueryResultsForFields(mockProvider, Fellowship, info);
+
+			expect(Array.isArray(result)).toBe(true);
+		});
+
+		it('should handle deep nested relationships with multiple levels', async () => {
+			const info = createMockFields({
+				id: {},
+				name: {},
+				race: {},
+				fellowship: {
+					fieldsByTypeName: {
+						Fellowship: {
+							id: {},
+							name: {},
+							quest: {
+								fieldsByTypeName: {
+									Quest: {
+										id: {},
+										name: {},
+										locations: {
+											fieldsByTypeName: {
+												Location: {
+													id: {},
+													name: {},
+													region: {
+														fieldsByTypeName: {
+															Region: {
+																id: {},
+																name: {},
+																ruler: {},
+															},
+														},
+													},
+												},
+											},
+										},
+									},
+								},
+							},
+						},
+					},
+				},
+			});
+
+			const result = await queryManager.getQueryResultsForFields(mockProvider, Person, info);
 
 			expect(Array.isArray(result)).toBe(true);
 		});
 
 		it('should handle relationship filtering', async () => {
-			const info = createMockInfo({
+			const info = createMockFields({
 				id: {},
 				name: {},
 				race: {},
 				fellowship: {
-					id: {},
-					name: {},
+					fieldsByTypeName: {
+						Fellowship: {
+							id: {},
+							name: {},
+						},
+					},
 				},
 			});
 
@@ -535,7 +549,7 @@ describe('GQLQueryManager - Unit Tests', () => {
 				},
 			};
 
-			const result = await queryManager.getQueryResultsFor(
+			const result = await queryManager.getQueryResultsForFields(
 				mockProvider,
 				Person,
 				info,
@@ -546,16 +560,24 @@ describe('GQLQueryManager - Unit Tests', () => {
 		});
 
 		it('should handle complex relationship filtering with nested conditions', async () => {
-			const info = createMockInfo({
+			const info = createMockFields({
 				id: {},
 				name: {},
 				race: {},
 				fellowship: {
-					id: {},
-					name: {},
-					quest: {
-						id: {},
-						name: {},
+					fieldsByTypeName: {
+						Fellowship: {
+							id: {},
+							name: {},
+							quest: {
+								fieldsByTypeName: {
+									Quest: {
+										id: {},
+										name: {},
+									},
+								},
+							},
+						},
 					},
 				},
 			});
@@ -573,7 +595,7 @@ describe('GQLQueryManager - Unit Tests', () => {
 				],
 			};
 
-			const result = await queryManager.getQueryResultsFor(
+			const result = await queryManager.getQueryResultsForFields(
 				mockProvider,
 				Person,
 				info,
@@ -584,36 +606,36 @@ describe('GQLQueryManager - Unit Tests', () => {
 		});
 	});
 
-	describe('getQueryResultsFor - Error Handling', () => {
+	describe('getQueryResultsForFields - Error Handling', () => {
 		it('should throw error for incompatible entity', async () => {
-			const info = createMockInfo({ id: {}, name: {} });
+			const info = createMockFields({ id: {}, name: {} });
 
 			// Pass null entity
 			await expect(
-				queryManager.getQueryResultsFor(mockProvider, null as any, info)
+				queryManager.getQueryResultsForFields(mockProvider, null as any, info)
 			).rejects.toThrow('Entity not provided');
 		});
 
 		it('should throw error for entity without name', async () => {
-			const info = createMockInfo({ id: {}, name: {} });
+			const info = createMockFields({ id: {}, name: {} });
 
 			// Create entity without name property
 			class EntityWithoutName {}
 
 			await expect(
-				queryManager.getQueryResultsFor(mockProvider, EntityWithoutName as any, info)
+				queryManager.getQueryResultsForFields(mockProvider, EntityWithoutName as any, info)
 			).rejects.toThrow('Entity EntityWithoutName not found in metadata');
 		});
 
 		it('should throw error when entity not found in metadata', async () => {
-			const info = createMockInfo({ id: {}, name: {} });
+			const info = createMockFields({ id: {}, name: {} });
 
 			class UnknownEntity {
 				static entityName = 'UnknownEntity';
 			}
 
 			await expect(
-				queryManager.getQueryResultsFor(mockProvider, UnknownEntity as any, info)
+				queryManager.getQueryResultsForFields(mockProvider, UnknownEntity as any, info)
 			).rejects.toThrow('Entity UnknownEntity not found in metadata');
 		});
 
@@ -624,13 +646,13 @@ describe('GQLQueryManager - Unit Tests', () => {
 			} as any;
 
 			// Should not throw but may return empty results
-			await expect(
-				queryManager.getQueryResultsFor(mockProvider, Person, malformedInfo)
-			).rejects.toThrow('Error parsing GraphQL fields from info');
+			expect(
+				await queryManager.getQueryResultsForFields(mockProvider, Person, malformedInfo)
+			).pass();
 		});
 
 		it('should handle database execution errors gracefully', async () => {
-			const info = createMockInfo({ id: {}, name: {} });
+			const info = createMockFields({ id: {}, name: {} });
 
 			// Create a provider that throws on executeQuery
 			const errorProvider = {
@@ -640,15 +662,15 @@ describe('GQLQueryManager - Unit Tests', () => {
 				},
 			};
 
-			await expect(queryManager.getQueryResultsFor(errorProvider, Person, info)).rejects.toThrow(
-				'Database connection failed'
-			);
+			await expect(
+				queryManager.getQueryResultsForFields(errorProvider, Person, info)
+			).rejects.toThrow('Database connection failed');
 		});
 	});
 
-	describe('getQueryResultsFor - Data Transformation', () => {
+	describe('getQueryResultsForFields - Data Transformation', () => {
 		it('should handle JSON string results correctly', async () => {
-			const info = createMockInfo({ id: {}, name: {} });
+			const info = createMockFields({ id: {}, name: {} });
 
 			// Mock provider that returns JSON string
 			const jsonProvider = {
@@ -659,7 +681,7 @@ describe('GQLQueryManager - Unit Tests', () => {
 				],
 			};
 
-			const result = await queryManager.getQueryResultsFor(jsonProvider, Person, info);
+			const result = await queryManager.getQueryResultsForFields(jsonProvider, Person, info);
 
 			expect(Array.isArray(result)).toBe(true);
 			expect(result.length).toBe(2);
@@ -668,7 +690,7 @@ describe('GQLQueryManager - Unit Tests', () => {
 		});
 
 		it('should handle object results correctly', async () => {
-			const info = createMockInfo({ id: {}, name: {} });
+			const info = createMockFields({ id: {}, name: {} });
 
 			// Mock provider that returns objects directly
 			const objectProvider = {
@@ -679,7 +701,7 @@ describe('GQLQueryManager - Unit Tests', () => {
 				],
 			};
 
-			const result = await queryManager.getQueryResultsFor(objectProvider, Person, info);
+			const result = await queryManager.getQueryResultsForFields(objectProvider, Person, info);
 
 			expect(Array.isArray(result)).toBe(true);
 			expect(result.length).toBe(2);
@@ -688,7 +710,7 @@ describe('GQLQueryManager - Unit Tests', () => {
 		});
 
 		it('should handle mixed data types in results', async () => {
-			const info = createMockInfo({ id: {}, name: {} });
+			const info = createMockFields({ id: {}, name: {} });
 
 			// Mixed JSON strings and objects
 			const mixedProvider = {
@@ -699,7 +721,7 @@ describe('GQLQueryManager - Unit Tests', () => {
 				],
 			};
 
-			const result = await queryManager.getQueryResultsFor(mixedProvider, Person, info);
+			const result = await queryManager.getQueryResultsForFields(mixedProvider, Person, info);
 
 			expect(Array.isArray(result)).toBe(true);
 			expect(result.length).toBe(2);
@@ -708,28 +730,28 @@ describe('GQLQueryManager - Unit Tests', () => {
 		});
 
 		it('should handle empty results', async () => {
-			const info = createMockInfo({ id: {}, name: {} });
+			const info = createMockFields({ id: {}, name: {} });
 
 			const emptyProvider = {
 				...mockProvider,
 				executeQuery: async () => [],
 			};
 
-			const result = await queryManager.getQueryResultsFor(emptyProvider, Person, info);
+			const result = await queryManager.getQueryResultsForFields(emptyProvider, Person, info);
 
 			expect(Array.isArray(result)).toBe(true);
 			expect(result.length).toBe(0);
 		});
 
 		it('should handle null results', async () => {
-			const info = createMockInfo({ id: {}, name: {} });
+			const info = createMockFields({ id: {}, name: {} });
 
 			const nullProvider = {
 				...mockProvider,
 				executeQuery: async () => [null],
 			};
 
-			const result = await queryManager.getQueryResultsFor(nullProvider, Person, info);
+			const result = await queryManager.getQueryResultsForFields(nullProvider, Person, info);
 
 			expect(Array.isArray(result)).toBe(true);
 			expect(result.length).toBe(1);
@@ -737,44 +759,56 @@ describe('GQLQueryManager - Unit Tests', () => {
 		});
 	});
 
-	describe('getQueryResultsFor - Performance and Edge Cases', () => {
+	describe('getQueryResultsForFields - Performance and Edge Cases', () => {
 		it('should handle large field selections efficiently', async () => {
-			const info = createMockInfo({
+			const info = createMockFields({
 				id: {},
 				name: {},
 				age: {},
 				race: {},
 				home: {},
 				fellowship: {
-					id: {},
-					name: {},
-					purpose: {},
-					disbanded: {},
-					formed: {},
-					quest: {
-						id: {},
-						name: {},
-						description: {},
-						startDate: {},
-						endDate: {},
-						success: {},
+					fieldsByTypeName: {
+						Fellowship: {
+							id: {},
+							name: {},
+							purpose: {},
+							disbanded: {},
+							formed: {},
+							quest: {
+								fieldsByTypeName: {
+									Quest: {
+										id: {},
+										name: {},
+										description: {},
+										startDate: {},
+										endDate: {},
+										success: {},
+									},
+								},
+							},
+						},
 					},
 				},
 				ring: {
-					id: {},
-					name: {},
-					power: {},
-					forgedBy: {},
+					fieldsByTypeName: {
+						Ring: {
+							id: {},
+							name: {},
+							power: {},
+							forgedBy: {},
+						},
+					},
 				},
 			});
 
-			const result = await queryManager.getQueryResultsFor(mockProvider, Person, info);
+			const result = await queryManager.getQueryResultsForFields(mockProvider, Person, info);
 
 			expect(Array.isArray(result)).toBe(true);
 		});
 
 		it('should handle complex pagination with large offsets', async () => {
-			const info = createMockInfo({ id: {}, name: {} });
+			const info = createMockFields({ id: {}, name: {} });
 
 			const pagination = {
 				limit: 100,
@@ -782,7 +816,7 @@ describe('GQLQueryManager - Unit Tests', () => {
 				orderBy: [{ name: 'asc' as const }],
 			};
 
-			const result = await queryManager.getQueryResultsFor(
+			const result = await queryManager.getQueryResultsForFields(
 				mockProvider,
 				Person,
 				info,
@@ -794,7 +828,7 @@ describe('GQLQueryManager - Unit Tests', () => {
 		});
 
 		it('should handle very complex filters', async () => {
-			const info = createMockInfo({ id: {}, name: {}, race: {}, age: {} });
+			const info = createMockFields({ id: {}, name: {}, race: {}, age: {} });
 
 			const complexFilter = {
 				_or: [
@@ -814,7 +848,7 @@ describe('GQLQueryManager - Unit Tests', () => {
 				],
 			};
 
-			const result = await queryManager.getQueryResultsFor(
+			const result = await queryManager.getQueryResultsForFields(
 				mockProvider,
 				Person,
 				info,
@@ -825,65 +859,97 @@ describe('GQLQueryManager - Unit Tests', () => {
 		});
 
 		it('should handle recursive relationship structures', async () => {
-			const info = createMockInfo({
+			const info = createMockFields({
 				id: {},
 				name: {},
 				fellowship: {
-					id: {},
-					name: {},
-					members: {
-						id: {},
-						name: {},
-						fellowship: {
+					fieldsByTypeName: {
+						Fellowship: {
 							id: {},
 							name: {},
+							members: {
+								fieldsByTypeName: {
+									Person: {
+										id: {},
+										name: {},
+										fellowship: {
+											fieldsByTypeName: {
+												Fellowship: {
+													id: {},
+													name: {},
+												},
+											},
+										},
+									},
+								},
+							},
 						},
 					},
 				},
 			});
 
-			const result = await queryManager.getQueryResultsFor(mockProvider, Person, info);
+			const result = await queryManager.getQueryResultsForFields(mockProvider, Person, info);
 
 			expect(Array.isArray(result)).toBe(true);
 		});
 	});
 
-	describe('getQueryResultsFor - Integration Scenarios', () => {
+	describe('getQueryResultsForFields - Integration Scenarios', () => {
 		it('should handle a complete Fellowship query with all relationships', async () => {
-			const info = createMockInfo({
+			const info = createMockFields({
 				id: {},
 				name: {},
 				purpose: {},
 				disbanded: {},
 				formed: {},
 				members: {
-					id: {},
-					name: {},
-					race: {},
-					age: {},
-					home: {},
-					ring: {
-						id: {},
-						name: {},
-						power: {},
+					fieldsByTypeName: {
+						Person: {
+							id: {},
+							name: {},
+							race: {},
+							age: {},
+							home: {},
+							ring: {
+								fieldsByTypeName: {
+									Ring: {
+										id: {},
+										name: {},
+										power: {},
+									},
+								},
+							},
+						},
 					},
 				},
 				quest: {
-					id: {},
-					name: {},
-					description: {},
-					startDate: {},
-					endDate: {},
-					success: {},
-					locations: {
-						id: {},
-						name: {},
-						type: {},
-						description: {},
-						region: {
+					fieldsByTypeName: {
+						Quest: {
 							id: {},
 							name: {},
-							ruler: {},
+							description: {},
+							startDate: {},
+							endDate: {},
+							success: {},
+							locations: {
+								fieldsByTypeName: {
+									Location: {
+										id: {},
+										name: {},
+										type: {},
+										description: {},
+										region: {
+											fieldsByTypeName: {
+												Region: {
+													id: {},
+													name: {},
+													ruler: {},
+												},
+											},
+										},
+									},
+								},
+							},
 						},
 					},
 				},
@@ -898,7 +964,7 @@ describe('GQLQueryManager - Unit Tests', () => {
 				orderBy: [{ name: 'asc' as const }],
 			};
 
-			const result = await queryManager.getQueryResultsFor(
+			const result = await queryManager.getQueryResultsForFields(
 				mockProvider,
 				Fellowship,
 				info,
@@ -910,7 +976,7 @@ describe('GQLQueryManager - Unit Tests', () => {
 		});
 
 		it('should handle Quest search with location and fellowship filters', async () => {
-			const info = createMockInfo({
+			const info = createMockFields({
 				id: {},
 				name: {},
 				description: {},
@@ -918,14 +984,22 @@ describe('GQLQueryManager - Unit Tests', () => {
 				endDate: {},
 				success: {},
 				fellowship: {
-					id: {},
-					name: {},
-					disbanded: {},
+					fieldsByTypeName: {
+						Fellowship: {
+							id: {},
+							name: {},
+							disbanded: {},
+						},
+					},
 				},
 				locations: {
-					id: {},
-					name: {},
-					type: {},
+					fieldsByTypeName: {
+						Location: {
+							id: {},
+							name: {},
+							type: {},
+						},
+					},
 				},
 			});
 
@@ -945,7 +1019,7 @@ describe('GQLQueryManager - Unit Tests', () => {
 				],
 			};
 
-			const result = await queryManager.getQueryResultsFor(
+			const result = await queryManager.getQueryResultsForFields(
 				mockProvider,
 				Quest,
 				info,

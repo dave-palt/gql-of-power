@@ -3,9 +3,10 @@ import { GQLEntityOrderByInputType, MappingsType } from '../types';
 export class QueriesUtils {
 	public static newMappings = (): MappingsType => ({
 		select: new Set<string>(),
+		rawSelect: new Set<string>(),
 		json: [] as string[],
-		filterJoin: [] as string[],
-		join: [] as string[],
+		innerJoin: [] as string[],
+		outerJoin: [] as string[],
 		where: [] as string[],
 		values: {} as Record<string, any>,
 		orderBy: [] as GQLEntityOrderByInputType<any>[],
@@ -34,13 +35,28 @@ export class QueriesUtils {
 	) =>
 		Array.from(m.values()).reduce(
 			(
-				{ select, filterJoin, json, join, where, values, limit, offset, orderBy, _or, _and, _not },
+				{
+					select,
+					rawSelect,
+					innerJoin,
+					json,
+					outerJoin,
+					where,
+					values,
+					limit,
+					offset,
+					orderBy,
+					_or,
+					_and,
+					_not,
+				},
 				mapping
 			) => {
 				mapping.select.forEach((s) => select.add(s));
+				mapping.rawSelect.forEach((s) => rawSelect.add(s));
 				json.push(...mapping.json);
-				filterJoin.push(...mapping.filterJoin);
-				join.push(...mapping.join);
+				innerJoin.push(...mapping.innerJoin);
+				outerJoin.push(...mapping.outerJoin);
 				where.push(...mapping.where);
 				orderBy.push(...mapping.orderBy);
 				_or.push(...mapping._or);
@@ -50,9 +66,10 @@ export class QueriesUtils {
 
 				return {
 					select,
+					rawSelect,
 					json,
-					filterJoin,
-					join,
+					innerJoin,
+					outerJoin,
 					where,
 					values,
 					limit: mapping.limit ?? limit,
