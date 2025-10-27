@@ -3,20 +3,6 @@ import { EntityMetadata, GQLEntityOrderByInputType, MappingsType } from '../type
 import { keys } from '../utils';
 import { Alias } from './alias';
 
-const jsonReducerForString = (
-	/**
-	 * `'id', `
-	 */
-	j: string,
-	index: number
-): string => {
-	const [key, value] = j.split(',');
-	return `'${index > 0 ? ',' : ''}${key.replaceAll(
-		/[']/gi,
-		'"'
-	)}:' || coalesce(${value}::text, '""')`;
-};
-
 export class SQLBuilder {
 	/**
 	 * Generates a SQL select statement for converting query results to JSON format.
