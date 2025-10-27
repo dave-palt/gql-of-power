@@ -1,3 +1,4 @@
+import { getFieldByAlias } from '../entities';
 import {
 	CustomFieldsSettings,
 	EntityMetadata,
@@ -102,12 +103,14 @@ export class GQLtoSQLMapper {
 		const orderByFields = (pagination?.orderBy ?? [])
 			.map((obs) =>
 				keys(obs)
-					.map(
-						(ob) =>
-							metadata.properties[ob]?.fieldNames
+					.map((ob) => {
+						const fieldName = getFieldByAlias(entity.name, ob);
+						return (
+							metadata.properties[fieldName]?.fieldNames
 								?.map((fieldName) => `${alias.toString()}.${fieldName}`)
-								?.join(', ') ?? `${alias.toString()}.${ob}`
-					)
+								?.join(', ') ?? `${alias.toString()}.${fieldName}`
+						);
+					})
 					.flat()
 			)
 			.flat();
@@ -220,87 +223,108 @@ export class GQLtoSQLMapper {
 		const logPrefix = alias.concat(prePrefix + 'GQLtoSQLMapper - recursiveMap');
 		logger.log(logPrefix, 'start');
 		const { properties, primaryKeys, tableName } = entityMetadata;
-		logger.log('fields', keys(fields));
-		let res = keys(fields ?? {})
-			.sort((f1, f2) => (f1.startsWith('__') ? -1 : f2.startsWith('__') ? 1 : 0))
-			.reduce(
-				({ mappings }, gqlFieldNameKey) => {
-					logger.log(
+
+		const definedFields = fields ?? {};
+		const fieldKeys = keys(definedFields);
+
+		const allFields =
+			primaryKeys.reduce(
+				(acc, pk) =>
+					fieldKeys.some((fk) => getFieldByAlias(entityMetadata.name, fk) === pk)
+						? acc
+						: {
+								...acc,
+								[pk]: {
+									name: pk,
+									alias: pk,
+								},
+						  },
+				definedFields
+			) ?? definedFields;
+
+		console.log('fields', fields);
+		console.log('allFields', allFields);
+
+		let res = keys(allFields).reduce(
+			({ mappings }, gqlFieldNameKey) => {
+				console.log('========================== FIELD ==========================', {
+					gqlFieldNameKey,
+					entityMetadata,
+				});
+				const fieldName = getFieldByAlias(entityMetadata.name, gqlFieldNameKey);
+				logger.log(
+					logPrefix,
+					'- mapFilter for',
+					gqlFieldNameKey,
+					'alias for',
+					fieldName
+					// 'keys:',
+					// ...mappings.keys()
+				);
+				if (typeof allFields[gqlFieldNameKey] !== 'object' || allFields[gqlFieldNameKey] === null) {
+					logger.warn(
 						logPrefix,
-						'- mapFilter for',
-						gqlFieldNameKey
-						// 'keys:',
-						// ...mappings.keys()
+						`- skipping field ${gqlFieldNameKey} as it is not an object`,
+						allFields[gqlFieldNameKey]
 					);
-					if (typeof fields[gqlFieldNameKey] !== 'object' || fields[gqlFieldNameKey] === null) {
-						logger.warn(
-							logPrefix,
-							`- skipping field ${gqlFieldNameKey} as it is not an object`,
-							fields[gqlFieldNameKey]
-						);
-						return { mappings };
-					}
-					const { args, fieldsByTypeName, name, alias: gqlFieldAlias } = fields[gqlFieldNameKey];
-
-					console.log('==========================', name, '==========================');
-					console.log('args', args, { name, gqlFieldAlias }, { gqlFieldNameKey });
-
-					const mapping = QueriesUtils.getMapping(mappings, gqlFieldNameKey);
-					if (args) {
-						this.handleFieldArguments<T>(gqlFieldNameKey, args, alias, entityMetadata, mapping);
-					}
-
-					logger.log(
-						logPrefix,
-						'- using mapping for',
-						gqlFieldNameKey,
-						mappingsTypeToString(mapping)
-					);
-					const customFieldProps =
-						customFields && gqlFieldNameKey in customFields
-							? customFields[gqlFieldNameKey as keyof typeof customFields]
-							: undefined;
-
-					const fieldProps =
-						properties[gqlFieldNameKey as keyof EntityMetadata<T>['properties']] ??
-						properties[customFieldProps?.requires as keyof EntityMetadata<T>['properties']];
-
-					const gqlFieldName = (customFieldProps?.requires as string) ?? gqlFieldNameKey;
-					logger.log(
-						'recursiveMap fields | gqlFieldName',
-						gqlFieldName,
-						// mapping
-						fieldsByTypeName
-						// gqlFieldNameKey
-					);
-
-					if (!fieldProps) {
-						return this.mapCustomField<T>(customFieldProps, mapping, alias, gqlFieldName, mappings);
-					} else {
-						this.mapField<T>(
-							gqlFieldNameKey,
-							fieldProps,
-							mapping,
-							alias,
-							fieldsByTypeName,
-							gqlFieldName,
-							primaryKeys
-						);
-						// gqlFieldName === 'battles' &&
-						logger.log(
-							'=======',
-							{ tableName, gqlFieldName, gqlFieldNameKey, name },
-							mappingsTypeToString(mapping, true)
-						);
-						logger.log('');
-					}
-
 					return { mappings };
-				},
-				{ mappings: new Map<string, MappingsType>() }
-			);
+				}
+				const { args, fieldsByTypeName, name, alias: gqlFieldAlias } = allFields[gqlFieldNameKey];
 
-		logger.log(logPrefix, 'fields processed', fields, [...res.mappings.entries()]);
+				console.log('==========================', name, '==========================');
+				console.log('args', args, { name, gqlFieldAlias }, { fieldName });
+
+				const mapping = QueriesUtils.getMapping(mappings, fieldName);
+				if (args) {
+					this.handleFieldArguments<T>(fieldName, args, alias, entityMetadata, mapping);
+				}
+
+				logger.log(logPrefix, '- using mapping for', fieldName, mappingsTypeToString(mapping));
+				const customFieldProps =
+					customFields && fieldName in customFields
+						? customFields[fieldName as keyof typeof customFields]
+						: undefined;
+
+				const fieldProps =
+					properties[fieldName as keyof EntityMetadata<T>['properties']] ??
+					properties[customFieldProps?.requires as keyof EntityMetadata<T>['properties']];
+
+				const gqlFieldName = (customFieldProps?.requires as string) ?? gqlFieldNameKey;
+				logger.log(
+					'recursiveMap fields | gqlFieldName',
+					gqlFieldName,
+					// mapping
+					fieldsByTypeName
+					// gqlFieldNameKey
+				);
+
+				if (!fieldProps) {
+					return this.mapCustomField<T>(customFieldProps, mapping, alias, gqlFieldName, mappings);
+				} else {
+					this.mapField<T>(
+						fieldName,
+						fieldProps,
+						mapping,
+						alias,
+						fieldsByTypeName,
+						gqlFieldName,
+						primaryKeys
+					);
+					// gqlFieldName === 'battles' &&
+					logger.log(
+						'=======',
+						{ tableName, gqlFieldName, fieldName, name },
+						mappingsTypeToString(mapping, true)
+					);
+					logger.log('');
+				}
+
+				return { mappings };
+			},
+			{ mappings: new Map<string, MappingsType>() }
+		);
+
+		logger.log(logPrefix, 'fields processed', allFields, [...res.mappings.entries()]);
 
 		res = gqlFilters.reduce(
 			({ mappings }, gqlFilter) => {

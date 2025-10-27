@@ -39,7 +39,7 @@ export class RelationshipHandler {
 		const referenceFieldProps = referenceField.properties[
 			fieldProps.mappedBy as keyof typeof referenceField.properties
 		] as EntityProperty;
-
+		fieldProps.name;
 		const ons = referenceFieldProps.joinColumns;
 		const entityOns = referenceFieldProps.referencedColumnNames;
 
@@ -101,20 +101,10 @@ export class RelationshipHandler {
 				offset
 			);
 
-			const whereConditions = isNestedNeeded
-				? ''
-				: `
-			where ${where}
-				${whereWithValues.length > 0 ? ` and ( ${whereWithValues.join(' and ')} )` : ''}
-				${orderBySQL}
-				${limit && !isNaN(limit) ? `limit ${limit}` : ''}
-				${offset && !isNaN(offset) ? `offset ${offset}` : ''}`;
-
 			const leftOuterJoin = SQLBuilder.buildLateralJoin(
 				jsonSelect,
 				subFromSQL,
 				join,
-				whereConditions,
 				alias.toString()
 			);
 
@@ -126,7 +116,6 @@ export class RelationshipHandler {
 				{ isNestedNeeded },
 				{ subFromSQL },
 				{ leftOuterJoin },
-				{ whereConditions },
 				{ orderBySQL }
 			);
 			mapping.alias = alias;
@@ -189,7 +178,7 @@ export class RelationshipHandler {
 			mapping.select.add(
 				`${fieldProps.fieldNames.map((fn) => parentAlias.toColumnName(fn)).join(', ')}`
 			);
-			mapping.rawSelect.add(`${fieldProps.fieldNames.join(', ')}`);
+			fieldProps.fieldNames.forEach((fn) => mapping.rawSelect.add(parentAlias.toColumnName(fn)));
 			mapping.json.push(`${alias.toColumnName('value')} as "${gqlFieldName}"`);
 
 			const selectFields = [
@@ -210,16 +199,10 @@ export class RelationshipHandler {
 				offset
 			);
 
-			const whereConditions = `where ${where}
-				${whereWithValues.length > 0 ? ` and ( ${whereWithValues.join(' and ')} )` : ''}
-				${limit && !isNaN(limit) ? `limit ${limit}` : ''}
-				${offset && !isNaN(offset) ? `offset ${offset}` : ''}`;
-
 			const leftOuterJoin = SQLBuilder.buildLateralJoin(
 				jsonSQL,
 				subFromSQL,
 				join,
-				whereConditions,
 				alias.toString()
 			);
 

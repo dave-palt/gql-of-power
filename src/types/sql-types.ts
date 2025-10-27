@@ -73,22 +73,29 @@ export type FieldBaseSettings = { generateFilter?: boolean; enum?: EnumData } & 
 			 * Without this the filters overlap and contains will not be generated.
 			 */
 			getFilterType?: GetFieldResolverType;
+			alias?: string;
 	  }
 );
 
+export type FieldOptions = Parameters<typeof Field>[1];
+export type RelatedFieldOptions = Parameters<typeof FieldResolver>[1];
+
 export type FieldSettings = FieldBaseSettings & {
 	type: GetFieldType;
-	options?: Parameters<typeof Field>[1];
+	options?: FieldOptions;
+	alias?: string;
 };
+
 export type RelatedFieldSettings<T> = FieldBaseSettings & {
 	type: GetFieldResolverType;
-	options?: Parameters<typeof FieldResolver>[1];
+	options?: RelatedFieldOptions;
 	/**
 	 * Required field/s to resolve the custom field.
 	 * Example: the custom field is for Account and requires accountId set this to 'accountId' and it will be fetched from the entity even if accountId is not requested in the gql query.
 	 */
 	requires?: (string & keyof T) | Array<string & keyof T>;
 	resolve?: (...any: any) => any;
+	alias?: string;
 };
 
 export type FieldsSettings<T> = {

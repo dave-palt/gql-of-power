@@ -1,3 +1,4 @@
+import { getFieldByAlias } from '../entities';
 import { EntityMetadata, GQLEntityOrderByInputType, MappingsType } from '../types';
 import { keys } from '../utils';
 import { Alias } from './alias';
@@ -130,10 +131,14 @@ export class SQLBuilder {
 		<T>(metadata: EntityMetadata<T>, alias: Alias) =>
 		(ob: string) => {
 			const fieldMeta = metadata.properties[ob];
+
 			if (!fieldMeta) {
 				throw new Error('Unknown pagination field ' + ob + ' for table ' + metadata.tableName);
 			}
-			return fieldMeta.fieldNames.map((fn) => `${alias.toColumnName(fn) ?? fn}`);
+			return fieldMeta.fieldNames.map((fn) => {
+				const fieldName = getFieldByAlias(fieldMeta.name, fn);
+				return `${alias.toColumnName(fieldName) ?? fieldName}`;
+			});
 		};
 	/**
 	 * Builds ORDER BY SQL clause from pagination input
@@ -179,14 +184,12 @@ export class SQLBuilder {
 		jsonSelect: string,
 		fromSQL: string,
 		joins: string[],
-		whereConditions: string,
 		alias: string
 	): string {
 		return `left outer join lateral (
 			select ${jsonSelect} as value 
 			from ${fromSQL}
 			${joins.join(' \n')}
-			${whereConditions}
 		) as ${alias} on true`.replaceAll(/[ \n\t]+/gi, ' ');
 	}
 

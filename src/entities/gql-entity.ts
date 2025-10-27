@@ -22,6 +22,7 @@ import { logger } from '../variables';
 
 const TypeMap: { [key: string]: any } = {};
 
+const FieldsOptionsMap: Record<string, Record<string, string>> = {};
 const CustomFieldsMap: Record<string, CustomFieldsSettings<any>> = {};
 
 let gqlTypesSuffix = '';
@@ -30,7 +31,12 @@ export const setGlobalConfig = (config: { gqlTypesSuffix: string }) => {
 	gqlTypesSuffix = config.gqlTypesSuffix;
 };
 
+export const getFieldsOptionsFor = (name: string): Record<string, string> =>
+	FieldsOptionsMap[name] ?? {};
+export const getFieldByAlias = (entityName: string | undefined, alias: string): string =>
+	FieldsOptionsMap[entityName ?? '__no__use__']?.[alias] ?? alias;
 export const getCustomFieldsFor = (name: string) => CustomFieldsMap[name] ?? {};
+
 export const getGQLEntityNameFor = (name: string) => `${name}${gqlTypesSuffix}`;
 export const getGQLEntityNameForClass = <T>(classType: new () => T) =>
 	getGQLEntityNameFor(classType.name);
@@ -95,18 +101,25 @@ export function createGQLTypes<T extends Object>(
 			if (!fieldOptions) {
 				continue;
 			}
+			const fieldNameOverride = fieldOptions.alias;
+			if (fieldNameOverride) {
+				FieldsOptionsMap[gqlEntityName] = FieldsOptionsMap[gqlEntityName] || {};
+				FieldsOptionsMap[gqlEntityName][fieldNameOverride] = fieldName;
+			}
+
+			const fieldNameToUse = fieldNameOverride ?? fieldName;
 
 			metadata.collectClassFieldMetadata({
 				target: GQLEntity,
-				name: fieldName,
-				schemaName: fieldName,
+				name: fieldNameToUse,
+				schemaName: fieldNameToUse,
 				getType: fieldOptions.type,
 				typeOptions: {
 					...('array' in fieldOptions && fieldOptions.array ? { array: true, arrayDepth: 1 } : {}),
 					...fieldOptions.options,
 				},
 				complexity: undefined,
-				description: fieldName,
+				description: fieldNameToUse,
 				deprecationReason: undefined,
 			});
 		}
@@ -141,10 +154,18 @@ export function createGQLTypes<T extends Object>(
 		if (!fieldOptions) {
 			continue;
 		}
+		const fieldNameOverride = fieldOptions.alias;
+		if (fieldNameOverride) {
+			FieldsOptionsMap[gqlEntityName] = FieldsOptionsMap[gqlEntityName] || {};
+			FieldsOptionsMap[gqlEntityName][fieldNameOverride] = fieldName;
+			console.log('FieldsOptionsMap', gqlEntityName, FieldsOptionsMap[gqlEntityName]);
+		}
+		const fieldNameToUse = fieldNameOverride ?? fieldName;
 
+		console.log('Creating GQL Field:', gqlEntityName, { fieldNameToUse, fieldName });
 		createGQLEntityFields(
 			fieldOptions,
-			fieldName,
+			fieldNameToUse,
 			GQLEntity,
 			metadata,
 			GQLEntityOrderBy,
