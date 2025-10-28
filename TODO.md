@@ -17,11 +17,9 @@
 
 - [x] change `OR` conditions into single queries with `union all`
   - [x] `OR` filtering works only for columns in the same table
-- [ ] class level `AND` conditions
-  - [ ] with multiple sub `OR`
+- [x] class level `AND` conditions
+  - [x] with multiple sub `OR`
 - [ ] class level `NOT` conditions
-- [*] reduce load on DB by not using json but string concat and `string_agg` + `JSON.parse()` of the result string
-  - issues with typings
 - [ ] order by reference table ( query authors order by latest book publication date)
 
 ## Improvements
@@ -29,18 +27,17 @@
 - [x] improve aliases using incremental number
 - [x] define agnostic orm-framework metadata extractor functions and types
 
-  - [ ] improve types
+  - [x] improve types
 
 - Refactor
 
   - [x] improve function names
     - [x] fields
     - [x] filters
-  - [WIP] organise things in classes
-    - [*] GQLtoSQLMapper
-      - [WIP] refactor mapper functions
-    - [ ] QueryManager
-      - [ ] move query builder into GQLtoSQLMapper
+  - [x] organise things in classes
+    - [x] GQLtoSQLMapper
+      - [x] refactor mapper functions
+    - [x] QueryManager
 
 - 1:1 example: select author by person
 
@@ -64,11 +61,15 @@
 
 # Future
 
-- [ ] ACL: access control list to add to an entity definition and applies the filters based on the @Context
+- [*] ACL: access control list to add to an entity definition and applies the filters based on @Ctx
+  - [x] Typing created
+  - [x] Value set
+  - this would require to change to async the query generation to allows async data fetching for the ACL rules, so for now is skipped
 - [*] resolved fields:
 
   - (doesn't work) ~~Object.assign array of custom field resolvers~~
   - [x] maybe returning the field with a random value will trigger a field resolver
     - [ ] add automatic FieldResolver
 
-- [ ] duplicate fields with alias ( `author { books(filter, pagination) { id } book: books(filter, pagination) { id } }` )
+- [-] duplicate fields with alias ( `author { books(filter, pagination) { id } book: books(filter, pagination) { id } }` )
+  - This looks to be a gql limitation as only one field is requested
