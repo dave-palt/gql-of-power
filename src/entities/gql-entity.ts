@@ -17,6 +17,7 @@ import {
 	RelatedFieldSettings,
 	Sort,
 } from '../types';
+import { AccessControlEntry, AccessControlList } from '../types/access-control';
 import { keys } from '../utils';
 import { logger } from '../variables';
 
@@ -24,6 +25,8 @@ const TypeMap: { [key: string]: any } = {};
 
 const FieldsOptionsMap: Record<string, Record<string, string>> = {};
 const CustomFieldsMap: Record<string, CustomFieldsSettings<any>> = {};
+
+const aclMap: AccessControlList<any, any> = {};
 
 let gqlTypesSuffix = '';
 
@@ -36,6 +39,8 @@ export const getFieldsOptionsFor = (name: string): Record<string, string> =>
 export const getFieldByAlias = (entityName: string | undefined, alias: string): string =>
 	FieldsOptionsMap[entityName ?? '__no__use__']?.[alias] ?? alias;
 export const getCustomFieldsFor = (name: string) => CustomFieldsMap[name] ?? {};
+
+export const getACLFor = (name: string) => aclMap[name] ?? {};
 
 export const getGQLEntityNameFor = (name: string) => `${name}${gqlTypesSuffix}`;
 export const getGQLEntityNameForClass = <T>(classType: new () => T) =>
@@ -51,15 +56,22 @@ registerEnumType(Sort, {
 	name: `Sort${gqlTypesSuffix}`,
 });
 
-export function createGQLTypes<T extends Object>(
+export function createGQLTypes<T extends Object, K>(
 	classType: new () => T,
 	opts: Partial<FieldsSettings<T>>,
-	customFields?: CustomFieldsSettings<T>
-	// acl?: AccessControlList<T, any>
+	{
+		customFields,
+		acl,
+	}: {
+		customFields?: CustomFieldsSettings<T>;
+		acl?: AccessControlEntry<T, K>;
+	} = {}
 ) {
 	const metadata = getMetadataStorage();
 
 	const gqlEntityName = getGQLEntityNameForClass(classType);
+
+	aclMap[gqlEntityName] = acl ?? {};
 
 	const fields = keys(opts);
 

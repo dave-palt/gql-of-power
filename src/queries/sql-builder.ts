@@ -13,7 +13,9 @@ export class SQLBuilder {
 	 * @returns A SQL string that uses either `row_to_json` for a single row or `json_agg(row_to_json(...))` for multiple rows.
 	 */
 	public static generateJsonSelectStatement = (alias: string, isMulti = false) =>
-		isMulti ? `coalesce(json_agg(row_to_json(${alias})), '[]'::json)` : `row_to_json(${alias})`;
+		isMulti
+			? `coalesce(json_agg(row_to_json(${alias}))::json, '[]'::json)::jsonb`
+			: `row_to_json(${alias})::jsonb`;
 	/**
 	 * Builds a subquery with proper joins and where conditions
 	 * @param selectFields Fields to select

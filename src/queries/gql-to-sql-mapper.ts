@@ -52,7 +52,7 @@ export class GQLtoSQLMapper {
 		this.relationshipHandler = new RelationshipHandler();
 	}
 
-	public buildQueryAndBindingsFor<T>({
+	public buildQueryAndBindingsFor<T, K>({
 		fields,
 		filter,
 		customFields,
@@ -73,6 +73,8 @@ export class GQLtoSQLMapper {
 		const alias = this.Alias.start('a');
 		const metadata = this.getMetadata(entity.name) as EntityMetadata<T>;
 
+		const allFilters = filter ? [filter] : [];
+
 		logger.log(
 			logName,
 			'customFields',
@@ -89,7 +91,7 @@ export class GQLtoSQLMapper {
 			alias,
 			fields,
 			customFields,
-			gqlFilters: filter ? [filter] : [],
+			gqlFilters: allFilters,
 		});
 		logger.log('recursiveMapResults', recursiveMapResults);
 		const mapping = QueriesUtils.mappingsReducer(recursiveMapResults);
