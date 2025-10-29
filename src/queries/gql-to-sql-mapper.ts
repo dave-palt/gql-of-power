@@ -244,12 +244,9 @@ export class GQLtoSQLMapper {
 				definedFields
 			) ?? definedFields;
 
-		console.log('fields', fields);
-		console.log('allFields', allFields);
-
 		let res = keys(allFields).reduce(
 			({ mappings }, gqlFieldNameKey) => {
-				console.log('========================== FIELD ==========================', {
+				logger.log('========================== FIELD ==========================', {
 					gqlFieldNameKey,
 					entityMetadata,
 				});
@@ -273,8 +270,8 @@ export class GQLtoSQLMapper {
 				}
 				const { args, fieldsByTypeName, name, alias: gqlFieldAlias } = allFields[gqlFieldNameKey];
 
-				console.log('==========================', name, '==========================');
-				console.log('args', args, { name, gqlFieldAlias }, { fieldName });
+				logger.log('==========================', name, '==========================');
+				logger.log('args', args, { name, gqlFieldAlias }, { fieldName });
 
 				const mapping = QueriesUtils.getMapping(mappings, fieldName);
 				if (args) {

@@ -1,10 +1,12 @@
 import {
 	Field,
+	FieldResolver,
 	getMetadataStorage,
 	InputType,
 	Int,
 	ObjectType,
 	registerEnumType,
+	Resolver,
 } from 'type-graphql';
 import { FieldOperations } from '../operations';
 import {
@@ -102,6 +104,9 @@ export function createGQLTypes<T extends Object, K>(
 	});
 	TypeMap[gqlEntityName + 'OrderBy'] = GQLEntityOrderBy;
 
+	@Resolver(() => GQLEntity)
+	class FieldsResolver {}
+
 	if (customFields) {
 		CustomFieldsMap[gqlEntityName] = customFields;
 
@@ -134,6 +139,29 @@ export function createGQLTypes<T extends Object, K>(
 				description: fieldNameToUse,
 				deprecationReason: undefined,
 			});
+			if (fieldOptions.resolve) {
+				Object.defineProperty(FieldsResolver.prototype, fieldNameToUse, {
+					// value: desc.value,
+					value: fieldOptions.resolve,
+					writable: true,
+					configurable: true,
+				});
+
+				FieldResolver(fieldOptions.type, {
+					...('array' in fieldOptions && fieldOptions.array ? { array: true, arrayDepth: 1 } : {}),
+					...fieldOptions.options,
+					name: fieldNameToUse,
+				})(
+					FieldsResolver.prototype,
+					fieldNameToUse,
+					Object.getOwnPropertyDescriptor(FieldsResolver.prototype, fieldNameToUse)!
+				);
+
+				fieldOptions.resolveDecorators?.forEach((decorator, i) => {
+					decorator(FieldsResolver.prototype, fieldNameToUse, i);
+				});
+				// Root()(FieldsResolver.prototype, fieldResolverName, 0);
+			}
 		}
 	}
 
@@ -170,11 +198,9 @@ export function createGQLTypes<T extends Object, K>(
 		if (fieldNameOverride) {
 			FieldsOptionsMap[gqlEntityName] = FieldsOptionsMap[gqlEntityName] || {};
 			FieldsOptionsMap[gqlEntityName][fieldNameOverride] = fieldName;
-			console.log('FieldsOptionsMap', gqlEntityName, FieldsOptionsMap[gqlEntityName]);
 		}
 		const fieldNameToUse = fieldNameOverride ?? fieldName;
 
-		console.log('Creating GQL Field:', gqlEntityName, { fieldNameToUse, fieldName });
 		createGQLEntityFields(
 			fieldOptions,
 			fieldNameToUse,
@@ -201,6 +227,8 @@ export function createGQLTypes<T extends Object, K>(
 		 */
 		gqlEntityName,
 		relatedEntityName: classType.name,
+		FieldsResolver,
+		bindFieldResolvers: (c: any) => {},
 	};
 }
 type TypeGQLMetadataStorage = ReturnType<typeof getMetadataStorage>;

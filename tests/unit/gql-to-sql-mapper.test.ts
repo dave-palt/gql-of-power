@@ -45,13 +45,13 @@ describe('GQLtoSQLMapper - Unit Tests', () => {
 			it('should generate correct JSONB object for single record', () => {
 				const result = SQLBuilder.generateJsonSelectStatement('alias', false);
 
-				expect(result).toBe('row_to_json(alias)');
+				expect(result).toBe('row_to_json(alias)::jsonb');
 			});
 
 			it('should generate correct JSONB array for multiple records', () => {
 				const result = SQLBuilder.generateJsonSelectStatement('alias', true);
 
-				expect(result).toBe("coalesce(json_agg(row_to_json(alias)), '[]'::json)");
+				expect(result).toBe("coalesce(json_agg(row_to_json(alias))::json, '[]'::json)::jsonb");
 			});
 		});
 

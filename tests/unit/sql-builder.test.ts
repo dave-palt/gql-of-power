@@ -252,38 +252,23 @@ describe('SQLBuilder', () => {
 			const jsonSelect = "jsonb_build_object('id', r.id, 'name', r.ring_name)";
 			const fromSQL = '"rings" as r1';
 			const joins = ['left join persons p on p.id = r.bearer_id'];
-			const whereConditions = 'where r.bearer_id = p1.id and r.forged_by = :forger';
 			const alias = 'r1';
 
-			const result = SQLBuilder.buildLateralJoin(
-				jsonSelect,
-				fromSQL,
-				joins,
-				whereConditions,
-				alias
-			);
+			const result = SQLBuilder.buildLateralJoin(jsonSelect, fromSQL, joins, alias);
 
 			expect(result).toContain('left outer join lateral (');
 			expect(result).toContain(`select ${jsonSelect} as value`);
 			expect(result).toContain(`from ${fromSQL}`);
 			expect(result).toContain('left join persons p on p.id = r.bearer_id');
-			expect(result).toContain(whereConditions);
 			expect(result).toContain(`as ${alias} on true`);
 		});
 
 		it('should handle empty joins array', () => {
-			const result = SQLBuilder.buildLateralJoin(
-				'json_select',
-				'from_sql',
-				[],
-				'where_conditions',
-				'alias1'
-			);
+			const result = SQLBuilder.buildLateralJoin('json_select', 'from_sql', [], 'alias1');
 
 			expect(result).toContain('left outer join lateral (');
 			expect(result).toContain('select json_select as value');
 			expect(result).toContain('from from_sql');
-			expect(result).toContain('where_conditions');
 			expect(result).toContain('as alias1 on true');
 		});
 
@@ -292,7 +277,6 @@ describe('SQLBuilder', () => {
 				'json_build_object()',
 				'"table" as t1',
 				['join clause'],
-				'where condition',
 				't1'
 			);
 

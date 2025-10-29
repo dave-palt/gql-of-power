@@ -17,7 +17,7 @@ export class SimpleMetadataProvider implements MetadataProvider {
 		const time = 'Executing SQL';
 		console.time(time);
 		const bindSQL = knex.raw(rawSQL, params).toString();
-		console.timeLog(time, bindSQL);
+		// console.timeLog(time, bindSQL);
 		const res = await sql`${sql.unsafe(bindSQL)}`;
 		console.timeEnd(time);
 		return res;

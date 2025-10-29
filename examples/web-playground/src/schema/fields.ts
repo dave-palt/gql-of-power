@@ -1,7 +1,7 @@
 import { FieldsSettings } from '@dav3/gql-of-power';
 import { BattleGQL, FellowshipGQL, PersonGQL, RingGQL } from 'src/graphql/entities';
 import { Int } from 'type-graphql';
-import { Battle, Fellowship, Person, Ring } from './entities';
+import { Battle, Book, Fellowship, Person, Ring } from './entities';
 
 /**
  * Person field configurations
@@ -17,14 +17,14 @@ export const PersonFields: Partial<FieldsSettings<Person>> = {
 		type: () => RingGQL.GQLEntity,
 		options: { nullable: true },
 		generateFilter: true,
-		relatedEntityName: () => 'Ring',
+		relatedEntityName: () => Ring.name,
 		getFilterType: () => Int,
 	},
 	fellowship: {
 		type: () => FellowshipGQL.GQLEntity,
 		options: { nullable: true },
 		generateFilter: true,
-		relatedEntityName: () => 'Fellowship',
+		relatedEntityName: () => Fellowship.name,
 		getFilterType: () => Int,
 	},
 	battles: {
@@ -32,7 +32,7 @@ export const PersonFields: Partial<FieldsSettings<Person>> = {
 		options: { nullable: true },
 		generateFilter: true,
 		array: true,
-		relatedEntityName: () => 'Battle',
+		relatedEntityName: () => Battle.name,
 		getFilterType: () => Int,
 	},
 };
@@ -50,7 +50,7 @@ export const RingFields: Partial<FieldsSettings<Ring>> = {
 		type: () => PersonGQL.GQLEntity,
 		options: { nullable: true },
 		generateFilter: true,
-		relatedEntityName: () => 'Person',
+		relatedEntityName: () => Person.name,
 		getFilterType: () => Int,
 	},
 };
@@ -69,7 +69,7 @@ export const FellowshipFields: Partial<FieldsSettings<Fellowship>> = {
 		options: { nullable: true },
 		generateFilter: true,
 		array: true,
-		relatedEntityName: () => 'Person',
+		relatedEntityName: () => Person.name,
 		getFilterType: () => Int,
 	},
 };
@@ -88,7 +88,22 @@ export const BattleFields: Partial<FieldsSettings<Battle>> = {
 		options: { nullable: true },
 		generateFilter: true,
 		array: true,
-		relatedEntityName: () => 'Person',
+		relatedEntityName: () => Person.name,
 		getFilterType: () => Int,
+	},
+};
+
+/**
+ * Book field configurations
+ * Defines Books and their participants
+ */
+export const BookFields: Partial<FieldsSettings<Book>> = {
+	id: { type: () => Number, options: { nullable: false }, generateFilter: true },
+	characters: {
+		type: () => PersonGQL.GQLEntity,
+		options: { nullable: true },
+		generateFilter: true,
+		array: true,
+		relatedEntityName: () => Person.name,
 	},
 };

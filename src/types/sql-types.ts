@@ -98,11 +98,21 @@ export type RelatedFieldSettings<T> = FieldBaseSettings & {
 	alias?: string;
 };
 
+export type CustomFieldSettings<T> = Omit<RelatedFieldSettings<T>, 'resolve'> & {
+	/**
+	 * Decorators to apply to the resolver method in order.
+	 * Example: [Root(), Ctx(), Info()]
+	 * The parameters of the resolver method will be in the same order as the decorators.
+	 */
+	resolveDecorators?: Array<ParameterDecorator>;
+	resolve: (...any: any) => any;
+};
+
 export type FieldsSettings<T> = {
 	[key in string & keyof T]: FieldSettings;
 };
 export type CustomFieldsSettings<T> = {
-	[key in Exclude<string, keyof T>]: RelatedFieldSettings<T>;
+	[key in Exclude<string, keyof T>]: CustomFieldSettings<T>;
 };
 
 export type GQLArgumentsFilterAndPagination<T> =

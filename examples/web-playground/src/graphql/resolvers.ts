@@ -3,7 +3,16 @@ import { GraphQLResolveInfo } from 'graphql';
 import { Arg, Info, Query, Resolver } from 'type-graphql';
 import { SimpleMetadataProvider } from '../config/metadata-provider';
 import { Battle, Fellowship, Person, Ring } from '../schema/entities';
-import { BattleGQL, FellowshipGQL, PersonGQL, RingGQL } from './entities';
+import {
+	BattleFieldsResolver,
+	BattleGQL,
+	FellowshipFieldsResolver,
+	FellowshipGQL,
+	PersonFieldsResolver,
+	PersonGQL,
+	RingFieldsResolver,
+	RingGQL,
+} from './entities';
 
 // Dependency injection setup
 const metadataProvider = new SimpleMetadataProvider();
@@ -14,7 +23,7 @@ const queryManager = new GQLQueryManager();
  * Handles queries for Middle-earth inhabitants
  */
 @Resolver(() => PersonGQL.GQLEntity || Object)
-export class PersonResolver {
+export class PersonResolver extends PersonFieldsResolver {
 	@Query(() => [PersonGQL.GQLEntity], { description: 'Get all persons from Middle-earth' })
 	async persons(
 		@Info() info: GraphQLResolveInfo,
@@ -56,7 +65,7 @@ export class PersonResolver {
  * Handles queries for the Rings of Power
  */
 @Resolver(() => RingGQL.GQLEntity || Object)
-export class RingResolver {
+export class RingResolver extends RingFieldsResolver {
 	@Query(() => [RingGQL.GQLEntity], { description: 'Get all rings of power' })
 	async rings(
 		@Info() info: GraphQLResolveInfo,
@@ -74,7 +83,7 @@ export class RingResolver {
  * Handles queries for fellowships and groups
  */
 @Resolver(() => FellowshipGQL.GQLEntity || Object)
-export class FellowshipResolver {
+export class FellowshipResolver extends FellowshipFieldsResolver {
 	@Query(() => [FellowshipGQL.GQLEntity], { description: 'Get all fellowships' })
 	async fellowships(
 		@Info() info: GraphQLResolveInfo,
@@ -92,7 +101,7 @@ export class FellowshipResolver {
  * Handles queries for Middle-earth battles and conflicts
  */
 @Resolver(() => BattleGQL.GQLEntity || Object)
-export class BattleResolver {
+export class BattleResolver extends BattleFieldsResolver {
 	@Query(() => [BattleGQL.GQLEntity], { description: 'Get all battles from Middle-earth history' })
 	async battles(
 		@Info() info: GraphQLResolveInfo,

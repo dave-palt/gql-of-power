@@ -23,7 +23,6 @@ export const getGQLFields = (info: GraphQLResolveInfo) => {
 			// keepRoot: true,
 			deep: true,
 		});
-		// console.log('resolveInfo', JSON.stringify(resolveInfo, null, 2));
 		if (!resolveInfo) throw 'Could not parse resolve info';
 		if (
 			!('name' in resolveInfo) ||
@@ -34,7 +33,6 @@ export const getGQLFields = (info: GraphQLResolveInfo) => {
 
 		const parsed = simplifyParsedResolveInfoFragmentWithType(resolveInfo as any, info.returnType);
 
-		// console.log('Parsed GQL fields', JSON.stringify(parsed.fields, null, 2));
 		return parsed.fields as FieldSelection<any>;
 		// return graphqlFields(info as any, {}, { processArguments: true }) as FieldSelection<any>;
 	} catch (e) {
@@ -67,9 +65,8 @@ export class GQLQueryManager {
 			logger.timeEnd(logName);
 			throw new Error(`Entity ${entity.name} not found in metadata`);
 		}
-		// console.log(logName, 'info', JSON.stringify(info));
 		const fields = getGQLFields(info) as FieldSelection<T>;
-		console.log(logName, 'fields', JSON.stringify(fields, null, 2));
+		logger.log(logName, 'fields', JSON.stringify(fields, null, 2));
 
 		return this.getQueryResultsForFields<K, T>(provider, entity, fields, filter, pagination);
 	}
@@ -96,7 +93,6 @@ export class GQLQueryManager {
 			logger.timeEnd(logName);
 			throw new Error(`Entity ${entity.name} not found in metadata`);
 		}
-		// console.log(logName, 'fields', JSON.stringify(fields, null, 2));
 		const customFields = getCustomFieldsFor(getGQLEntityNameForClass(entity));
 		const mapper = new GQLtoSQLMapper(provider, this.opts);
 
@@ -118,10 +114,10 @@ export class GQLQueryManager {
 
 	protected bindSQLQuery(driver: DatabaseDriver, sql: string, bindings: any) {
 		if ('rawQuery' in driver) {
-			console.log('rqwQuery');
+			logger.log('rawQuery');
 			return driver.rawQuery(sql, bindings);
 		} else if ('client' in driver) {
-			console.log('bind with knex', sql, bindings);
+			logger.log('bind with knex', sql, bindings);
 			const k = knex({ client: driver.client });
 			// Knex supports named bindings, but for arrays (e.g., for IN/NOT IN) you need to use the special syntax :name: (with colons on both sides)
 			// Example: where id in (:ids:) and bindings = { ids: [1,2,3] }
