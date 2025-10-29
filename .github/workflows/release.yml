@@ -1,0 +1,159 @@
+name: Release
+
+on:
+  pull_request:
+    types: [closed]
+    branches:
+      - main
+  workflow_dispatch:
+    inputs:
+      version_bump:
+        description: 'Version bump type'
+        required: true
+        type: choice
+        options:
+          - patch
+          - minor
+          - major
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    if: |
+      (github.event_name == 'pull_request' && github.event.pull_request.merged == true && 
+       (contains(github.event.pull_request.labels.*.name, 'release:patch') || 
+        contains(github.event.pull_request.labels.*.name, 'release:minor') || 
+        contains(github.event.pull_request.labels.*.name, 'release:major'))) ||
+      (github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main')
+    permissions:
+      contents: write
+      pull-requests: read
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Setup Bun
+        uses: oven-sh/setup-bun@v1
+        with:
+          bun-version: latest
+
+      - name: Setup Git
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+
+      - name: Install dependencies
+        run: bun install --frozen-lockfile
+
+      - name: Build project
+        run: bun run build
+
+      - name: Run tests
+        run: bun run test
+
+      - name: Determine version bump type
+        id: bump_type
+        run: |
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            BUMP="${{ github.event.inputs.version_bump }}"
+          else
+            if ${{ contains(github.event.pull_request.labels.*.name, 'release:major') }}; then
+              BUMP="major"
+            elif ${{ contains(github.event.pull_request.labels.*.name, 'release:minor') }}; then
+              BUMP="minor"
+            elif ${{ contains(github.event.pull_request.labels.*.name, 'release:patch') }}; then
+              BUMP="patch"
+            else
+              BUMP="patch"  # Default to patch if no label
+            fi
+          fi
+          echo "type=$BUMP" >> $GITHUB_OUTPUT
+
+      - name: Get current version
+        id: current_version
+        run: |
+          CURRENT=$(node -p "require('./package.json').version")
+          echo "version=$CURRENT" >> $GITHUB_OUTPUT
+
+      - name: Calculate new version
+        id: new_version
+        run: |
+          CURRENT="${{ steps.current_version.outputs.version }}"
+          BUMP="${{ steps.bump_type.outputs.type }}"
+          
+          IFS='.' read -r MAJOR MINOR PATCH <<< "$CURRENT"
+          
+          case $BUMP in
+            major)
+              MAJOR=$((MAJOR + 1))
+              MINOR=0
+              PATCH=0
+              ;;
+            minor)
+              MINOR=$((MINOR + 1))
+              PATCH=0
+              ;;
+            patch)
+              PATCH=$((PATCH + 1))
+              ;;
+          esac
+          
+          NEW_VERSION="$MAJOR.$MINOR.$PATCH"
+          NEW_DEV_VERSION="$MAJOR.$((MINOR + 1)).0-dev"
+          echo "version=$NEW_VERSION" >> $GITHUB_OUTPUT
+          echo "dev_version=$NEW_DEV_VERSION" >> $GITHUB_OUTPUT
+
+      - name: Update package.json to release version
+        run: |
+          bun run -e "
+          const fs = require('fs');
+          const pkg = JSON.parse(fs.readFileSync('package.json', 'utf-8'));
+          pkg.version = '${{ steps.new_version.outputs.version }}';
+          fs.writeFileSync('package.json', JSON.stringify(pkg, null, '\t') + '\n');
+          "
+
+      - name: Commit and tag release version
+        run: |
+          git add package.json
+          git commit -m "chore: release version ${{ steps.new_version.outputs.version }}"
+          git tag "v${{ steps.new_version.outputs.version }}"
+          git push origin main --tags
+
+      - name: Create GitHub Release
+        uses: actions/create-release@v1
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          tag_name: v${{ steps.new_version.outputs.version }}
+          release_name: Release ${{ steps.new_version.outputs.version }}
+          body: "Release version ${{ steps.new_version.outputs.version }}"
+          draft: false
+          prerelease: false
+
+      - name: Checkout develop branch
+        run: |
+          git fetch origin develop:develop || git checkout -b develop
+          git checkout develop
+
+      - name: Merge main into develop
+        run: |
+          git merge main --no-edit
+
+      - name: Update package.json to dev version
+        run: |
+          bun run -e "
+          const fs = require('fs');
+          const pkg = JSON.parse(fs.readFileSync('package.json', 'utf-8'));
+          pkg.version = '${{ steps.new_version.outputs.dev_version }}';
+          fs.writeFileSync('package.json', JSON.stringify(pkg, null, '\t') + '\n');
+          "
+
+      - name: Commit dev version
+        run: |
+          git add package.json
+          git commit -m "chore: bump to dev version ${{ steps.new_version.outputs.dev_version }}"
+          git push origin develop
