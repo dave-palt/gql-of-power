@@ -27,7 +27,7 @@ jobs:
       (github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main')
     permissions:
       contents: write
-      pull-requests: read
+      pull-requests: write
       id-token: write
 
     services:
@@ -126,29 +126,35 @@ jobs:
               MAJOR=$((MAJOR + 1))
               MINOR=0
               PATCH=0
+              NEXT_MINOR=1
               ;;
             minor)
               MINOR=$((MINOR + 1))
               PATCH=0
+              NEXT_MINOR=$((MINOR + 1))
               ;;
             patch)
               PATCH=$((PATCH + 1))
+              NEXT_MINOR=$MINOR
               ;;
           esac
 
           NEW_VERSION="$MAJOR.$MINOR.$PATCH"
-          NEW_DEV_VERSION="$MAJOR.$((MINOR + 1)).0-dev"
+          NEXT_DEV_VERSION="$MAJOR.$NEXT_MINOR.0-dev"
+          NEEDS_DEV_BUMP="false"
+          
+          # Only bump develop for major/minor releases
+          if [[ "$BUMP" != "patch" ]]; then
+            NEEDS_DEV_BUMP="true"
+          fi
+          
           echo "version=$NEW_VERSION" >> $GITHUB_OUTPUT
-          echo "dev_version=$NEW_DEV_VERSION" >> $GITHUB_OUTPUT
+          echo "next_dev_version=$NEXT_DEV_VERSION" >> $GITHUB_OUTPUT
+          echo "needs_dev_bump=$NEEDS_DEV_BUMP" >> $GITHUB_OUTPUT
+          echo "bump_type=$BUMP" >> $GITHUB_OUTPUT
 
       - name: Update package.json to release version
-        run: |
-          bun run -e "
-          const fs = require('fs');
-          const pkg = JSON.parse(fs.readFileSync('package.json', 'utf-8'));
-          pkg.version = '${{ steps.new_version.outputs.version }}';
-          fs.writeFileSync('package.json', JSON.stringify(pkg, null, '\t') + '\n');
-          "
+        run: bun run scripts/update-version.ts ${{ steps.new_version.outputs.version }}
 
       - name: Commit and tag release version
         run: |
@@ -187,18 +193,82 @@ jobs:
       - name: Merge main into develop
         run: |
           git merge main --no-edit
+          git push origin develop
 
-      - name: Update package.json to dev version
+      - name: Check if develop version bump is needed
+        id: check_dev_bump
         run: |
-          bun run -e "
-          const fs = require('fs');
-          const pkg = JSON.parse(fs.readFileSync('package.json', 'utf-8'));
-          pkg.version = '${{ steps.new_version.outputs.dev_version }}';
-          fs.writeFileSync('package.json', JSON.stringify(pkg, null, '\t') + '\n');
-          "
+          NEEDS_BUMP="${{ steps.new_version.outputs.needs_dev_bump }}"
+          
+          if [[ "$NEEDS_BUMP" == "true" ]]; then
+            # Get current develop version
+            CURRENT_DEV=$(node -p "require('./package.json').version")
+            TARGET_DEV="${{ steps.new_version.outputs.next_dev_version }}"
+            
+            echo "Current develop version: $CURRENT_DEV"
+            echo "Target develop version: $TARGET_DEV"
+            
+            # Compare versions (remove -dev suffix for comparison)
+            CURRENT_BASE=$(echo "$CURRENT_DEV" | sed 's/-dev$//')
+            TARGET_BASE=$(echo "$TARGET_DEV" | sed 's/-dev$//')
+            
+            # Simple version comparison: if target > current, we need to bump
+            if [[ "$TARGET_BASE" > "$CURRENT_BASE" ]]; then
+              echo "should_bump=true" >> $GITHUB_OUTPUT
+              echo "✅ Version bump needed: $CURRENT_DEV → $TARGET_DEV"
+            else
+              echo "should_bump=false" >> $GITHUB_OUTPUT
+              echo "ℹ️ Version bump skipped: develop ($CURRENT_DEV) is already ahead"
+            fi
+          else
+            echo "should_bump=false" >> $GITHUB_OUTPUT
+            echo "ℹ️ Patch release - no develop version bump needed"
+          fi
 
-      - name: Commit dev version
+      - name: Create version bump branch
+        if: steps.check_dev_bump.outputs.should_bump == 'true'
+        run: |
+          BRANCH_NAME="chore/bump-version-${{ steps.new_version.outputs.next_dev_version }}"
+          git checkout -b "$BRANCH_NAME"
+          echo "branch=$BRANCH_NAME" >> $GITHUB_ENV
+
+      - name: Update package.json to next dev version
+        if: steps.check_dev_bump.outputs.should_bump == 'true'
+        run: bun run scripts/update-version.ts ${{ steps.new_version.outputs.next_dev_version }}
+
+      - name: Commit version bump
+        if: steps.check_dev_bump.outputs.should_bump == 'true'
         run: |
           git add package.json
-          git commit -m "chore: bump to dev version ${{ steps.new_version.outputs.dev_version }}"
-          git push origin develop
+          git commit -m "chore: bump to dev version ${{ steps.new_version.outputs.next_dev_version }}"
+          git push origin "${{ env.branch }}"
+
+      - name: Create Pull Request to develop
+        if: steps.check_dev_bump.outputs.should_bump == 'true'
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const { data: pr } = await github.rest.pulls.create({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              title: `chore: bump version to ${{ steps.new_version.outputs.next_dev_version }}`,
+              head: '${{ env.branch }}',
+              base: 'develop',
+              body: `## Version Bump for Develop
+              
+              This PR bumps the develop branch to \`${{ steps.new_version.outputs.next_dev_version }}\` after releasing \`${{ steps.new_version.outputs.version }}\` to main.
+              
+              ### Changes
+              - Updated package.json version to next minor dev version
+              
+              ### Context
+              - **Release Version**: \`${{ steps.new_version.outputs.version }}\`
+              - **Bump Type**: \`${{ steps.new_version.outputs.bump_type }}\`
+              - **Next Dev Version**: \`${{ steps.new_version.outputs.next_dev_version }}\`
+              
+              This ensures develop stays ahead of main for the next development cycle.
+              
+              **Auto-generated by release workflow**`
+            });
+            console.log(`Created PR #${pr.number}`);
+            return pr.number;
