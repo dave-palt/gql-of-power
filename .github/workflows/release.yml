@@ -30,6 +30,24 @@ jobs:
       pull-requests: read
       id-token: write
 
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_USER: test_user
+          POSTGRES_PASSWORD: test_password
+          POSTGRES_DB: test_db
+        ports:
+          - 5432:5432
+
+    env:
+      DATABASE_URL: postgresql://test_user:test_password@localhost:5432/test_db
+      POSTGRES_HOST: localhost
+      POSTGRES_PORT: 5432
+      POSTGRES_USER: test_user
+      POSTGRES_PASSWORD: test_password
+      POSTGRES_DB: test_db
+
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
@@ -52,6 +70,21 @@ jobs:
 
       - name: Build project
         run: bun run build
+
+      - name: Wait for PostgreSQL
+        timeout-minutes: 2
+        run: |
+          echo "Waiting for PostgreSQL to be ready..."
+          for i in {1..30}; do
+            if pg_isready -h localhost -p 5432 -U test_user > /dev/null 2>&1; then
+              echo "PostgreSQL is ready!"
+              exit 0
+            fi
+            echo "Attempt $i/30: PostgreSQL not ready yet, waiting 2 seconds..."
+            sleep 2
+          done
+          echo "ERROR: PostgreSQL failed to become ready within 60 seconds"
+          exit 1
 
       - name: Run tests
         run: bun run test
@@ -85,9 +118,9 @@ jobs:
         run: |
           CURRENT="${{ steps.current_version.outputs.version }}"
           BUMP="${{ steps.bump_type.outputs.type }}"
-          
+
           IFS='.' read -r MAJOR MINOR PATCH <<< "$CURRENT"
-          
+
           case $BUMP in
             major)
               MAJOR=$((MAJOR + 1))
@@ -102,7 +135,7 @@ jobs:
               PATCH=$((PATCH + 1))
               ;;
           esac
-          
+
           NEW_VERSION="$MAJOR.$MINOR.$PATCH"
           NEW_DEV_VERSION="$MAJOR.$((MINOR + 1)).0-dev"
           echo "version=$NEW_VERSION" >> $GITHUB_OUTPUT
@@ -142,7 +175,7 @@ jobs:
         with:
           tag_name: v${{ steps.new_version.outputs.version }}
           release_name: Release ${{ steps.new_version.outputs.version }}
-          body: "Release version ${{ steps.new_version.outputs.version }}"
+          body: 'Release version ${{ steps.new_version.outputs.version }}'
           draft: false
           prerelease: false
 
