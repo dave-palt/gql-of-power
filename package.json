@@ -6,6 +6,11 @@
 	"types": "dist/index.d.ts",
 	"type": "module",
 	"module": "esnext",
+	"repository": {
+		"url": "https://github.com/dave-palt/gql-of-power",
+		"directory": "gql-of-power",
+		"type": "git"
+	},
 	"scripts": {
 		"build": "tsc",
 		"watch": "tsc --watch",
