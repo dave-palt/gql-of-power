@@ -50,24 +50,13 @@ export class GQLQueryManager {
 		filter?: GQLEntityFilterInputFieldType<T>,
 		pagination?: Partial<GQLEntityPaginationInputType<T>>
 	): Promise<K[]> {
-		if (!entity) {
+		if (!entity?.name) {
 			throw new Error(`Entity not provided`);
 		}
-		const logName = 'GetQueryResultsFor - ' + entity.name;
-		logger.time(logName);
-		logger.timeLog(logName);
-		if (!entity || !entity.name) {
-			logger.timeEnd(logName);
-			throw new Error(`Entity ${entity} not compatible`);
-		}
-		const { exists } = provider;
-		if (!exists(entity.name)) {
-			logger.timeEnd(logName);
+		if (!provider.exists(entity.name)) {
 			throw new Error(`Entity ${entity.name} not found in metadata`);
 		}
 		const fields = getGQLFields(info) as FieldSelection<T>;
-		logger.log(logName, 'fields', JSON.stringify(fields, null, 2));
-
 		return this.getQueryResultsForFields<K, T>(provider, entity, fields, filter, pagination);
 	}
 
@@ -78,38 +67,35 @@ export class GQLQueryManager {
 		filter?: GQLEntityFilterInputFieldType<T>,
 		pagination?: Partial<GQLEntityPaginationInputType<T>>
 	): Promise<K[]> {
-		if (!entity) {
+		if (!entity?.name) {
 			throw new Error(`Entity not provided`);
 		}
-		const logName = 'GetQueryResultsFor - ' + entity.name;
+		const logName = 'getQueryResultsForFields - ' + entity.name;
 		logger.time(logName);
-		logger.timeLog(logName);
-		if (!entity || !entity.name) {
+		try {
+			const { exists, executeQuery } = provider;
+			if (!exists(entity.name)) {
+				throw new Error(`Entity ${entity.name} not found in metadata`);
+			}
+			const customFields = getCustomFieldsFor(getGQLEntityNameForClass(entity));
+			const mapper = new GQLtoSQLMapper(provider, this.opts);
+
+			const { bindings, querySQL } = mapper.buildQueryAndBindingsFor({
+				fields,
+				customFields,
+				entity,
+				filter,
+				pagination,
+			});
+
+			logger.timeLog(logName, 'query built', querySQL, bindings);
+			const sql = this.bindSQLQuery(provider, querySQL, bindings);
+			const res = (await executeQuery(sql)) as Array<K>;
+
+			return res;
+		} finally {
 			logger.timeEnd(logName);
-			throw new Error(`Entity ${entity} not compatible`);
 		}
-		const { exists, executeQuery } = provider;
-		if (!exists(entity.name)) {
-			logger.timeEnd(logName);
-			throw new Error(`Entity ${entity.name} not found in metadata`);
-		}
-		const customFields = getCustomFieldsFor(getGQLEntityNameForClass(entity));
-		const mapper = new GQLtoSQLMapper(provider, this.opts);
-
-		const { bindings, querySQL } = mapper.buildQueryAndBindingsFor({
-			fields,
-			customFields,
-			entity,
-			filter,
-			pagination,
-		});
-
-		logger.timeLog(logName, 'input processed, query created', querySQL, bindings);
-		const sql = this.bindSQLQuery(provider, querySQL, bindings);
-
-		const res = (await executeQuery(sql)) as Array<K>;
-
-		return res;
 	}
 
 	protected bindSQLQuery(driver: DatabaseDriver, sql: string, bindings: any) {

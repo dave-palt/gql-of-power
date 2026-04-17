@@ -172,10 +172,15 @@ export class SQLBuilder {
 		jsonSelect: string,
 		fromSQL: string,
 		joins: string[],
-		alias: string
+		alias: string,
+		jsonColumns: string[] = []
 	): string {
+		if (joins.length > 0 && jsonColumns.length > 0) {
+			const innerBody = `( select ${alias}.*, ${jsonColumns.join(', ')} from ${fromSQL} ${joins.join(' \n')} ) as ${alias}`;
+			return `left outer join lateral ( select ${jsonSelect} as value from ${innerBody} ) as ${alias} on true`.replaceAll(/[ \n\t]+/gi, ' ');
+		}
 		return `left outer join lateral (
-			select ${jsonSelect} as value 
+			select ${jsonSelect} as value
 			from ${fromSQL}
 			${joins.join(' \n')}
 		) as ${alias} on true`.replaceAll(/[ \n\t]+/gi, ' ');

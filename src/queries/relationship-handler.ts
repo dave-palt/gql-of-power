@@ -105,7 +105,8 @@ export class RelationshipHandler {
 				jsonSelect,
 				subFromSQL,
 				join,
-				alias.toString()
+				alias.toString(),
+				json
 			);
 
 			logger.log(
@@ -203,7 +204,8 @@ export class RelationshipHandler {
 				jsonSQL,
 				subFromSQL,
 				join,
-				alias.toString()
+				alias.toString(),
+				json
 			);
 
 			mapping.outerJoin.push(leftOuterJoin);
@@ -282,20 +284,12 @@ export class RelationshipHandler {
 				SQLBuilder.getFieldMapper(fieldMetadata, alias)
 			);
 
-			const leftOuterJoin = `left outer join lateral (
-			select ${jsonSQL} as value 
-				from (
-					select ${selectFields.join(', ')} 
-						from "${fieldMetadata.tableName}" as ${refAlias}
-					where (${fieldMetadata.primaryKeys.join(', ')})
-						in (${pivotTableSQL})
-						${whereWithValues.length > 0 ? ` and ( ${whereWithValues.join(' and ')} )` : ''}
-						${orderByClause}
-					${limit && !isNaN(limit) ? `limit ${limit}` : ''}
-					${offset && !isNaN(offset) ? `offset ${offset}` : ''}
-				) as ${refAlias}
-				${outerJoin.join(' \n')}
-			) as ${refAlias} on true`.replaceAll(/[ \n\t]+/gi, ' ');
+			const innerSubquery = `( select ${selectFields.join(', ')} from "${fieldMetadata.tableName}" as ${refAlias} where (${fieldMetadata.primaryKeys.join(', ')}) in (${pivotTableSQL}) ${whereWithValues.length > 0 ? ` and ( ${whereWithValues.join(' and ')} )` : ''} ${orderByClause} ${limit && !isNaN(limit) ? `limit ${limit}` : ''} ${offset && !isNaN(offset) ? `offset ${offset}` : ''} ) as ${refAlias}`;
+			const fromBody =
+				outerJoin.length > 0 && json.length > 0
+					? `( select ${refAlias}.*, ${json.join(', ')} from ${innerSubquery} ${outerJoin.join(' \n')} ) as ${refAlias}`
+					: `${innerSubquery} ${outerJoin.join(' \n')}`;
+			const leftOuterJoin = `left outer join lateral ( select ${jsonSQL} as value from ${fromBody} ) as ${refAlias} on true`.replaceAll(/[ \n\t]+/gi, ' ');
 
 			mapping.json.push(`${alias.toColumnName('value')} as "${gqlFieldName}"`);
 			mapping.outerJoin.push(leftOuterJoin);

@@ -544,6 +544,135 @@ describe('GQLtoSQLMapper - Relationship Integration Tests', () => {
 			expect(result.querySQL).toContain('person_battles');
 			expect(result.bindings).toBeDefined();
 		});
+
+		it('1:m → m:1: should include nested sub-entity json column in outer row_to_json scope', () => {
+			// Region -> locations (1:m) -> region (m:1 back-reference)
+			const fields = {
+				id: {},
+				name: {},
+				locations: {
+					fieldsByTypeName: {
+						Location: {
+							id: {},
+							name: {},
+							region: {
+								fieldsByTypeName: {
+									Region: { id: {}, name: {} },
+								},
+							},
+						},
+					},
+				},
+			};
+
+			const result = mapper.buildQueryAndBindingsFor({
+				fields,
+				entity: Region,
+				customFields: {},
+			});
+
+			// The wrapper pattern: select <alias>.*, <json_col> from (<inner>) as <alias> <lateral joins>
+			expect(result.querySQL).toMatch(/select \S+\.\*.*"region"/);
+		});
+
+		it('1:m → m:m: should include nested m:m json column in outer row_to_json scope', () => {
+			// Author -> books (1:m) -> genres (m:m)
+			const fields = {
+				id: {},
+				name: {},
+				books: {
+					fieldsByTypeName: {
+						Book: {
+							id: {},
+							title: {},
+							genres: {
+								fieldsByTypeName: {
+									Genre: { id: {}, name: {} },
+								},
+							},
+						},
+					},
+				},
+			};
+
+			const result = mapper.buildQueryAndBindingsFor({
+				fields,
+				entity: Author,
+				customFields: {},
+			});
+
+			expect(result.querySQL).toContain('authors');
+			expect(result.querySQL).toContain('books');
+			expect(result.querySQL).toContain('genres');
+			// Wrapper must appear so row_to_json on books sees the genres json column
+			expect(result.querySQL).toMatch(/select \S+\.\*.*"genres"/);
+		});
+
+		it('m:1 → m:1: should include nested m:1 json column in outer row_to_json scope', () => {
+			// Battle -> location (m:1) -> region (m:1)
+			const fields = {
+				id: {},
+				name: {},
+				location: {
+					fieldsByTypeName: {
+						Location: {
+							id: {},
+							name: {},
+							region: {
+								fieldsByTypeName: {
+									Region: { id: {}, name: {} },
+								},
+							},
+						},
+					},
+				},
+			};
+
+			const result = mapper.buildQueryAndBindingsFor({
+				fields,
+				entity: Battle,
+				customFields: {},
+			});
+
+			expect(result.querySQL).toContain('battles');
+			expect(result.querySQL).toContain('locations');
+			expect(result.querySQL).toContain('regions');
+			// Wrapper must appear so row_to_json on location sees the region json column
+			expect(result.querySQL).toMatch(/select \S+\.\*.*"region"/);
+		});
+
+		it('m:m → m:1: should include nested m:1 json column in outer row_to_json scope', () => {
+			// Person -> battles (m:m) -> location (m:1)
+			const fields = {
+				id: {},
+				name: {},
+				battles: {
+					fieldsByTypeName: {
+						Battle: {
+							id: {},
+							name: {},
+							location: {
+								fieldsByTypeName: {
+									Location: { id: {}, name: {} },
+								},
+							},
+						},
+					},
+				},
+			};
+
+			const result = mapper.buildQueryAndBindingsFor({
+				fields,
+				entity: Person,
+				customFields: {},
+			});
+
+			expect(result.querySQL).toContain('persons');
+			expect(result.querySQL).toContain('battles');
+			expect(result.querySQL).toContain('locations');
+			// Wrapper must appear so row_to_json on battles sees the location json column
+			expect(result.querySQL).toMatch(/select \S+\.\*.*"location"/);
+		});
 	});
 
 	describe('Relationship Field Filters', () => {
