@@ -23,6 +23,8 @@ import { AccessControlEntry, AccessControlList } from '../types/access-control';
 import { keys } from '../utils';
 import { logger } from '../variables';
 
+// ─── Internal registries ────────────────────────────────────────────────────
+
 const TypeMap: { [key: string]: any } = {};
 
 const FieldsOptionsMap: Record<string, Record<string, string>> = {};
@@ -30,12 +32,19 @@ const CustomFieldsMap: Record<string, CustomFieldsSettings<any>> = {};
 
 const aclMap: AccessControlList<any, any> = {};
 
+/** Auto-resolver registry: gqlEntityName → FieldsResolver class */
+const autoResolverRegistry = new Map<string, new () => any>();
+
+// ─── Global config ───────────────────────────────────────────────────────────
+
 let gqlTypesSuffix = '';
 let sortEnumRegistered = false;
 
 export const setGlobalConfig = (config: { gqlTypesSuffix: string }) => {
 	gqlTypesSuffix = config.gqlTypesSuffix;
 };
+
+// ─── Public accessors ────────────────────────────────────────────────────────
 
 export const getFieldsOptionsFor = (name: string): Record<string, string> =>
 	FieldsOptionsMap[name] ?? {};
@@ -56,6 +65,23 @@ export const getGQLEntityTypeFor = <T extends Object, K>(classType: new () => T)
 	getGQLEntityFieldResolverName(TypeMap[getGQLEntityNameForClass(classType)]);
 
 /**
+ * Returns all FieldsResolver classes registered by @GQLEntityClass decorators.
+ * Safe to spread directly into the resolvers array — these handle field resolvers only,
+ * never conflicts with custom @GQLResolver classes which handle queries/mutations.
+ *
+ * Usage in schema/index.ts:
+ *   export const v2Resolvers = [
+ *     CrmAccountV2Resolver,   // custom queries/mutations
+ *     ...getAutoResolvers(),  // field resolvers for all entities
+ *   ];
+ */
+export function getAutoResolvers(): Array<new () => any> {
+	return Array.from(autoResolverRegistry.values());
+}
+
+// ─── Sort enum deferred registration ────────────────────────────────────────
+
+/**
  * Registers the Sort enum with type-graphql using the current suffix.
  * Deferred from module load so that setGlobalConfig() can be called first,
  * or falls back to the D3GOP_SORT_SUFFIX / D3GOP_TYPES_SUFFIX env variable.
@@ -63,10 +89,235 @@ export const getGQLEntityTypeFor = <T extends Object, K>(classType: new () => T)
  */
 function ensureSortRegistered() {
 	if (sortEnumRegistered) return;
-	const suffix = gqlTypesSuffix || process.env['D3GOP_SORT_SUFFIX'] || process.env['D3GOP_TYPES_SUFFIX'] || '';
+	const suffix =
+		gqlTypesSuffix ||
+		process.env['D3GOP_SORT_SUFFIX'] ||
+		process.env['D3GOP_TYPES_SUFFIX'] ||
+		'';
 	registerEnumType(Sort, { name: `Sort${suffix}` });
 	sortEnumRegistered = true;
 }
+
+// ─── Static members type ──────────────────────────────────────────────────────
+
+/**
+ * Static members attached to every class decorated with @GQLEntityClass.
+ * TypeScript knows about these via the decorator return type — no `declare static` needed.
+ */
+export type GQLEntityStaticMembers = {
+	readonly FilterInput: new () => any;
+	readonly PaginationInput: new () => any;
+	readonly OrderBy: new () => any;
+	readonly FieldsResolver: new () => any;
+	readonly gqlEntityName: string;
+	readonly relatedEntityName: string;
+};
+
+/**
+ * Abstract base class for GQLEntityClass-decorated entities.
+ * Provides TypeScript visibility of the static members that @GQLEntityClass attaches at runtime.
+ * Extend this in your entity class to get full type safety without `declare static` boilerplate.
+ *
+ * @example
+ * @GQLEntityClass(CrmAccount, fields)
+ * export class CrmAccountGQL extends GQLEntityBase {}
+ *
+ * CrmAccountGQL.FilterInput   // ✓ TypeScript knows about this
+ * CrmAccountGQL.PaginationInput // ✓
+ */
+export abstract class GQLEntityBase {
+	static FilterInput: new () => any;
+	static PaginationInput: new () => any;
+	static OrderBy: new () => any;
+	static FieldsResolver: new () => any;
+	static gqlEntityName: string;
+	static relatedEntityName: string;
+}
+
+// ─── defineFields ─────────────────────────────────────────────────────────────
+
+/**
+ * Typed field config builder for @GQLEntityClass.
+ * The `ormClass` parameter is used only for TypeScript inference — constrains
+ * the config keys to `keyof T` at compile time. Identity function at runtime.
+ *
+ * @example
+ * const fields = defineFields(CrmAccount, {
+ *   id: { type: () => ID, generateFilter: true },
+ *   name: { type: () => String, generateFilter: true },
+ *   siteLocations: { type: () => CrmSiteLocationGQL, array: true, generateFilter: true },
+ * });
+ */
+export function defineFields<T extends Object>(
+	_ormClass: new () => T,
+	fields: Partial<FieldsSettings<T>>
+): Partial<FieldsSettings<T>> {
+	return fields;
+}
+
+// ─── @GQLEntityClass decorator ───────────────────────────────────────────────
+
+/**
+ * Class decorator that defines an entity as a GraphQL ObjectType and generates
+ * FilterInput, PaginationInput, OrderBy, and FieldsResolver automatically.
+ *
+ * The decorated class itself IS the GQLEntity @ObjectType — no separate GQLEntity needed.
+ * Statics attached: FilterInput, PaginationInput, OrderBy, FieldsResolver, gqlEntityName, relatedEntityName.
+ *
+ * The FieldsResolver is registered in the auto-resolver registry — include it in
+ * schema/index.ts via ...getAutoResolvers().
+ *
+ * Cross-entity references via relation fields use static imports + thunks — safe because
+ * the decorated class is a class constructor (hoisted), identical to type-graphql @ObjectType.
+ *
+ * @example
+ * const fields = defineFields(CrmAccount, {
+ *   id: { type: () => ID, generateFilter: true },
+ *   siteLocations: { type: () => CrmSiteLocationGQL, array: true, generateFilter: true },
+ * });
+ *
+ * @GQLEntityClass(CrmAccount, fields)
+ * export class CrmAccountGQL {}
+ *
+ * // CrmAccountGQL.FilterInput, .PaginationInput, .OrderBy, .FieldsResolver are now available
+ */
+export function GQLEntityClass<T extends Object, K>(
+	ormClass: new () => T,
+	fields: Partial<FieldsSettings<T>>,
+	extra?: {
+		customFields?: CustomFieldsSettings<T>;
+		acl?: AccessControlEntry<T, K>;
+	}
+): <C extends new (...args: any[]) => any>(target: C) => C & GQLEntityStaticMembers {
+	return (target: any) => {
+		const { customFields, acl } = extra ?? {};
+		ensureSortRegistered();
+
+		const metadata = getMetadataStorage();
+		const gqlEntityName = getGQLEntityNameForClass(ormClass);
+
+		aclMap[gqlEntityName] = acl ?? {};
+
+		// Use the decorated class itself as the GQLEntity
+		const GQLEntity = target as any;
+		TypeMap[gqlEntityName] = GQLEntity;
+
+		const fieldNames = keys(fields);
+
+		for (const fieldName of fieldNames) {
+			const fieldOptions = fieldName in fields ? fields[fieldName] : undefined;
+			if (!fieldOptions) continue;
+
+			const fieldNameOverride = (fieldOptions as any).alias;
+			if (fieldNameOverride) {
+				FieldsOptionsMap[gqlEntityName] = FieldsOptionsMap[gqlEntityName] || {};
+				FieldsOptionsMap[gqlEntityName][fieldNameOverride] = fieldName;
+			}
+			const fieldNameToUse = fieldNameOverride ?? fieldName;
+			const isArray = 'array' in fieldOptions && fieldOptions.array;
+
+			metadata.collectClassFieldMetadata({
+				target: GQLEntity,
+				name: fieldNameToUse,
+				schemaName: fieldNameToUse,
+				getType: fieldOptions.type,
+				complexity: undefined,
+				description: fieldNameToUse,
+				deprecationReason: undefined,
+				typeOptions: {
+					...(isArray ? { array: true, arrayDepth: 1 } : {}),
+					...fieldOptions.options,
+				},
+			});
+		}
+
+		ObjectType(gqlEntityName)(GQLEntity);
+
+		// Auto-fill relatedEntityName for relation fields that use a @GQLEntityClass-decorated type
+		const resolvedFields = _resolveRelatedEntityNames(fields);
+
+		const resolverDef = _buildResolversForEntity(
+			GQLEntity,
+			gqlEntityName,
+			fieldNames,
+			resolvedFields,
+			metadata,
+			customFields
+		);
+
+		// Attach statics — the class IS the GQLEntity
+		Object.assign(target, {
+			FilterInput: resolverDef.GQLEntityFilterInput,
+			PaginationInput: resolverDef.GQLEntityPaginationInputField,
+			OrderBy: resolverDef.GQLEntityOrderBy,
+			FieldsResolver: resolverDef.FieldsResolver,
+			gqlEntityName,
+			relatedEntityName: ormClass.name,
+		});
+
+		// Register FieldsResolver in the auto-resolver registry
+		autoResolverRegistry.set(gqlEntityName, resolverDef.FieldsResolver);
+
+		return target as any;
+	};
+}
+
+/**
+ * For any field that has `array: true` but no explicit `relatedEntityName`,
+ * attempt to derive it from the decorated type class's `.relatedEntityName` static.
+ * This allows `defineFields` consumers to skip the redundant `relatedEntityName` boilerplate.
+ */
+function _resolveRelatedEntityNames<T>(fields: Partial<FieldsSettings<T>>): Partial<FieldsSettings<T>> {
+	const resolved: Partial<FieldsSettings<T>> = {};
+	for (const [fieldName, fieldOptions] of Object.entries(fields)) {
+		if (!fieldOptions) {
+			(resolved as any)[fieldName] = fieldOptions;
+			continue;
+		}
+		const isArray = 'array' in (fieldOptions as object) && (fieldOptions as any).array;
+		const hasRelatedEntityName = 'relatedEntityName' in (fieldOptions as object);
+
+		if (isArray && !hasRelatedEntityName) {
+			// Try to derive relatedEntityName from the type thunk
+			const derivedRelatedEntityName = () => {
+				const typeClass = (fieldOptions as any).type?.();
+				return (typeClass as any)?.relatedEntityName ?? typeClass?.name ?? '';
+			};
+			(resolved as any)[fieldName] = {
+				...fieldOptions,
+				relatedEntityName: derivedRelatedEntityName,
+			};
+		} else {
+			(resolved as any)[fieldName] = fieldOptions;
+		}
+	}
+	return resolved;
+}
+
+// ─── @GQLResolver decorator ──────────────────────────────────────────────────
+
+/**
+ * Marks a class as a custom resolver for a @GQLEntityClass entity.
+ * Applies @Resolver(() => EntityClass) to the decorated class.
+ *
+ * The decorated class handles custom queries/mutations only — field resolvers
+ * are always handled by the auto-generated FieldsResolver (via getAutoResolvers()).
+ * type-graphql merges both into the final schema for the same type.
+ *
+ * @example
+ * @GQLResolver(CrmAccountGQL)
+ * export class CrmAccountV2Resolver {
+ *   @Query(() => [CrmAccountGQL])
+ *   async crmAccountsV2(...) { ... }
+ * }
+ */
+export function GQLResolver(entityClass: new () => any): ClassDecorator {
+	return (target) => {
+		Resolver(() => entityClass)(target);
+	};
+}
+
+// ─── Phase 1: createGQLEntity ────────────────────────────────────────────────
 
 /**
  * Phase 1: creates and registers the GQLEntity @ObjectType class.
@@ -115,8 +366,6 @@ export function createGQLEntity<T extends Object, K>(
 		}
 		const fieldNameToUse = fieldNameOverride ?? fieldName;
 
-		// Register the field on GQLEntity eagerly so TypeMap entries exist for cross-entity refs.
-		// Filter/pagination/resolver infrastructure is deferred to buildResolvers().
 		const isArray = 'array' in fieldOptions && fieldOptions.array;
 		metadata.collectClassFieldMetadata({
 			target: GQLEntity,
@@ -135,143 +384,15 @@ export function createGQLEntity<T extends Object, K>(
 
 	ObjectType(gqlEntityName)(GQLEntity);
 
-	/**
-	 * Phase 2: creates FieldsResolver, filter inputs, and pagination types.
-	 * Must be called once all entity modules have been imported (i.e. at schema build time).
-	 */
 	function buildResolvers() {
-		class GQLEntityFilterInput {
-			@Field(() => [GQLEntityFilterInput], { nullable: true })
-			_and?: GQLEntityFilterInput[];
-
-			@Field(() => [GQLEntityFilterInput], { nullable: true })
-			_or?: GQLEntityFilterInput[];
-
-			@Field(() => [GQLEntityFilterInput], { nullable: true })
-			_not?: GQLEntityFilterInput[];
-		}
-		Object.defineProperty(GQLEntityFilterInput, 'name', {
-			value: gqlEntityName + 'FilterInput',
-		});
-		TypeMap[gqlEntityName + 'FilterInput'] = GQLEntityFilterInput;
-
-		class GQLEntityOrderBy {}
-		Object.defineProperty(GQLEntityOrderBy, 'name', {
-			value: gqlEntityName + 'OrderBy',
-		});
-		TypeMap[gqlEntityName + 'OrderBy'] = GQLEntityOrderBy;
-
-		@Resolver(() => GQLEntity)
-		class FieldsResolver {}
-
-		if (customFields) {
-			CustomFieldsMap[gqlEntityName] = customFields;
-
-			logger.info('CustomFieldsMap', gqlEntityName, customFields);
-
-			for (const fieldName of keys(customFields)) {
-				const fieldOptions = fieldName in customFields ? customFields[fieldName] : undefined;
-
-				if (!fieldOptions) {
-					continue;
-				}
-				const fieldNameOverride = fieldOptions.alias;
-				if (fieldNameOverride) {
-					FieldsOptionsMap[gqlEntityName] = FieldsOptionsMap[gqlEntityName] || {};
-					FieldsOptionsMap[gqlEntityName][fieldNameOverride] = fieldName;
-				}
-
-				const fieldNameToUse = fieldNameOverride ?? fieldName;
-
-				metadata.collectClassFieldMetadata({
-					target: GQLEntity,
-					name: fieldNameToUse,
-					schemaName: fieldNameToUse,
-					getType: fieldOptions.type,
-					typeOptions: {
-						...('array' in fieldOptions && fieldOptions.array ? { array: true, arrayDepth: 1 } : {}),
-						...fieldOptions.options,
-					},
-					complexity: undefined,
-					description: fieldNameToUse,
-					deprecationReason: undefined,
-				});
-				if (fieldOptions.resolve) {
-					Object.defineProperty(FieldsResolver.prototype, fieldNameToUse, {
-						value: fieldOptions.resolve,
-						writable: true,
-						configurable: true,
-					});
-
-					FieldResolver(fieldOptions.type, {
-						...('array' in fieldOptions && fieldOptions.array ? { array: true, arrayDepth: 1 } : {}),
-						...fieldOptions.options,
-						name: fieldNameToUse,
-					})(
-						FieldsResolver.prototype,
-						fieldNameToUse,
-						Object.getOwnPropertyDescriptor(FieldsResolver.prototype, fieldNameToUse)!
-					);
-
-					fieldOptions.resolveDecorators?.forEach((decorator, i) => {
-						decorator(FieldsResolver.prototype, fieldNameToUse, i);
-					});
-				}
-			}
-		}
-
-		InputType(gqlEntityName + 'OrderBy')(GQLEntityOrderBy);
-
-		const paginationTypeName = `${gqlEntityName}PaginationInput`;
-
-		@InputType(paginationTypeName)
-		class GQLEntityPaginationInputField {
-			@Field(() => Int, {
-				nullable: true,
-			})
-			limit?: number;
-
-			@Field(() => Int, {
-				nullable: true,
-			})
-			offset?: number;
-
-			@Field(() => [GQLEntityOrderBy], { nullable: true })
-			orderBy?: OrderByOptions[];
-		}
-		Object.defineProperty(GQLEntityPaginationInputField, 'name', {
-			value: paginationTypeName,
-		});
-		TypeMap[paginationTypeName] = GQLEntityPaginationInputField;
-
-		for (const fieldName of fields) {
-			const fieldOptions = fieldName in opts ? opts[fieldName] : undefined;
-			if (!fieldOptions) {
-				continue;
-			}
-			const fieldNameOverride = fieldOptions.alias;
-			const fieldNameToUse = fieldNameOverride ?? fieldName;
-
-			createGQLEntityFilters(
-				fieldOptions,
-				fieldNameToUse,
-				GQLEntity,
-				metadata,
-				GQLEntityOrderBy,
-				gqlEntityName,
-				GQLEntityFilterInput
-			);
-		}
-
-		InputType(gqlEntityName + 'FilterInput')(GQLEntityFilterInput);
-
-		return {
-			GQLEntityFilterInput: GQLEntityFilterInput as any as GQLEntityFilterInputFieldType<T>,
-			GQLEntityPaginationInputField:
-				GQLEntityPaginationInputField as any as GQLEntityPaginationInputType<T>,
-			FieldsResolver,
-			bindFieldResolvers: (_c: any) => {},
-		};
+		return _buildResolversForEntity(
+			GQLEntity,
+			gqlEntityName,
+			fields,
+			opts,
+			metadata,
+			customFields
+		);
 	}
 
 	return {
@@ -281,6 +402,153 @@ export function createGQLEntity<T extends Object, K>(
 		buildResolvers,
 	};
 }
+
+// ─── Shared resolver builder ─────────────────────────────────────────────────
+
+function _buildResolversForEntity<T>(
+	GQLEntity: new () => any,
+	gqlEntityName: string,
+	fields: string[],
+	opts: Partial<FieldsSettings<T>>,
+	metadata: ReturnType<typeof getMetadataStorage>,
+	customFields?: CustomFieldsSettings<T>
+) {
+	class GQLEntityFilterInput {
+		@Field(() => [GQLEntityFilterInput], { nullable: true })
+		_and?: GQLEntityFilterInput[];
+
+		@Field(() => [GQLEntityFilterInput], { nullable: true })
+		_or?: GQLEntityFilterInput[];
+
+		@Field(() => [GQLEntityFilterInput], { nullable: true })
+		_not?: GQLEntityFilterInput[];
+	}
+	Object.defineProperty(GQLEntityFilterInput, 'name', {
+		value: gqlEntityName + 'FilterInput',
+	});
+	TypeMap[gqlEntityName + 'FilterInput'] = GQLEntityFilterInput;
+
+	class GQLEntityOrderBy {}
+	Object.defineProperty(GQLEntityOrderBy, 'name', {
+		value: gqlEntityName + 'OrderBy',
+	});
+	TypeMap[gqlEntityName + 'OrderBy'] = GQLEntityOrderBy;
+
+	@Resolver(() => GQLEntity)
+	class FieldsResolver {}
+
+	if (customFields) {
+		CustomFieldsMap[gqlEntityName] = customFields;
+
+		logger.info('CustomFieldsMap', gqlEntityName, customFields);
+
+		for (const fieldName of keys(customFields)) {
+			const fieldOptions = fieldName in customFields ? customFields[fieldName] : undefined;
+
+			if (!fieldOptions) {
+				continue;
+			}
+			const fieldNameOverride = fieldOptions.alias;
+			if (fieldNameOverride) {
+				FieldsOptionsMap[gqlEntityName] = FieldsOptionsMap[gqlEntityName] || {};
+				FieldsOptionsMap[gqlEntityName][fieldNameOverride] = fieldName;
+			}
+
+			const fieldNameToUse = fieldNameOverride ?? fieldName;
+
+			metadata.collectClassFieldMetadata({
+				target: GQLEntity,
+				name: fieldNameToUse,
+				schemaName: fieldNameToUse,
+				getType: fieldOptions.type,
+				typeOptions: {
+					...('array' in fieldOptions && fieldOptions.array ? { array: true, arrayDepth: 1 } : {}),
+					...fieldOptions.options,
+				},
+				complexity: undefined,
+				description: fieldNameToUse,
+				deprecationReason: undefined,
+			});
+			if (fieldOptions.resolve) {
+				Object.defineProperty(FieldsResolver.prototype, fieldNameToUse, {
+					value: fieldOptions.resolve,
+					writable: true,
+					configurable: true,
+				});
+
+				FieldResolver(fieldOptions.type, {
+					...('array' in fieldOptions && fieldOptions.array ? { array: true, arrayDepth: 1 } : {}),
+					...fieldOptions.options,
+					name: fieldNameToUse,
+				})(
+					FieldsResolver.prototype,
+					fieldNameToUse,
+					Object.getOwnPropertyDescriptor(FieldsResolver.prototype, fieldNameToUse)!
+				);
+
+				fieldOptions.resolveDecorators?.forEach((decorator, i) => {
+					decorator(FieldsResolver.prototype, fieldNameToUse, i);
+				});
+			}
+		}
+	}
+
+	InputType(gqlEntityName + 'OrderBy')(GQLEntityOrderBy);
+
+	const paginationTypeName = `${gqlEntityName}PaginationInput`;
+
+	@InputType(paginationTypeName)
+	class GQLEntityPaginationInputField {
+		@Field(() => Int, {
+			nullable: true,
+		})
+		limit?: number;
+
+		@Field(() => Int, {
+			nullable: true,
+		})
+		offset?: number;
+
+		@Field(() => [GQLEntityOrderBy], { nullable: true })
+		orderBy?: OrderByOptions[];
+	}
+	Object.defineProperty(GQLEntityPaginationInputField, 'name', {
+		value: paginationTypeName,
+	});
+	TypeMap[paginationTypeName] = GQLEntityPaginationInputField;
+
+	for (const fieldName of fields) {
+		const fieldOptions = fieldName in opts ? (opts as any)[fieldName] : undefined;
+		if (!fieldOptions) {
+			continue;
+		}
+		const fieldNameOverride = fieldOptions.alias;
+		const fieldNameToUse = fieldNameOverride ?? fieldName;
+
+		createGQLEntityFilters(
+			fieldOptions,
+			fieldNameToUse,
+			GQLEntity,
+			metadata,
+			GQLEntityOrderBy,
+			gqlEntityName,
+			GQLEntityFilterInput
+		);
+	}
+
+	InputType(gqlEntityName + 'FilterInput')(GQLEntityFilterInput);
+
+	return {
+		GQLEntityFilterInput: GQLEntityFilterInput as any as GQLEntityFilterInputFieldType<T>,
+		GQLEntityPaginationInputField:
+			GQLEntityPaginationInputField as any as GQLEntityPaginationInputType<T>,
+		GQLEntityOrderBy,
+		FieldsResolver,
+		bindFieldResolvers: (_c: any) => {},
+	};
+}
+
+// ─── Convenience wrapper ─────────────────────────────────────────────────────
 
 /**
  * Convenience wrapper — creates entity, builds resolvers, and returns everything merged.
@@ -303,13 +571,13 @@ export function createGQLTypes<T extends Object, K>(
 	};
 }
 
+// ─── Filter/sort metadata builder ───────────────────────────────────────────
+
 type TypeGQLMetadataStorage = ReturnType<typeof getMetadataStorage>;
 type FieldParameter = Parameters<TypeGQLMetadataStorage['collectClassFieldMetadata']>[0];
 
 /**
  * Creates filter and sorting metadata for a field. Called during buildResolvers().
- * Separated from field registration (which happens in createGQLEntity) so that
- * cross-entity TypeMap lookups resolve correctly after all entities are loaded.
  */
 export function createGQLEntityFilters<T, K>(
 	fieldOptions: FieldSettings | RelatedFieldSettings<T>,

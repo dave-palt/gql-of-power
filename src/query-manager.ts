@@ -53,11 +53,14 @@ export class GQLQueryManager {
 		if (!entity?.name) {
 			throw new Error(`Entity not provided`);
 		}
-		if (!provider.exists(entity.name)) {
-			throw new Error(`Entity ${entity.name} not found in metadata`);
+		// Support @GQLEntityClass-decorated classes: use relatedEntityName (ORM class name)
+		// for metadata provider lookup, since provider knows 'CrmAccount' not 'CrmAccountGQL'.
+		const entityName = (entity as any).relatedEntityName ?? entity.name;
+		if (!provider.exists(entityName)) {
+			throw new Error(`Entity ${entityName} not found in metadata`);
 		}
 		const fields = getGQLFields(info) as FieldSelection<T>;
-		return this.getQueryResultsForFields<K, T>(provider, entity, fields, filter, pagination);
+		return this.getQueryResultsForFields<K, T>(provider, entity, fields, filter, pagination, entityName);
 	}
 
 	async getQueryResultsForFields<K extends { _____name: string }, T>(
@@ -65,25 +68,37 @@ export class GQLQueryManager {
 		entity: new () => T,
 		fields: FieldSelection<T>,
 		filter?: GQLEntityFilterInputFieldType<T>,
-		pagination?: Partial<GQLEntityPaginationInputType<T>>
+		pagination?: Partial<GQLEntityPaginationInputType<T>>,
+		entityNameOverride?: string
 	): Promise<K[]> {
 		if (!entity?.name) {
 			throw new Error(`Entity not provided`);
 		}
-		const logName = 'getQueryResultsForFields - ' + entity.name;
+		// Support @GQLEntityClass-decorated classes: use relatedEntityName (ORM class name)
+		const entityName = entityNameOverride ?? (entity as any).relatedEntityName ?? entity.name;
+		const logName = 'getQueryResultsForFields - ' + entityName;
 		logger.time(logName);
 		try {
 			const { exists, executeQuery } = provider;
-			if (!exists(entity.name)) {
-				throw new Error(`Entity ${entity.name} not found in metadata`);
+			if (!exists(entityName)) {
+				throw new Error(`Entity ${entityName} not found in metadata`);
 			}
 			const customFields = getCustomFieldsFor(getGQLEntityNameForClass(entity));
 			const mapper = new GQLtoSQLMapper(provider, this.opts);
 
+			// If entityName differs from entity.name (i.e. @GQLEntityClass decorated class),
+			// create a named proxy so the mapper can look up the ORM entity metadata by name.
+			let entityForMapper: new () => T = entity;
+			if (entityName !== entity.name) {
+				entityForMapper = class {} as any;
+				Object.defineProperty(entityForMapper, 'name', { value: entityName });
+				Object.setPrototypeOf(entityForMapper, entity);
+			}
+
 			const { bindings, querySQL } = mapper.buildQueryAndBindingsFor({
 				fields,
 				customFields,
-				entity,
+				entity: entityForMapper,
 				filter,
 				pagination,
 			});
@@ -94,7 +109,7 @@ export class GQLQueryManager {
 
 			return res;
 		} finally {
-			logger.timeEnd(logName);
+			logger.timeEnd(logName); // eslint-disable-line
 		}
 	}
 
