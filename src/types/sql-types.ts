@@ -98,15 +98,127 @@ export type RelatedFieldSettings<T> = FieldBaseSettings & {
 	alias?: string;
 };
 
-export type CustomFieldSettings<T> = Omit<RelatedFieldSettings<T>, 'resolve'> & {
+/**
+ * Describes a SQL JOIN from the owner entity to a reference ORM entity via
+ * one or more foreign key columns.
+ *
+ * Use this in `customFields` when the relationship is **not** declared as an ORM
+ * relation (e.g. the FK exists as a plain property like `crmAccountId: string`)
+ * and you want the library to generate the SQL JOIN automatically.
+ *
+ * Both `refFields` and `fields` accept a single string (shorthand for the common
+ * single-column FK) or an array of strings for composite keys.
+ *
+ * @typeParam TOwner - The ORM entity class that owns the FK column(s)
+ * @typeParam TRef   - The ORM entity class being joined to (inferred from `refEntity`)
+ *
+ * @example
+ * // Single FK column — string shorthand
+ * const mapping: FieldMappingConfig<Job, CrmAccount> = {
+ *   refEntity: CrmAccount,
+ *   refFields: 'id',           // column on CrmAccount
+ *   fields:    'crmAccountId', // column on Job
+ * };
+ *
+ * @example
+ * // Composite FK — array form
+ * const mapping: FieldMappingConfig<Order, OrderLine> = {
+ *   refEntity: OrderLine,
+ *   refFields: ['tenantId', 'externalId'],
+ *   fields:    ['tenantId',  'lineExternalId'],
+ * };
+ */
+export type FieldMappingConfig<TOwner, TRef = any> = {
+	/** The ORM entity class to JOIN to. Must be registered in the metadata provider. */
+	refEntity: new () => TRef;
 	/**
-	 * Decorators to apply to the resolver method in order.
-	 * Example: [Root(), Ctx(), Info()]
-	 * The parameters of the resolver method will be in the same order as the decorators.
+	 * The property name(s) on `refEntity` to match against.
+	 * Accepts a single property name or an array for composite keys.
+	 * Must have the same length as `fields`.
+	 * Values are type-checked as `keyof TRef`.
 	 */
-	resolveDecorators?: Array<ParameterDecorator>;
-	resolve: (...any: any) => any;
+	refFields: (string & keyof TRef) | Array<string & keyof TRef>;
+	/**
+	 * The property name(s) on the owner entity to match from.
+	 * Accepts a single property name or an array for composite keys.
+	 * Must have the same length as `refFields`.
+	 * Values are type-checked as `keyof TOwner`.
+	 */
+	fields: (string & keyof TOwner) | Array<string & keyof TOwner>;
 };
+
+/**
+ * Settings for a custom GraphQL field that is resolved outside the main entity's table.
+ *
+ * There are two mutually exclusive resolution strategies — you must provide exactly one:
+ *
+ * ---
+ * ### `resolve` strategy
+ * Provide a GraphQL `@FieldResolver` function. The library ensures the field(s) listed in
+ * `requires` are fetched from the main SQL query even when not requested by the client,
+ * then your `resolve` function runs at GraphQL resolution time.
+ *
+ * Ideal for DataLoader patterns where you want to batch-load related data.
+ *
+ * @example
+ * ```typescript
+ * account: {
+ *   type: () => CrmAccountGQL,
+ *   requires: 'crmAccountId',
+ *   resolveDecorators: [Root()],
+ *   resolve: (root: Job) => accountDataLoader.load(root.crmAccountId),
+ * }
+ * ```
+ *
+ * ---
+ * ### `mapping` strategy
+ * Provide a {@link FieldMappingConfig}. The library generates a SQL JOIN automatically
+ * and returns the related object directly from the SQL result — no resolver function needed.
+ *
+ * Use this when the FK exists as a plain column (not declared as an ORM relation).
+ *
+ * @example
+ * ```typescript
+ * account: {
+ *   type: () => CrmAccountGQL,
+ *   options: { nullable: true },
+ *   mapping: {
+ *     refEntity: CrmAccount,
+ *     refFields: 'id',
+ *     fields: 'crmAccountId',
+ *   },
+ * }
+ * ```
+ */
+export type CustomFieldSettings<T> = Omit<RelatedFieldSettings<T>, 'resolve'> &
+	(
+		| {
+				/**
+				 * GraphQL FieldResolver function. Parameters are determined by the order of
+				 * `resolveDecorators`. Use `requires` (from the base type) to ensure FK columns are
+				 * selected from the DB even when the client doesn't request them.
+				 */
+				resolve: (...any: any) => any;
+				/**
+				 * type-graphql parameter decorators applied to the resolver method in order.
+				 * The resolver function parameters will receive values in the same order.
+				 * @example [Root(), Ctx(), Info()]
+				 */
+				resolveDecorators?: Array<ParameterDecorator>;
+				mapping?: never;
+		  }
+		| {
+				/**
+				 * Declares a SQL JOIN from this entity to a reference ORM entity.
+				 * The library generates the JOIN and returns the related object from SQL.
+				 * No `resolve` function or `requires` needed.
+				 * @see FieldMappingConfig
+				 */
+				mapping: FieldMappingConfig<T, any>;
+				resolve?: never;
+				resolveDecorators?: never;
+		  }
+	);
 
 export type FieldsSettings<T> = {
 	[key in string & keyof T]: FieldSettings;
