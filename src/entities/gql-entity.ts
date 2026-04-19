@@ -54,7 +54,8 @@ export const getCustomFieldsFor = (name: string) => CustomFieldsMap[name] ?? {};
 
 export const getACLFor = (name: string) => aclMap[name] ?? {};
 
-export const getGQLEntityNameFor = (name: string) => `${name}${gqlTypesSuffix}`;
+export const getGQLEntityNameFor = (name: string) =>
+	`${name}${gqlTypesSuffix || process.env['D3GOP_SORT_SUFFIX'] || process.env['D3GOP_TYPES_SUFFIX'] || ''}`;
 export const getGQLEntityNameForClass = <T>(classType: new () => T) =>
 	getGQLEntityNameFor(classType.name);
 export const getGQLEntityFieldResolverName = (gqlEntityName: string) =>
@@ -470,6 +471,7 @@ function _buildResolversForEntity<T>(
 				deprecationReason: undefined,
 			});
 			if (fieldOptions.resolve) {
+				// resolve strategy: attach @FieldResolver + parameter decorators
 				Object.defineProperty(FieldsResolver.prototype, fieldNameToUse, {
 					value: fieldOptions.resolve,
 					writable: true,
@@ -489,6 +491,8 @@ function _buildResolversForEntity<T>(
 				fieldOptions.resolveDecorators?.forEach((decorator, i) => {
 					decorator(FieldsResolver.prototype, fieldNameToUse, i);
 				});
+			} else if ('mapping' in fieldOptions && fieldOptions.mapping) {
+				// mapping strategy: SQL mapper generates the JOIN — no FieldResolver needed
 			}
 		}
 	}
