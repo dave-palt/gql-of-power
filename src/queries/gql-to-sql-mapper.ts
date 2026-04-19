@@ -1,5 +1,6 @@
-import { getFieldByAlias } from '../entities';
+import { getFieldByAlias, getGQLEntityNameFor } from '../entities';
 import {
+	CustomFieldSettings,
 	CustomFieldsSettings,
 	EntityMetadata,
 	EntityProperty,
@@ -117,6 +118,8 @@ export class GQLtoSQLMapper {
 			)
 			.flat();
 
+		// Order-by fields must also be in the inner rawSelect subquery so the outer query can reference them
+		orderByFields.forEach((f) => rawSelect.add(f));
 		logger.log('orderByFields', orderByFields, 'select', select, 'orderBy');
 		const selectFields = [...new Set(orderByFields.concat(Array.from(select)).concat(json))];
 
@@ -298,7 +301,7 @@ export class GQLtoSQLMapper {
 				);
 
 				if (!fieldProps) {
-					return this.mapCustomField<T>(customFieldProps, mapping, alias, gqlFieldName, mappings);
+					return this.mapCustomField<T>(customFieldProps, mapping, alias, gqlFieldName, mappings, fieldsByTypeName, entityMetadata);
 				} else {
 					this.mapField<T>(
 						fieldName,
@@ -352,12 +355,108 @@ export class GQLtoSQLMapper {
 	};
 
 	private mapCustomField<T>(
-		customFieldProps: RelatedFieldSettings<T> | undefined,
+		customFieldProps: RelatedFieldSettings<T> | CustomFieldSettings<T> | undefined,
 		mapping: MappingsType,
 		latestAlias: Alias,
 		gqlFieldName: string,
-		mappings: Map<string, MappingsType>
+		mappings: Map<string, MappingsType>,
+		fieldsByTypeName?: any,
+		ownerMetadata?: EntityMetadata<T>
 	) {
+		// mapping strategy: generate a SQL JOIN to the reference entity
+		if (customFieldProps && 'mapping' in customFieldProps && customFieldProps.mapping) {
+			const { refEntity, refFields: rawRefFields, fields: rawLocalFields } = customFieldProps.mapping;
+
+			// Normalise single string → array for uniform handling
+			const refFields = Array.isArray(rawRefFields) ? rawRefFields : [rawRefFields];
+			const localFields = Array.isArray(rawLocalFields) ? rawLocalFields : [rawLocalFields];
+
+			const refEntityName = refEntity.name;
+
+			if (!this.exists(refEntityName)) {
+				// Reference entity not registered — fall back to null
+				mapping.select.add(`null AS "${gqlFieldName}"`);
+				return { mappings, latestAlias };
+			}
+
+			const refMetadata = this.getMetadata<any, EntityMetadata<any>>(refEntityName);
+			const joinAlias = this.Alias.next(AliasType.field, 'j');
+
+			// Resolve ORM property names to SQL column names via metadata.
+			// localSqlCols: FK columns on the owner entity (e.g. 'crm_account_id')
+			// refSqlCols: PK/matched columns on the ref entity (e.g. 'id')
+			const localSqlCols = localFields.map(
+				(localProp) =>
+					ownerMetadata?.properties[localProp as keyof typeof ownerMetadata.properties]
+						?.fieldNames?.[0] ?? String(localProp)
+			);
+			const refSqlCols = refFields.map(
+				(refProp) => refMetadata.properties[refProp]?.fieldNames?.[0] ?? String(refProp)
+			);
+
+			// Build ON clause: owner_alias.fk_col = ref_alias.pk_col
+			const where = localSqlCols
+				.map((localSqlCol, i) => {
+					return `${latestAlias.toColumnName(localSqlCol)} = ${joinAlias.toColumnName(refSqlCols[i])}`;
+				})
+				.join(' AND ');
+
+			// fieldsByTypeName is keyed by the GQL type name which may have a suffix (e.g. 'CrmAccountV2').
+			// Resolve via getGQLEntityNameFor so the suffix is applied consistently.
+			const subFields = fieldsByTypeName?.[getGQLEntityNameFor(refEntityName)] ?? fieldsByTypeName?.[refEntityName];
+			const newMappings = this.recursiveMap({
+				entityMetadata: refMetadata,
+				fields: subFields,
+				parentAlias: latestAlias,
+				alias: joinAlias,
+			});
+
+			const {
+				select: refSelect,
+				outerJoin: refOuterJoin,
+				where: refWhere,
+				values: refValues,
+				innerJoin: refInnerJoin,
+			} = QueriesUtils.mappingsReducer(newMappings);
+
+			// Ensure FK column(s) are in both the outer SELECT and the inner rawSelect subquery
+			localSqlCols.forEach((sqlCol) => {
+				mapping.select.add(latestAlias.toColumnName(sqlCol));
+				mapping.rawSelect.add(latestAlias.toColumnName(sqlCol));
+			});
+
+			// JSON aggregate — single object (not array), same pattern as RelationshipHandler.mapManyToOne
+			mapping.json.push(`${joinAlias.toColumnName('value')} as "${gqlFieldName}"`);
+
+			const selectFields = [
+				...new Set(
+					refSqlCols
+						.map((sqlCol) => joinAlias.toColumnName(sqlCol))
+						.concat(Array.from(refSelect))
+				),
+			];
+
+			const jsonSQL = SQLBuilder.generateJsonSelectStatement(joinAlias.toString()); // single object
+
+			const subFromSQL = `(
+				select ${selectFields.join(', ')}
+				from "${refMetadata.tableName}" as ${joinAlias.toString()}
+				${refInnerJoin.join(' \n')}
+				where ${where}
+				${refWhere.length > 0 ? ` and ( ${refWhere.join(' and ')} )` : ''}
+			) as ${joinAlias.toString()}`;
+
+			const leftOuterJoin =
+				`left outer join lateral ( select ${jsonSQL} as value from ${subFromSQL} ${refOuterJoin.join(' \n')} ) as ${joinAlias.toString()} on true`.replaceAll(
+					/[ \n\t]+/gi,
+					' '
+				);
+
+			mapping.outerJoin.push(leftOuterJoin);
+			mapping.values = { ...mapping.values, ...refValues };
+			return { mappings, latestAlias };
+		}
+
 		if (customFieldProps?.requires) {
 			const requires =
 				customFieldProps.requires instanceof Array
@@ -390,7 +489,9 @@ export class GQLtoSQLMapper {
 			logger.log('GQLtoSQLMapper - recursiveMap - referenceField latest alias', alias.toString());
 			const childAlias = this.Alias.next(AliasType.field, 'p');
 
-			const subFields = fields?.[fieldProps.type];
+			// fieldsByTypeName is keyed by the GQL type name which may have a suffix (e.g. 'DriverTruckAllocationV2').
+			// Resolve via getGQLEntityNameFor so the suffix is applied consistently.
+			const subFields = fields?.[getGQLEntityNameFor(fieldProps.type)] ?? fields?.[fieldProps.type];
 
 			logger.log(
 				'recursiveMap || GQLtoSQLMapper - recursiveMap - referenceField latest alias next',
