@@ -10,7 +10,7 @@ In the age of microservices and data loaders, a shadow falls upon performance: _
 
 But what if there was another way? What if, with the power of a single query, you could bind all your data together?
 
-**GQL of Power** is a TypeScript library that harnesses ancient sorcery to generate perfectly optimized SQL queries from your GraphQL operations. It eliminates the need for data loaders entirely—one query to fetch your complete data structure, no matter how deeply nested your relationships run.
+**GQL of Power** is a TypeScript library that harnesses ancient sorcery to generate perfectly optimized SQL queries from your GraphQL operations. It eliminates the need for data loaders entirely — one query to fetch your complete data structure, no matter how deeply nested your relationships run.
 
 Like the One Ring wielding dominion over all other Rings, GQL of Power commands your database with singular authority.
 
@@ -20,7 +20,7 @@ Like the One Ring wielding dominion over all other Rings, GQL of Power commands 
 
 ### 🗡️ Query Unification
 
-Generate a **single, optimized SQL query** from any GraphQL query structure—no matter how complex your relationships are.
+Generate a **single, optimized SQL query** from any GraphQL query structure — no matter how complex your relationships are.
 
 - ✨ **Eliminate Data Loaders** – Replace the tedious choreography of multiple queries with one powerful statement
 - 🏰 **Intelligent Relationship Handling** – Navigate 1:1, 1:m, m:1, and m:m relationships seamlessly
@@ -33,260 +33,319 @@ Generate a **single, optimized SQL query** from any GraphQL query structure—no
 - **Recursive Query Mapping** – Transforms GraphQL field selections into SQL recursively
 - **Automatic Join Generation** – Intelligently creates JOINs based on ORM entity relationships
 - **Dynamic Filtering** – Support for field-level and class-level filter operations (`_eq`, `_in`, `_like`, `_gt`, `_and`, `_or`, etc.)
-- **Pagination Support** – Native limit and offset handling through generated input types
-- **Custom Fields** – Extend entities with computed properties, DataLoaders, and business logic
-- **Framework Agnostic** – Works with any ORM through a simple MetadataProvider interface
+- **Pagination & Sorting** – Native limit, offset, and order-by handling
+- **Custom Fields** – Extend entities with computed properties, DataLoaders, or automatic SQL JOINs for unmapped foreign keys
+- **Framework Agnostic** – Works with any ORM through a simple `MetadataProvider` interface
 
 ---
 
 ## Installation
 
 ```bash
-# Using pnpm (recommended)
 pnpm add @dav3/gql-of-power
-
-# Using npm
-npm install @dav3/gql-of-power
-
-# Using yarn
-yarn add @dav3/gql-of-power
 ```
 
 ---
 
 ## Quick Start
 
-### 1. Define Your Entities
+### 1. Define Your GQL Entities
+
+Use `defineFields` + `@GQLEntityClass` to declare GraphQL entities. `defineFields` is typed against the ORM class — invalid field names are caught at compile time.
 
 ```typescript
-import { GQLEntity } from '@dav3/gql-of-power';
-import { ObjectType, Field, Int } from 'type-graphql';
+import { defineFields, GQLEntityBase, GQLEntityClass } from '@dav3/gql-of-power';
+import { Author, Book } from './orm-entities';
+import { ID, Int } from 'type-graphql';
 
-@ObjectType()
-export class Author extends GQLEntity {
-	@Field(() => Int)
-	id: number;
-
-	@Field()
-	name: string;
-
-	@Field(() => [Book])
-	books: Book[];
-}
-
-@ObjectType()
-export class Book extends GQLEntity {
-	@Field(() => Int)
-	id: number;
-
-	@Field()
-	title: string;
-
-	@Field()
-	publicationYear: number;
-
-	@Field(() => Author)
-	author: Author;
-}
-```
-
-### 2. Configure Metadata
-
-Provide ORM metadata that tells GQL of Power about your tables, columns, and relationships:
-
-```typescript
-const metadataProvider = {
-	getEntityMetadata: (entity) => ({
-		tableName: 'authors',
-		primaryKey: 'id',
-		fields: {
-			id: { columnName: 'id' },
-			name: { columnName: 'name' },
-		},
-	}),
-	// ... implement for all entities
-};
-```
-
-### 3. Execute Your Query
-
-```typescript
-import { QueryManager } from '@dav3/gql-of-power';
-
-const queryManager = new QueryManager(metadataProvider, knexInstance);
-
-// Execute a complex query with a single SQL statement
-const result = await queryManager.execute(
-	Author,
-	gqlInfo, // GraphQL resolve info
-	{
-		filter: { name: { _eq: 'Tolkien' } },
-		pagination: { limit: 10, offset: 0 },
-	}
-);
-
-// Returns all authors with all their books, published authors, and nested relationships
-```
-
----
-
-## Architecture: The Rings of Power
-
-### The Fellowship: Core Components
-
-| Component          | Purpose                                                           |
-| ------------------ | ----------------------------------------------------------------- |
-| **GQLtoSQLMapper** | The main artifact—transforms GraphQL into SQL with proper joins   |
-| **QueryManager**   | The orchestrator—manages the entire query execution flow          |
-| **EntitySystem**   | The registry—defines GraphQL entities with auto-generated filters |
-| **Operations**     | The spells—defines all available filtering operations             |
-
-### The Fellowship's Journey: Query Flow
-
-1. **Parsing** – GraphQL field selections are parsed using `graphql-fields`
-2. **Mapping** – `GQLtoSQLMapper.recursiveMap()` builds SQL recursively
-3. **Aggregation** – JSON aggregation combines nested results efficiently
-4. **Execution** – Final SQL is executed against your database
-
----
-
-## Advanced Usage
-
-### Comprehensive Filtering
-
-Filter at any nesting level with powerful operations:
-
-```typescript
-// Find authors with published books
-await queryManager.execute(Author, gqlInfo, {
-	filter: {
-		books: {
-			publicationYear: { _gte: 2000 },
-		},
-	},
+// --- Author ---
+const authorFields = defineFields(Author, {
+  id:   { type: () => ID,     generateFilter: true },
+  name: { type: () => String, generateFilter: true },
 });
 
-// Complex nested AND/OR conditions
-await queryManager.execute(Author, gqlInfo, {
-	filter: {
-		_and: [{ name: { _like: '%Tolkien%' } }, { books: { publicationYear: { _gte: 1950 } } }],
-	},
-});
-```
+@GQLEntityClass(Author, authorFields)
+export class AuthorGQL extends GQLEntityBase {}
 
-### Pagination & Sorting
-
-```typescript
-await queryManager.execute(Author, gqlInfo, {
-	pagination: {
-		limit: 20,
-		offset: 40,
-		orderBy: 'name', // ASC by default
-		orderByDirection: 'DESC',
-	},
-});
-```
-
-### Filter Operations
-
-| Operation      | Example                           | Meaning                            |
-| -------------- | --------------------------------- | ---------------------------------- |
-| `_eq`          | `{ id: { _eq: 5 } }`              | Equal to                           |
-| `_ne`          | `{ status: { _ne: 'inactive' } }` | Not equal to                       |
-| `_in`          | `{ id: { _in: [1, 2, 3] } }`      | In array                           |
-| `_like`        | `{ name: { _like: '%Frodo%' } }`  | String contains (case-insensitive) |
-| `_gt` / `_gte` | `{ year: { _gte: 1900 } }`        | Greater than (or equal)            |
-| `_lt` / `_lte` | `{ year: { _lte: 2000 } }`        | Less than (or equal)               |
-
-### Custom Fields
-
-Beyond GQL of Power's automated query generation, you can add **custom fields** that execute custom logic alongside your data fetching. Perfect for computed properties, cross-cutting concerns, or batch loading.
-
-```typescript
-// Define custom fields when creating GraphQL types
-const FellowshipGQL = createGQLTypes(Fellowship, FellowshipFields, {
-  customFields: {
-    // Custom field that fetches the first fellowship member
-    firstMember: {
-      type: () => GraphQLJSON,
-      options: { nullable: true },
-      requires: ['id'], // Fields that must be fetched from the database for this resolver
-      resolveDecorators: [Root(), Ctx(), Info()], // TypeGraphQL parameter decorators for the resolve function
-      resolve: (root: Fellowship, ctx: any, info: any) => {
-        // Your custom logic—can use DataLoader for batch loading
-        return memberDataLoader.load(root.id);
-      },
-    },
-  },
+// --- Book ---
+const bookFields = defineFields(Book, {
+  id:              { type: () => ID,     generateFilter: true },
+  title:           { type: () => String, generateFilter: true },
+  publishedYear:   { type: () => Int,    generateFilter: true },
+  author:          { type: () => AuthorGQL, options: { nullable: true } },
 });
 
-// Export FieldsResolver to use in your resolver classes
-export const FellowshipFieldsResolver = FellowshipGQL.FieldsResolver;
+@GQLEntityClass(Book, bookFields)
+export class BookGQL extends GQLEntityBase {}
 ```
 
-#### Custom Field Configuration
+The decorator attaches generated statics to the class:
 
-| Property | Purpose | Connection |
-|----------|---------|------------|
-| `type` | Declares the GraphQL return type that appears in the schema | The type clients see when querying this field |
-| `options` | TypeGraphQL field options like nullable, deprecation, descriptions | Controls field behavior in the GraphQL schema |
-| `requires` | Specifies which fields from the main query must be present in the result | GQL of Power ensures these database columns are fetched alongside the optimized query |
-| `resolve` | Function that receives the root entity object and returns the custom field value | Executed after the main query completes, receiving the fetched entity data |
-| `resolveDecorators` | TypeGraphQL decorators that map function parameters | Determines which context parameters (`Root`, `Ctx`, `Info`) are injected into the resolve function |
+| Static | Purpose |
+|--------|---------|
+| `BookGQL.FilterInput` | Generated filter input type |
+| `BookGQL.PaginationInput` | Generated pagination input type |
+| `BookGQL.OrderBy` | Generated order-by input type |
+| `BookGQL.FieldsResolver` | Auto-generated field resolver class |
+| `BookGQL.gqlEntityName` | GQL type name (with suffix if configured) |
+| `BookGQL.relatedEntityName` | ORM entity class name (`'Book'`) |
 
-#### Use Cases
-
-🧙 **DataLoader Integration** – Batch-load related data without N+1
-```typescript
-firstMember: {
-  type: () => PersonGQL.GQLEntity,
-  resolve: (root: Fellowship) => memberDataLoader.load(root.id),
-}
-```
-
-✨ **Computed Properties** – Calculate derived values
-```typescript
-memberCount: {
-  type: () => Number,
-  resolve: (root: Fellowship) => root.members?.length || 0,
-}
-```
-
-🎭 **Business Logic** – Apply formatting, ACL, or transformations
-```typescript
-formattedName: {
-  type: () => String,
-  resolve: (root: Fellowship) => formatTitle(root.name),
-}
-```
-
-#### Using Custom Fields in Resolvers
-
-To make custom fields available in your GraphQL resolvers, extend the generated `FieldsResolver` class:
+### 2. Write Resolvers
 
 ```typescript
 import { Resolver, Query, Arg, Info } from 'type-graphql';
-import { FellowshipGQL, FellowshipFieldsResolver } from './entities';
+import { GQLResolver, getAutoResolvers } from '@dav3/gql-of-power';
+import { GraphQLResolveInfo } from 'graphql';
 
-@Resolver(() => FellowshipGQL.GQLEntity)
-export class FellowshipResolver extends FellowshipFieldsResolver {
-  @Query(() => [FellowshipGQL.GQLEntity])
-  async fellowships(
+@GQLResolver(BookGQL)
+export class BookResolver {
+  @Query(() => [BookGQL])
+  async books(
+    @Arg('filter',     () => BookGQL.FilterInput,     { nullable: true }) filter: any,
+    @Arg('pagination', () => BookGQL.PaginationInput, { nullable: true }) pagination: any,
     @Info() info: GraphQLResolveInfo,
-    @Arg('filter', () => FellowshipGQL.GQLEntityFilterInput, { nullable: true })
-    filter?: GQLEntityFilterInputFieldType<Fellowship>
   ) {
-    return await queryManager.getQueryResultsForInfo(
-      metadataProvider,
-      Fellowship,
-      info,
-      filter
-    );
+    return queryManager.getQueryResultsForInfo(metadataProvider, BookGQL, info, filter, pagination);
   }
 }
 ```
 
-The `FieldsResolver` automatically handles custom field resolution alongside the main query execution. When a client requests a custom field, it will be resolved using your custom resolver logic while the rest of the query is handled by GQL of Power's optimized SQL generation.
+### 3. Build the Schema
+
+```typescript
+import { buildSchemaSync } from 'type-graphql';
+import { getAutoResolvers } from '@dav3/gql-of-power';
+import '../entities'; // trigger @GQLEntityClass decoration
+
+const schema = buildSchemaSync({
+  resolvers: [
+    BookResolver,
+    ...getAutoResolvers(), // FieldsResolver for every @GQLEntityClass entity
+  ],
+});
+```
+
+---
+
+## Entity API
+
+### `defineFields<T>(OrmClass, config)`
+
+Typed wrapper that constrains config keys to `keyof T`. Identity function at runtime — it exists purely for TypeScript inference.
+
+```typescript
+const fields = defineFields(Book, {
+  id:    { type: () => ID,     generateFilter: true },
+  title: { type: () => String, generateFilter: true },
+  typo:  { type: () => String }, // TS error — 'typo' is not keyof Book ✗
+});
+```
+
+#### Field options
+
+| Option | Type | Purpose |
+|--------|------|---------|
+| `type` | `() => GraphQLType` | GraphQL return type (required) |
+| `generateFilter` | `boolean` | Generate filter input fields for this property |
+| `options` | `FieldOptions` | type-graphql field options (nullable, description, etc.) |
+| `alias` | `string` | Override the GQL field name |
+| `array` | `true` | Mark as array return type |
+| `relatedEntityName` | `() => string` | ORM entity name for array relation fields (auto-derived when using `@GQLEntityClass`) |
+| `enum` | `EnumData` | Register an enum type |
+
+### `@GQLEntityClass(OrmClass, fields, extra?)`
+
+Class decorator that registers the entity with type-graphql and attaches generated statics.
+
+```typescript
+@GQLEntityClass(Book, fields, {
+  customFields: { ... }, // optional — see Custom Fields
+  acl: { ... },          // optional — access control
+})
+export class BookGQL extends GQLEntityBase {}
+```
+
+### `extends GQLEntityBase`
+
+Required base class. Provides TypeScript visibility of the decorator-attached statics (`FilterInput`, `PaginationInput`, etc.) without `declare static` boilerplate on each entity.
+
+### `@GQLResolver(EntityClass)`
+
+Marks a class as a custom resolver for the given GQL entity. Applies `@Resolver(() => EntityClass)` and integrates with type-graphql's resolver merging (the auto `FieldsResolver` and your custom query resolver coexist seamlessly).
+
+### `getAutoResolvers()`
+
+Returns all `FieldsResolver` classes registered by `@GQLEntityClass` decorators. Pass the result into `buildSchemaSync({ resolvers: [...getAutoResolvers()] })`.
+
+---
+
+## Custom Fields
+
+Custom fields extend a GQL entity with fields that don't exist as direct ORM properties. There are two mutually exclusive strategies.
+
+### Strategy 1: `resolve` — DataLoader / computed
+
+Provide a GraphQL `@FieldResolver` function. The library fetches field(s) listed in `requires` from the main query, then your `resolve` function runs at GraphQL resolution time.
+
+```typescript
+@GQLEntityClass(Fellowship, fields, {
+  customFields: {
+    firstMember: {
+      type: () => GraphQLJSON,
+      options: { nullable: true },
+      requires: 'id', // ensure 'id' is fetched even if client didn't request it
+      resolveDecorators: [Root(), Ctx()],
+      resolve: (root: Fellowship, ctx: any) => {
+        return memberDataLoader.load(root.id);
+      },
+    },
+  },
+})
+export class FellowshipGQL extends GQLEntityBase {}
+```
+
+#### `resolve` field options
+
+| Option | Purpose |
+|--------|---------|
+| `type` | GraphQL return type |
+| `options` | type-graphql field options |
+| `requires` | Field name(s) to ensure are fetched from DB |
+| `resolve` | The resolver function (required) |
+| `resolveDecorators` | type-graphql parameter decorators in order (`[Root(), Ctx(), Info()]`) |
+
+### Strategy 2: `mapping` — automatic SQL JOIN
+
+Provide a `FieldMappingConfig`. The library generates a SQL `LEFT JOIN LATERAL` automatically and returns the related object directly from the SQL result. No resolver function needed.
+
+Use this when the foreign key exists as a plain column on the entity (not declared as an ORM relation).
+
+```typescript
+import { CrmAccount } from './orm-entities';
+
+@GQLEntityClass(Job, fields, {
+  customFields: {
+    account: {
+      type: () => CrmAccountGQL,
+      options: { nullable: true },
+      mapping: {
+        refEntity: CrmAccount,    // ORM entity class to JOIN to
+        refFields: 'id',          // column(s) on CrmAccount — keyof CrmAccount ✓
+        fields: 'crmAccountId',   // column(s) on Job — keyof Job ✓
+      },
+    },
+  },
+})
+export class JobGQL extends GQLEntityBase {}
+```
+
+Composite FK — use arrays (must have the same length):
+
+```typescript
+mapping: {
+  refEntity: OrderLine,
+  refFields: ['tenantId', 'externalId'],
+  fields:    ['tenantId', 'lineExternalId'],
+}
+```
+
+#### `mapping` field options
+
+| Option | Type | Purpose |
+|--------|------|---------|
+| `type` | `() => GraphQLType` | GraphQL return type |
+| `options` | `FieldOptions` | type-graphql field options (nullable, etc.) |
+| `mapping.refEntity` | `new () => TRef` | ORM entity class to JOIN to (must be in the metadata provider) |
+| `mapping.refFields` | `keyof TRef \| Array<keyof TRef>` | Column(s) on the ref entity to match against |
+| `mapping.fields` | `keyof T \| Array<keyof T>` | Column(s) on the owner entity to match from |
+
+> **Note**: `resolve` and `mapping` are mutually exclusive — TypeScript enforces this via a discriminated union. `resolveDecorators` and `requires` are only valid on the `resolve` branch.
+
+#### Generated SQL
+
+For `account: { mapping: { refEntity: CrmAccount, refFields: 'id', fields: 'crmAccountId' } }`:
+
+```sql
+select e_a1.id, e_a1.crm_account_id, f_j1.value as "account"
+from (
+  select e_a1.id, e_a1.crm_account_id
+  from job as e_a1
+  where true
+) as e_a1
+left outer join lateral (
+  select row_to_json(f_j1)::jsonb as value
+  from (
+    select f_j1.id, f_j1.account_name
+    from "crm_account" as f_j1
+    where e_a1.crm_account_id = f_j1.id
+  ) as f_j1
+) as f_j1 on true
+```
+
+Returns `null` when the FK column is null (LEFT JOIN).
+
+---
+
+## Filtering
+
+Filter at any nesting level:
+
+```typescript
+// Simple equality
+filter: { title: 'The Fellowship of the Ring' }
+
+// Operators
+filter: { publishedYear: { _gte: 1950 } }
+
+// Nested relation filter
+filter: { author: { name: { _like: '%Tolkien%' } } }
+
+// AND / OR
+filter: {
+  _or: [
+    { title: { _like: '%Ring%' } },
+    { publishedYear: { _lt: 1960 } },
+  ],
+}
+```
+
+### Filter operations
+
+| Operation | Meaning |
+|-----------|---------|
+| `_eq` | Equal |
+| `_ne` | Not equal |
+| `_in` | In array |
+| `_nin` | Not in array |
+| `_like` | ILIKE (case-insensitive contains) |
+| `_gt` / `_gte` | Greater than / greater than or equal |
+| `_lt` / `_lte` | Less than / less than or equal |
+| `_and` | Logical AND |
+| `_or` | Logical OR (generates UNION ALL) |
+
+---
+
+## Pagination
+
+```typescript
+pagination: {
+  limit: 20,
+  offset: 40,
+  orderBy: [{ publishedYear: 'desc' }],
+}
+```
+
+---
+
+## Relationship Handling
+
+| Relationship | SQL Strategy |
+|--------------|-------------|
+| **m:1** (many-to-one) | `LEFT JOIN LATERAL` + `row_to_json` |
+| **1:1** (one-to-one) | `LEFT JOIN LATERAL` + `row_to_json` |
+| **1:m** (one-to-many) | `LEFT JOIN LATERAL` + `json_agg` |
+| **m:m** (many-to-many) | Pivot table subquery + `json_agg` |
+| **custom `mapping`** | `LEFT JOIN LATERAL` + `row_to_json` (same as m:1) |
 
 ---
 
@@ -294,130 +353,100 @@ The `FieldsResolver` automatically handles custom field resolution alongside the
 
 ### Environment Variables
 
-```bash
-# Toggle between JSONB and string concatenation for JSON aggregation
-D3GOP_USE_STRING_FOR_JSONB=true
+| Variable | Purpose |
+|----------|---------|
+| `D3GOP_SORT_SUFFIX` | Suffix appended to all generated GQL type names and the Sort enum (e.g. `'V2'` → `BookV2`, `SortV2`) |
+| `D3GOP_TYPES_SUFFIX` | Fallback suffix if `D3GOP_SORT_SUFFIX` is not set |
+| `D3GOP_LOG_TYPE` | Logging level: `debug` or `disabled` |
+| `D3GOP_DEFAULT_QUERY_LIMIT` | Default query limit when pagination is not specified (default: `3000`) |
+| `D3GOP_USE_STRING_FOR_JSONB` | Toggle between JSONB and string concatenation for JSON aggregation |
 
-# Control logging output
-D3GOP_LOG_TYPE="debug"  # Options: debug, disabled
+> **Type name collision**: If you have both v1 (`createGQLTypes`) and v2 (`@GQLEntityClass`) entities in the same schema, set `D3GOP_SORT_SUFFIX` / `D3GOP_TYPES_SUFFIX` so v2 entity names are distinct (e.g. `Job` → `JobV2`). No `setGlobalConfig()` call is required — the env var is read automatically.
+
+### Programmatic config
+
+```typescript
+import { setGlobalConfig } from '@dav3/gql-of-power';
+
+// Call before any @GQLEntityClass decorators run (i.e. before importing entity files)
+setGlobalConfig({ gqlTypesSuffix: 'V2' });
 ```
 
 ---
 
-## Common Commands
+## `GQLQueryManager`
 
-### Development
+```typescript
+const queryManager = new GQLQueryManager();
 
-```bash
-# Install dependencies
-pnpm install
+// From a GraphQL resolver — fields are parsed from resolve info automatically
+const results = await queryManager.getQueryResultsForInfo(
+  metadataProvider,
+  BookGQL,         // @GQLEntityClass-decorated class or plain ORM class
+  info,            // GraphQLResolveInfo
+  filter,
+  pagination
+);
 
-# Build the library
-pnpm run build
-
-# Watch mode for development
-pnpm run watch
-
-# Run all tests
-pnpm test
-
-# Run unit tests only
-pnpm test:unit
-
-# Run integration tests only
-pnpm test:integration
-
-# Watch mode for tests
-pnpm test:watch
-
-# Generate coverage report
-pnpm test:coverage
-
-# Build for publishing
-pnpm run prepublishOnly
+// With explicit field selection (useful for testing or non-resolver contexts)
+const results = await queryManager.getQueryResultsForFields(
+  metadataProvider,
+  BookGQL,
+  { id: {}, title: {} },
+  filter,
+  pagination
+);
 ```
+
+`BookGQL.relatedEntityName` (`'Book'`) is used automatically to look up ORM metadata — no need to pass the ORM class separately.
 
 ---
 
-## Why GQL of Power?
+## Architecture
 
-### The Problem It Solves
+### Core Components
 
-Traditional GraphQL + ORM combinations suffer from the **N+1 query problem**:
+| Component | Purpose |
+|-----------|---------|
+| `GQLtoSQLMapper` | Transforms GraphQL field selections into SQL with proper joins |
+| `GQLQueryManager` | Orchestrates query building and execution |
+| `FilterProcessor` | Translates GQL filter inputs to SQL WHERE clauses |
+| `RelationshipHandler` | Generates JOIN SQL for ORM-declared relations |
+| `SQLBuilder` | Assembles final SQL strings and JSON aggregations |
+| `AliasManager` | Manages incremental SQL aliases to prevent naming conflicts |
 
-- Query 1: Fetch 10 authors
-- Query 2-11: Fetch books for each author (10 queries)
-- Query 12-21: Fetch publication details for each book (10 queries)
-- **Total: 21 queries** ❌
+### Query Flow
 
-### The Solution
-
-```
-GQL of Power: Fetch all data in **1 query** ✅
-```
-
-By analyzing your GraphQL query structure and ORM relationships, GQL of Power generates a single, optimized SQL query with intelligent joins and aggregations that returns your complete data structure.
-
----
-
-## Architecture Highlights
-
-### Relationship Handling
-
-| Relationship | Strategy                                |
-| ------------ | --------------------------------------- |
-| **1:1**      | Simple INNER/LEFT JOIN                  |
-| **m:1**      | INNER/LEFT JOIN to parent table         |
-| **1:m**      | Subquery with JSON aggregation          |
-| **m:m**      | Through junction table with aggregation |
-
-### Performance Optimizations
-
-- **Alias Management** – Incremental aliases (`a1`, `a2`, ...) prevent naming conflicts
-- **Set-Based Field Selection** – Eliminates duplicate fields automatically
-- **OR to UNION ALL** – Converts OR conditions to UNION queries for optimal execution plans
-- **JSONB Aggregation** – Efficient nested data structure building
+1. **Parse** – `graphql-parse-resolve-info` extracts the requested fields from `GraphQLResolveInfo`
+2. **Map** – `GQLtoSQLMapper.recursiveMap()` walks the field tree, building `select`, `join`, `where` sets
+3. **Aggregate** – JSON aggregation (`row_to_json`, `json_agg`) combines nested results
+4. **Bind** – Named parameters are bound via knex raw
+5. **Execute** – Single SQL sent to the database
 
 ---
 
 ## Known Limitations
 
-These dragons still slumber in the cave—future challenges for brave developers:
-
-- ⚠️ Class-level `NOT` conditions not yet supported
-- ⚠️ Order by reference table columns (e.g., "order authors by their latest book publication")
-- ⚠️ Access Control Lists (ACL) pending async refactoring
+- ⚠️ Class-level `_not` conditions not yet supported
+- ⚠️ Order by columns on related/joined tables not supported
+- ⚠️ ACL pending async refactoring
 
 ---
 
-## Examples
+## Development
 
-See the `/examples` directory for complete, runnable examples:
-
-- **Middle-earth Schema** – Full Author/Book relationship example inspired by Tolkien's lore
-- **Database Integration** – Real PostgreSQL examples with TypeTypeORM metadata
-
----
-
-## Contributing
-
-Contributions are welcome! Whether you're fixing bugs, improving performance, or adding features, please submit a pull request.
+```bash
+bun install        # Install dependencies
+bun run build      # Compile TypeScript → dist/
+bun run test       # Run all tests
+bun run test:watch # Watch mode
+```
 
 ---
 
 ## License
 
-MIT NON-AI License
-
-Forged by [Dav3](https://github.com/dave-palt) with the wisdom of Middle-earth.
-
----
-
-## Support & Community
-
-- 📖 Full documentation coming soon
-- 🐛 Found a bug? [Open an issue](https://github.com/dave-palt/gql-of-power/issues)
-- 💬 Have a question? Reach out to the fellowship
+MIT NON-AI License — Forged by [Dav3](https://github.com/dave-palt) with the wisdom of Middle-earth.
 
 ---
 
