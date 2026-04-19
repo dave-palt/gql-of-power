@@ -1089,4 +1089,76 @@ describe('GQLtoSQLMapper - Unit Tests', () => {
 			expect(result.querySQL).toContain('offset');
 		});
 	});
+
+	describe('field aliases', () => {
+		// When a GQL query uses an alias (e.g. `randomName: field1`), graphql-parse-resolve-info
+		// keys the FieldSelection by the alias and sets `name` to the actual schema field name.
+		// The GraphQL execution layer remaps the SQL result column to the alias in the response,
+		// so the SQL must select the real column — no `AS "alias"` and no `null`.
+
+		it('should select the real column when a scalar field has a query alias', () => {
+			// Simulates: query { myName: name }
+			const fields = {
+				myName: { name: 'name', alias: 'myName' },
+			};
+
+			const result = mapper.buildQueryAndBindingsFor({
+				fields,
+				entity: Person,
+				customFields: {},
+			});
+
+			expect(result.querySQL).toContain('person_name');
+			expect(result.querySQL).not.toContain('null AS "myName"');
+			expect(result.querySQL).not.toContain('null AS "name"');
+		});
+
+		it('should select the real column when the primary key field has a query alias', () => {
+			// Simulates: query { personId: id }
+			const fields = {
+				personId: { name: 'id', alias: 'personId' },
+			};
+
+			const result = mapper.buildQueryAndBindingsFor({
+				fields,
+				entity: Person,
+				customFields: {},
+			});
+
+			expect(result.querySQL).not.toContain('null AS "personId"');
+			expect(result.querySQL).not.toContain('null AS "id"');
+		});
+
+		it('should not break non-aliased fields', () => {
+			// Regression: plain fields (no alias) must still work correctly.
+			const fields = { id: {}, name: {} };
+
+			const result = mapper.buildQueryAndBindingsFor({
+				fields,
+				entity: Person,
+				customFields: {},
+			});
+
+			expect(result.querySQL).not.toContain('null AS');
+			expect(result.querySQL).toContain('person_name');
+		});
+
+		it('should handle a mix of aliased and non-aliased fields', () => {
+			// Simulates: query { id, myName: name }
+			const fields = {
+				id: {},
+				myName: { name: 'name', alias: 'myName' },
+			};
+
+			const result = mapper.buildQueryAndBindingsFor({
+				fields,
+				entity: Person,
+				customFields: {},
+			});
+
+			expect(result.querySQL).toContain('person_name');
+			expect(result.querySQL).not.toContain('null AS "myName"');
+			expect(result.querySQL).not.toContain('null AS "id"');
+		});
+	});
 });

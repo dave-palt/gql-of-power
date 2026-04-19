@@ -253,16 +253,6 @@ export class GQLtoSQLMapper {
 					gqlFieldNameKey,
 					entityMetadata,
 				});
-				const fieldName = getFieldByAlias(entityMetadata.name, gqlFieldNameKey);
-				logger.log(
-					logPrefix,
-					'- mapFilter for',
-					gqlFieldNameKey,
-					'alias for',
-					fieldName
-					// 'keys:',
-					// ...mappings.keys()
-				);
 				if (typeof allFields[gqlFieldNameKey] !== 'object' || allFields[gqlFieldNameKey] === null) {
 					logger.warn(
 						logPrefix,
@@ -272,6 +262,25 @@ export class GQLtoSQLMapper {
 					return { mappings };
 				}
 				const { args, fieldsByTypeName, name, alias: gqlFieldAlias } = allFields[gqlFieldNameKey];
+				// When a GQL query alias is used (e.g. `randomName: field1`), graphql-parse-resolve-info
+				// keys the FieldSelection by the alias ("randomName") and sets `name` to the actual schema
+				// field name ("field1"). getFieldByAlias always returns its input as a fallback (never
+				// null), so check whether the result differs from the input to detect a real decorator
+				// alias. If no decorator alias is registered, fall back to `name` (the schema field name).
+				const decoratorAlias = getFieldByAlias(entityMetadata.name, gqlFieldNameKey);
+				const fieldName =
+					decoratorAlias !== gqlFieldNameKey
+						? decoratorAlias
+						: (name as string | undefined) ?? gqlFieldNameKey;
+				logger.log(
+					logPrefix,
+					'- mapFilter for',
+					gqlFieldNameKey,
+					'alias for',
+					fieldName
+					// 'keys:',
+					// ...mappings.keys()
+				);
 
 				logger.log('==========================', name, '==========================');
 				logger.log('args', args, { name, gqlFieldAlias }, { fieldName });
@@ -291,7 +300,10 @@ export class GQLtoSQLMapper {
 					properties[fieldName as keyof EntityMetadata<T>['properties']] ??
 					properties[customFieldProps?.requires as keyof EntityMetadata<T>['properties']];
 
-				const gqlFieldName = (customFieldProps?.requires as string) ?? gqlFieldNameKey;
+				// When a GQL query alias is used (e.g. `randomName: field1`), the GraphQL execution
+				// layer remaps the SQL column to the alias in the response — so the SQL output column
+				// name must be the actual schema field name, not the query alias.
+				const gqlFieldName = (customFieldProps?.requires as string) ?? fieldName;
 				logger.log(
 					'recursiveMap fields | gqlFieldName',
 					gqlFieldName,
