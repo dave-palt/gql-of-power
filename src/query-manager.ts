@@ -5,7 +5,7 @@ import {
 	simplifyParsedResolveInfoFragmentWithType,
 } from 'graphql-parse-resolve-info';
 import knex from 'knex';
-import { getCustomFieldsFor, getGQLEntityNameForClass } from './entities/gql-entity';
+import { getCustomFieldsFor, getGQLEntityNameFor, getGQLEntityNameForClass } from './entities/gql-entity';
 import { GQLtoSQLMapper } from './queries/gql-to-sql-mapper';
 import {
 	DatabaseDriver,
@@ -83,7 +83,7 @@ export class GQLQueryManager {
 			if (!exists(entityName)) {
 				throw new Error(`Entity ${entityName} not found in metadata`);
 			}
-			const customFields = getCustomFieldsFor(getGQLEntityNameForClass(entity));
+			const customFields = getCustomFieldsFor(getGQLEntityNameFor(entityName));
 			const mapper = new GQLtoSQLMapper(provider, this.opts);
 
 			// If entityName differs from entity.name (i.e. @GQLEntityClass decorated class),
