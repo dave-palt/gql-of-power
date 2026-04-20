@@ -225,7 +225,7 @@ export class GQLtoSQLMapper {
 									name: pk,
 									alias: pk,
 								},
-						  },
+							},
 				definedFields
 			) ?? definedFields;
 
@@ -253,7 +253,7 @@ export class GQLtoSQLMapper {
 				const fieldName =
 					decoratorAlias !== gqlFieldNameKey
 						? decoratorAlias
-						: (name as string | undefined) ?? gqlFieldNameKey;
+						: ((name as string | undefined) ?? gqlFieldNameKey);
 				logger.log(
 					logPrefix,
 					'- mapFilter for',
@@ -295,7 +295,15 @@ export class GQLtoSQLMapper {
 				);
 
 				if (!fieldProps) {
-					return this.mapCustomField<T>(customFieldProps, mapping, alias, gqlFieldName, mappings, fieldsByTypeName, entityMetadata);
+					return this.mapCustomField<T>(
+						customFieldProps,
+						mapping,
+						alias,
+						gqlFieldName,
+						mappings,
+						fieldsByTypeName,
+						entityMetadata
+					);
 				} else {
 					this.mapField<T>(
 						fieldName,
@@ -359,7 +367,11 @@ export class GQLtoSQLMapper {
 	) {
 		// mapping strategy: generate a SQL JOIN to the reference entity
 		if (customFieldProps && 'mapping' in customFieldProps && customFieldProps.mapping) {
-			const { refEntity, refFields: rawRefFields, fields: rawLocalFields } = customFieldProps.mapping;
+			const {
+				refEntity,
+				refFields: rawRefFields,
+				fields: rawLocalFields,
+			} = customFieldProps.mapping;
 
 			// Normalise single string → array for uniform handling
 			const refFields = Array.isArray(rawRefFields) ? rawRefFields : [rawRefFields];
@@ -397,7 +409,8 @@ export class GQLtoSQLMapper {
 
 			// fieldsByTypeName is keyed by the GQL type name which may have a suffix (e.g. 'AuthorV2').
 			// Resolve via getGQLEntityNameFor so the suffix is applied consistently.
-			const subFields = fieldsByTypeName?.[getGQLEntityNameFor(refEntityName)] ?? fieldsByTypeName?.[refEntityName];
+			const subFields =
+				fieldsByTypeName?.[getGQLEntityNameFor(refEntityName)] ?? fieldsByTypeName?.[refEntityName];
 			const newMappings = this.recursiveMap({
 				entityMetadata: refMetadata,
 				fields: subFields,
@@ -424,9 +437,7 @@ export class GQLtoSQLMapper {
 
 			const selectFields = [
 				...new Set(
-					refSqlCols
-						.map((sqlCol) => joinAlias.toColumnName(sqlCol))
-						.concat(Array.from(refSelect))
+					refSqlCols.map((sqlCol) => joinAlias.toColumnName(sqlCol)).concat(Array.from(refSelect))
 				),
 			];
 

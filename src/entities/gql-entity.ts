@@ -91,10 +91,7 @@ export function getAutoResolvers(): Array<new () => any> {
 function ensureSortRegistered() {
 	if (sortEnumRegistered) return;
 	const suffix =
-		gqlTypesSuffix ||
-		process.env['D3GOP_SORT_SUFFIX'] ||
-		process.env['D3GOP_TYPES_SUFFIX'] ||
-		'';
+		gqlTypesSuffix || process.env['D3GOP_SORT_SUFFIX'] || process.env['D3GOP_TYPES_SUFFIX'] || '';
 	registerEnumType(Sort, { name: `Sort${suffix}` });
 	sortEnumRegistered = true;
 }
@@ -268,7 +265,9 @@ export function GQLEntityClass<T extends Object, K>(
  * attempt to derive it from the decorated type class's `.relatedEntityName` static.
  * This allows `defineFields` consumers to skip the redundant `relatedEntityName` boilerplate.
  */
-function _resolveRelatedEntityNames<T>(fields: Partial<FieldsSettings<T>>): Partial<FieldsSettings<T>> {
+function _resolveRelatedEntityNames<T>(
+	fields: Partial<FieldsSettings<T>>
+): Partial<FieldsSettings<T>> {
 	const resolved: Partial<FieldsSettings<T>> = {};
 	for (const [fieldName, fieldOptions] of Object.entries(fields)) {
 		if (!fieldOptions) {
@@ -386,14 +385,7 @@ export function createGQLEntity<T extends Object, K>(
 	ObjectType(gqlEntityName)(GQLEntity);
 
 	function buildResolvers() {
-		return _buildResolversForEntity(
-			GQLEntity,
-			gqlEntityName,
-			fields,
-			opts,
-			metadata,
-			customFields
-		);
+		return _buildResolversForEntity(GQLEntity, gqlEntityName, fields, opts, metadata, customFields);
 	}
 
 	return {
@@ -671,7 +663,7 @@ export function createGQLEntityFilters<T, K>(
 			? options.filter(
 					({ appliesToArray }) =>
 						(!appliesToArray && includeNotArrays) || (appliesToArray && getFilterType)
-			  )
+				)
 			: [];
 
 		if (canFilterForField && applicableOptions.length > 0) {
@@ -744,7 +736,7 @@ export function createGQLEntityFilters<T, K>(
 								TypeMap[getGQLEntityNameFor(fieldOptions.relatedEntityName()) + 'FilterInput'] ??
 								GQLEntityFilterInputField
 							);
-					  }
+						}
 					: () => GQLEntityFilterInputField,
 			options: { ...fieldOptions.options, nullable: true },
 			typeOptions: { nullable: true },

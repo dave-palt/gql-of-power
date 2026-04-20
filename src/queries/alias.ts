@@ -6,7 +6,11 @@ export enum AliasType {
 	value = 'value',
 }
 export class Alias {
-	constructor(private type: AliasType, private index: number, private prefix: string) {}
+	constructor(
+		private type: AliasType,
+		private index: number,
+		private prefix: string
+	) {}
 
 	public toString() {
 		return `${this.type[0]}_${this.prefix}${this.index}`;

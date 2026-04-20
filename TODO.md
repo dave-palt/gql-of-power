@@ -26,11 +26,9 @@
 
 - [x] improve aliases using incremental number
 - [x] define agnostic orm-framework metadata extractor functions and types
-
   - [x] improve types
 
 - Refactor
-
   - [x] improve function names
     - [x] fields
     - [x] filters
@@ -40,22 +38,18 @@
     - [x] QueryManager
 
 - 1:1 example: select author by person
-
   - [x] filter results based on condition
   - [x] field contains only records based on condition
 
 - 1:m example: select author by books
-
   - [x] filter results based on condition
   - [x] field contains only records based on condition
 
 - m:1 example: select books by author
-
   - [x] filter results based on condition
   - [x] field contains only records based on condition
 
 - m:m example: select books by revisors
-
   - [x] by attributes of array
   - [x] filter on quantity (example: select author that have N books)
 
@@ -66,7 +60,6 @@
   - [x] Value set
   - this would require to change to async the query generation to allows async data fetching for the ACL rules, so for now is skipped
 - [*] resolved fields:
-
   - (doesn't work) ~~Object.assign array of custom field resolvers~~
   - [x] maybe returning the field with a random value will trigger a field resolver
     - [ ] add automatic FieldResolver

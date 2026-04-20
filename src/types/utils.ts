@@ -1,7 +1,6 @@
 export type DefinedType<T> = Exclude<T, undefined | null | never>;
-export type ExtractArrayType<T> = DefinedType<T> extends Array<infer K>
-	? ExtractArrayType<DefinedType<K>>
-	: DefinedType<T>;
+export type ExtractArrayType<T> =
+	DefinedType<T> extends Array<infer K> ? ExtractArrayType<DefinedType<K>> : DefinedType<T>;
 
 export type OmitArrays<T> = {
 	[K in keyof DefinedType<T> as DefinedType<DefinedType<T>[K]> extends Array<infer L>

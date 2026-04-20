@@ -236,9 +236,8 @@ export type GQLArgumentsFilterAndPagination<T> =
 	  };
 
 export type ActualValueType<T> = Exclude<T, undefined | null>;
-export type ExtractType<T> = ActualValueType<T> extends Array<infer K>
-	? ActualValueType<K>
-	: ActualValueType<T>;
+export type ExtractType<T> =
+	ActualValueType<T> extends Array<infer K> ? ActualValueType<K> : ActualValueType<T>;
 
 export type FieldsDetailsMap<T> = {
 	[key in keyof ExtractArrayType<T>]?: FieldDetails<ExtractArrayType<T>, key>;
@@ -263,19 +262,19 @@ export type Fields<
 	 *
 	 */
 	ArrayIdentifierFieldName extends string = 'getItems',
-	SingleRecordIdentifierFieldName extends string = 'getEntity'
+	SingleRecordIdentifierFieldName extends string = 'getEntity',
 > = Partial<{
 	[key in string & keyof NonNullable<T>]: NonNullable<NonNullable<T>[key]> extends Array<infer E>
 		?
 				| Fields<NonNullable<E>, ArrayIdentifierFieldName, SingleRecordIdentifierFieldName>
 				| GQLArgumentsFilterAndPagination<NonNullable<E>>
 		: NonNullable<NonNullable<T>[key]> extends infer K
-		? K extends infer E
-			? ArrayIdentifierFieldName extends keyof NonNullable<E>
-				? NonNullable<E>[ArrayIdentifierFieldName] extends () => infer F
-					? F extends Array<infer G>
-						? Partial<
-								| Fields<G, ArrayIdentifierFieldName, SingleRecordIdentifierFieldName> &
+			? K extends infer E
+				? ArrayIdentifierFieldName extends keyof NonNullable<E>
+					? NonNullable<E>[ArrayIdentifierFieldName] extends () => infer F
+						? F extends Array<infer G>
+							? Partial<
+									Fields<G, ArrayIdentifierFieldName, SingleRecordIdentifierFieldName> &
 										(
 											| {
 													[key in string & keyof typeof FieldOperations]?: Fields<
@@ -286,13 +285,12 @@ export type Fields<
 											  }
 											| GQLArgumentsFilterAndPagination<G>
 										)
-						  >
+								>
+							: {}
 						: {}
-					: {}
-				: SingleRecordIdentifierFieldName extends keyof NonNullable<K>
-				? NonNullable<K>[SingleRecordIdentifierFieldName] extends () => infer F
-					?
-							| Fields<NonNullable<F>, ArrayIdentifierFieldName, SingleRecordIdentifierFieldName> &
+					: SingleRecordIdentifierFieldName extends keyof NonNullable<K>
+						? NonNullable<K>[SingleRecordIdentifierFieldName] extends () => infer F
+							? Fields<NonNullable<F>, ArrayIdentifierFieldName, SingleRecordIdentifierFieldName> &
 									(
 										| Partial<{
 												[Key in string & keyof F as `${Capitalize<Key>}`]: {
@@ -305,12 +303,12 @@ export type Fields<
 										  }>
 										| GQLArgumentsFilterAndPagination<F>
 									)
-					: Fields<NonNullable<K>, ArrayIdentifierFieldName, SingleRecordIdentifierFieldName>
-				: NonNullable<T>[key] | GQLArgumentsFilterAndPagination<NonNullable<T>[key]>
-			: Fields<
-					NonNullable<NonNullable<T>[key]>,
-					ArrayIdentifierFieldName,
-					SingleRecordIdentifierFieldName
-			  >
-		: {};
+							: Fields<NonNullable<K>, ArrayIdentifierFieldName, SingleRecordIdentifierFieldName>
+						: NonNullable<T>[key] | GQLArgumentsFilterAndPagination<NonNullable<T>[key]>
+				: Fields<
+						NonNullable<NonNullable<T>[key]>,
+						ArrayIdentifierFieldName,
+						SingleRecordIdentifierFieldName
+					>
+			: {};
 }>;

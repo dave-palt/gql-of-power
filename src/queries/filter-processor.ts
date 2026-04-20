@@ -97,16 +97,19 @@ export class FilterProcessor extends ClassOperations {
 		// Handle nested field operations like { id: { _in }, id: { _eq }, ... }
 		const fieldOperations =
 			typeof filterValue === 'object'
-				? keys(filterValue ?? ({} as Partial<typeof filterValue>)).reduce((acc, key) => {
-						const k = keys(FieldOperations).find((k) => k.toString() === key.toString());
-						if (k) {
-							acc.push({
-								fieldOperation: k,
-								value: (filterValue as any)[key],
-							});
-						}
-						return acc;
-				  }, [] as Array<{ fieldOperation: keyof FieldOperationsType; value: any }>)
+				? keys(filterValue ?? ({} as Partial<typeof filterValue>)).reduce(
+						(acc, key) => {
+							const k = keys(FieldOperations).find((k) => k.toString() === key.toString());
+							if (k) {
+								acc.push({
+									fieldOperation: k,
+									value: (filterValue as any)[key],
+								});
+							}
+							return acc;
+						},
+						[] as Array<{ fieldOperation: keyof FieldOperationsType; value: any }>
+					)
 				: ([] as Array<{ fieldOperation: keyof FieldOperationsType; value: any }>);
 
 		if (fieldOperation) {
@@ -434,8 +437,8 @@ export class FilterProcessor extends ClassOperations {
 			? properties[gqlFieldNameKey as keyof EntityMetadata<T>['properties']]
 				? gqlFieldNameKey
 				: properties[lowercasedFirstFieldNameKey as keyof EntityMetadata<T>['properties']]
-				? lowercasedFirstFieldNameKey
-				: null
+					? lowercasedFirstFieldNameKey
+					: null
 			: null;
 
 		const gqlFieldName = (customFieldProps?.requires as string) ?? fieldNameKey;
@@ -636,9 +639,9 @@ export class FilterProcessor extends ClassOperations {
 		const fieldNameBeforeOperation =
 			gqlFieldNameKey.indexOf(fieldOperation) > 0
 				? // id_eq
-				  gqlFieldNameKey.slice(0, -fieldOperation.length)
+					gqlFieldNameKey.slice(0, -fieldOperation.length)
 				: // Id: { _eq }
-				  gqlFieldNameKey.charAt(0).toLowerCase() + gqlFieldNameKey.slice(1);
+					gqlFieldNameKey.charAt(0).toLowerCase() + gqlFieldNameKey.slice(1);
 
 		if (fieldNameBeforeOperation) {
 			const fieldProps = properties[fieldNameBeforeOperation as keyof typeof properties];
@@ -902,7 +905,7 @@ export class FilterProcessor extends ClassOperations {
 							outerJoin,
 							whereSQL,
 							whereWithValues
-					  );
+						);
 
 			const existsSQL = `exists (${subquery})`.replaceAll(/[ \n\t]+/gi, ' ');
 
@@ -971,10 +974,10 @@ export class FilterProcessor extends ClassOperations {
 
 				logger.log('FilterProcessor - mapFilterManyToOne: whereSQL', alias.toString(), unionAll);
 
-		const subquery =
-				unionAll.length > 0
-					? unionAll.map((q) => `(${q})`).join(' union all ')
-					: this.buildManyToOneJoin(
+				const subquery =
+					unionAll.length > 0
+						? unionAll.map((q) => `(${q})`).join(' union all ')
+						: this.buildManyToOneJoin(
 								[],
 								alias,
 								referenceField.tableName,
@@ -982,7 +985,7 @@ export class FilterProcessor extends ClassOperations {
 								outerJoin,
 								whereSQL,
 								whereWithValues
-						  );
+							);
 
 				const existsSQL = `exists (${subquery})`.replaceAll(/[ \n\t]+/gi, ' ');
 
@@ -1075,7 +1078,7 @@ export class FilterProcessor extends ClassOperations {
 							outerJoin,
 							whereSQL,
 							whereWithValues
-					  );
+						);
 
 			const existsSQL = `exists (${subquery})`.replaceAll(/[ \n\t]+/gi, ' ');
 

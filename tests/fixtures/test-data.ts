@@ -468,7 +468,7 @@ export class MockMetadataProvider implements MetadataProvider {
 						ring: person.ring_id,
 						fellowshipId: person.fellowship_id,
 						fellowship: SampleFellowships.find((f) => f.id === person.fellowship_id),
-					} as Person)
+					}) as Person
 			);
 		}
 		if (sql.includes('rings')) {
@@ -478,7 +478,7 @@ export class MockMetadataProvider implements MetadataProvider {
 						id: ring.id,
 						name: ring.ring_name,
 						power: ring.power_description,
-					} as Ring)
+					}) as Ring
 			);
 		}
 		if (sql.includes('fellowships')) {
@@ -493,7 +493,7 @@ export class MockMetadataProvider implements MetadataProvider {
 						// members: fellowship.,
 						questId: fellowship.quest_id,
 						quest: SampleQuests.find((q) => q.id === fellowship.quest_id),
-					} as Fellowship)
+					}) as Fellowship
 			);
 		}
 

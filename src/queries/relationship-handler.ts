@@ -289,7 +289,11 @@ export class RelationshipHandler {
 				outerJoin.length > 0 && json.length > 0
 					? `( select ${refAlias}.*, ${json.join(', ')} from ${innerSubquery} ${outerJoin.join(' \n')} ) as ${refAlias}`
 					: `${innerSubquery} ${outerJoin.join(' \n')}`;
-			const leftOuterJoin = `left outer join lateral ( select ${jsonSQL} as value from ${fromBody} ) as ${refAlias} on true`.replaceAll(/[ \n\t]+/gi, ' ');
+			const leftOuterJoin =
+				`left outer join lateral ( select ${jsonSQL} as value from ${fromBody} ) as ${refAlias} on true`.replaceAll(
+					/[ \n\t]+/gi,
+					' '
+				);
 
 			mapping.json.push(`${alias.toColumnName('value')} as "${gqlFieldName}"`);
 			mapping.outerJoin.push(leftOuterJoin);
