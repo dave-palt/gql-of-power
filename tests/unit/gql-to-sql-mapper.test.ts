@@ -464,7 +464,7 @@ describe('GQLtoSQLMapper - Unit Tests', () => {
 						options: { nullable: true },
 						mapping: {
 							refEntity: Fellowship,
-							refFields: 'id',       // string shorthand
+							refFields: 'id', // string shorthand
 							fields: 'fellowshipId', // string shorthand
 						},
 					},
@@ -498,8 +498,8 @@ describe('GQLtoSQLMapper - Unit Tests', () => {
 						options: { nullable: true },
 						mapping: {
 							refEntity: Ring,
-							refFields: ['bearerId'],   // array form
-							fields: ['id'],             // array form
+							refFields: ['bearerId'], // array form
+							fields: ['id'], // array form
 						},
 					},
 				} as any,

@@ -30,36 +30,38 @@ export type FieldOperationsType<T> = Partial<
  *  - \[_in\]: typeof T\[field\]\[\]
  *  - etc...
  */
-export type FieldValuesObjectOperationsType<T> = DefinedType<T> extends Array<infer K>
-	? {
-			[k in string &
-				keyof Pick<
-					FieldOperationsClass<DefinedType<K>>,
-					'_in' | '_nin' | '_contains' | '_eq' | '_overlap'
-				>]?: FieldOperationsClass<DefinedType<K>>[k] | null;
-	  }
-	: {
-			[k in string & keyof FieldOperationsClass<DefinedType<T>>]?:
-				| FieldOperationsClass<DefinedType<T>>[k]
-				| null;
-	  };
+export type FieldValuesObjectOperationsType<T> =
+	DefinedType<T> extends Array<infer K>
+		? {
+				[k in string &
+					keyof Pick<
+						FieldOperationsClass<DefinedType<K>>,
+						'_in' | '_nin' | '_contains' | '_eq' | '_overlap'
+					>]?: FieldOperationsClass<DefinedType<K>>[k] | null;
+			}
+		: {
+				[k in string & keyof FieldOperationsClass<DefinedType<T>>]?:
+					| FieldOperationsClass<DefinedType<T>>[k]
+					| null;
+			};
 
 /**
  * { \[field\]: { _eq: typeof T\[field\], ... } }
  */
-export type FieldValuesObjectType<T> = DefinedType<DefinedType<T>> extends Array<infer K>
-	? Partial<FieldValuesObjectType<DefinedType<K>>>
-	: DefinedType<T> extends Primitives
-	? Partial<FieldValuesObjectOperationsType<DefinedType<T>>>
-	: {
-			[key in string & keyof DefinedType<T>]?: DefinedType<DefinedType<T>[key]> extends Array<
-				infer K
-			>
-				? K extends Primitives
-					? Partial<FieldValuesObjectOperationsType<ExtractArrayType<DefinedType<K>>>>
-					: Partial<GQLEntityFilterInputFieldType<DefinedType<K>>>
-				: Partial<GQLEntityFilterInputFieldType<DefinedType<DefinedType<T>[key]>>>;
-	  };
+export type FieldValuesObjectType<T> =
+	DefinedType<DefinedType<T>> extends Array<infer K>
+		? Partial<FieldValuesObjectType<DefinedType<K>>>
+		: DefinedType<T> extends Primitives
+			? Partial<FieldValuesObjectOperationsType<DefinedType<T>>>
+			: {
+					[key in string & keyof DefinedType<T>]?: DefinedType<DefinedType<T>[key]> extends Array<
+						infer K
+					>
+						? K extends Primitives
+							? Partial<FieldValuesObjectOperationsType<ExtractArrayType<DefinedType<K>>>>
+							: Partial<GQLEntityFilterInputFieldType<DefinedType<K>>>
+						: Partial<GQLEntityFilterInputFieldType<DefinedType<DefinedType<T>[key]>>>;
+				};
 
 /**
  *  - \[_field\]: T\[field\]

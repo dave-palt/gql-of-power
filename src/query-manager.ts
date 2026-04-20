@@ -5,7 +5,11 @@ import {
 	simplifyParsedResolveInfoFragmentWithType,
 } from 'graphql-parse-resolve-info';
 import knex from 'knex';
-import { getCustomFieldsFor, getGQLEntityNameFor, getGQLEntityNameForClass } from './entities/gql-entity';
+import {
+	getCustomFieldsFor,
+	getGQLEntityNameFor,
+	getGQLEntityNameForClass,
+} from './entities/gql-entity';
 import { GQLtoSQLMapper } from './queries/gql-to-sql-mapper';
 import {
 	DatabaseDriver,
@@ -60,7 +64,14 @@ export class GQLQueryManager {
 			throw new Error(`Entity ${entityName} not found in metadata`);
 		}
 		const fields = getGQLFields(info) as FieldSelection<T>;
-		return this.getQueryResultsForFields<K, T>(provider, entity, fields, filter, pagination, entityName);
+		return this.getQueryResultsForFields<K, T>(
+			provider,
+			entity,
+			fields,
+			filter,
+			pagination,
+			entityName
+		);
 	}
 
 	async getQueryResultsForFields<K extends { _____name: string }, T>(

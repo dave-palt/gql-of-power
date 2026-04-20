@@ -1,6 +1,6 @@
 /**
  * Test Setup for bunjs
- * 
+ *
  * This file configures the test environment for bunjs test runner.
  * It sets up any global configurations, mocks, or utilities needed across tests.
  */
@@ -38,7 +38,7 @@ const DEFAULT_TEST_TIMEOUT = 10000; // 10 seconds
 // Global test utilities
 (global as any).testUtils = {
 	timeout: DEFAULT_TEST_TIMEOUT,
-	
+
 	// Helper to create mock GraphQL info object
 	createMockInfo: (fieldName: string = 'testField') => ({
 		fieldName,
@@ -52,13 +52,13 @@ const DEFAULT_TEST_TIMEOUT = 10000; // 10 seconds
 		operation: {},
 		variableValues: {},
 	}),
-	
+
 	// Helper to wait for async operations in tests
-	wait: (ms: number) => new Promise(resolve => setTimeout(resolve, ms)),
-	
+	wait: (ms: number) => new Promise((resolve) => setTimeout(resolve, ms)),
+
 	// Helper to generate test data variations
 	generateTestVariations: <T>(base: T, variations: Partial<T>[]): T[] => {
-		return variations.map(variation => ({ ...base, ...variation }));
+		return variations.map((variation) => ({ ...base, ...variation }));
 	},
 };
 
@@ -67,7 +67,7 @@ export const testEnvironments = {
 	jsonb: () => {
 		delete process.env.D3GOP_USE_STRING_FOR_JSONB;
 	},
-	
+
 	stringConcat: () => {
 		process.env.D3GOP_USE_STRING_FOR_JSONB = 'true';
 	},
@@ -88,7 +88,7 @@ export const TEST_CONSTANTS = {
 		AUTHOR: 'Author',
 		GENRE: 'Genre',
 	},
-	
+
 	SAMPLE_DATA: {
 		FRODO_ID: 1,
 		GANDALF_ID: 2,
@@ -96,7 +96,7 @@ export const TEST_CONSTANTS = {
 		ONE_RING_ID: 1,
 		FELLOWSHIP_ID: 1,
 	},
-	
+
 	RELATIONSHIP_TYPES: {
 		ONE_TO_ONE: '1:1',
 		ONE_TO_MANY: '1:m',
@@ -112,17 +112,15 @@ export const testHelpers = {
 	 */
 	validateSQLQuery: (sql: string, expectedElements: string[]) => {
 		const lowerSQL = sql.toLowerCase();
-		const missing = expectedElements.filter(element => 
-			!lowerSQL.includes(element.toLowerCase())
-		);
-		
+		const missing = expectedElements.filter((element) => !lowerSQL.includes(element.toLowerCase()));
+
 		if (missing.length > 0) {
 			throw new Error(`SQL query missing expected elements: ${missing.join(', ')}\nSQL: ${sql}`);
 		}
-		
+
 		return true;
 	},
-	
+
 	/**
 	 * Validates query bindings have expected structure
 	 */
@@ -130,17 +128,17 @@ export const testHelpers = {
 		if (!bindings || typeof bindings !== 'object') {
 			throw new Error('Bindings should be a valid object');
 		}
-		
+
 		if (expectedKeys) {
-			const missing = expectedKeys.filter(key => !(key in bindings));
+			const missing = expectedKeys.filter((key) => !(key in bindings));
 			if (missing.length > 0) {
 				throw new Error(`Bindings missing expected keys: ${missing.join(', ')}`);
 			}
 		}
-		
+
 		return true;
 	},
-	
+
 	/**
 	 * Creates a standardized test field structure
 	 */
@@ -149,11 +147,11 @@ export const testHelpers = {
 			id: {},
 			name: {},
 		};
-		
+
 		if (!includeRelations) {
 			return baseFields;
 		}
-		
+
 		// Add relationship fields based on entity type
 		switch (entityType) {
 			case 'Person':
@@ -176,7 +174,7 @@ export const testHelpers = {
 				return baseFields;
 		}
 	},
-	
+
 	/**
 	 * Creates test filters for different scenarios
 	 */
@@ -186,10 +184,7 @@ export const testHelpers = {
 				return { name: 'Frodo' };
 			case 'complex':
 				return {
-					_or: [
-						{ name: 'Frodo' },
-						{ _and: [{ race: 'Hobbit' }, { age: { _lt: 50 } }] },
-					],
+					_or: [{ name: 'Frodo' }, { _and: [{ race: 'Hobbit' }, { age: { _lt: 50 } }] }],
 				};
 			case 'relationship':
 				return {

@@ -281,8 +281,7 @@ describe('SQLBuilder', () => {
 
 		it('should wrap inner subquery when joins and jsonColumns are both present', () => {
 			const jsonSelect = "coalesce(json_agg(row_to_json(f_p1))::json, '[]'::json)::jsonb";
-			const fromSQL =
-				'( select f_p1.id from "locations" as f_p1 where true ) as f_p1';
+			const fromSQL = '( select f_p1.id from "locations" as f_p1 where true ) as f_p1';
 			const joins = [
 				'left outer join lateral ( select row_to_json(f_p2)::jsonb as value from ( select f_p2.id from "rings" as f_p2 ) as f_p2 ) as f_p2 on true',
 			];

@@ -39,7 +39,7 @@ jobs:
 
           # Check for changes in code files (excluding documentation)
           CHANGED=$(git diff --name-only $BASE_SHA $HEAD_SHA | grep -E '\.(ts|tsx|js|jsx|json|yml|yaml)$' | grep -v '\.md$' || echo '')
-          
+
           if [ -n "$CHANGED" ]; then
             echo "Code files changed, will run tests and build"
             echo "code-changed=true" >> $GITHUB_OUTPUT
@@ -117,21 +117,21 @@ jobs:
         run: |
           CODE_CHANGED="${{ needs.detect-changes.outputs.code-changed }}"
           BUILD_RESULT="${{ needs.build-and-test.result }}"
-          
+
           echo "Code changed: $CODE_CHANGED"
           echo "Build and test result: $BUILD_RESULT"
-          
+
           # If code changed, build-and-test must have succeeded
           if [ "$CODE_CHANGED" = "true" ] && [ "$BUILD_RESULT" != "success" ]; then
             echo "❌ Tests failed or were cancelled"
             exit 1
           fi
-          
+
           # If only docs changed, build-and-test was skipped - that's OK
           if [ "$CODE_CHANGED" = "false" ]; then
             echo "✅ Only documentation changed, tests skipped as expected"
             exit 0
           fi
-          
+
           echo "✅ All checks passed"
           exit 0

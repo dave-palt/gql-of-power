@@ -38,10 +38,12 @@ const autoResolverRegistry = new Map<string, new () => any>();
 // ─── Global config ───────────────────────────────────────────────────────────
 
 let gqlTypesSuffix = '';
+let gqlSortSuffix = '';
 let sortEnumRegistered = false;
 
-export const setGlobalConfig = (config: { gqlTypesSuffix: string }) => {
-	gqlTypesSuffix = config.gqlTypesSuffix;
+export const setGlobalConfig = (config: { gqlTypesSuffix?: string; gqlSortSuffix?: string }) => {
+	if (config.gqlTypesSuffix !== undefined) gqlTypesSuffix = config.gqlTypesSuffix;
+	if (config.gqlSortSuffix !== undefined) gqlSortSuffix = config.gqlSortSuffix;
 };
 
 // ─── Public accessors ────────────────────────────────────────────────────────
@@ -55,7 +57,7 @@ export const getCustomFieldsFor = (name: string) => CustomFieldsMap[name] ?? {};
 export const getACLFor = (name: string) => aclMap[name] ?? {};
 
 export const getGQLEntityNameFor = (name: string) =>
-	`${name}${gqlTypesSuffix || process.env['D3GOP_SORT_SUFFIX'] || process.env['D3GOP_TYPES_SUFFIX'] || ''}`;
+	`${name}${gqlTypesSuffix || process.env['D3GOP_TYPES_SUFFIX'] || ''}`;
 export const getGQLEntityNameForClass = <T>(classType: new () => T) =>
 	getGQLEntityNameFor(classType.name);
 export const getGQLEntityFieldResolverName = (gqlEntityName: string) =>
@@ -83,18 +85,14 @@ export function getAutoResolvers(): Array<new () => any> {
 // ─── Sort enum deferred registration ────────────────────────────────────────
 
 /**
- * Registers the Sort enum with type-graphql using the current suffix.
+ * Registers the Sort enum with type-graphql using the current sort suffix.
  * Deferred from module load so that setGlobalConfig() can be called first,
- * or falls back to the D3GOP_SORT_SUFFIX / D3GOP_TYPES_SUFFIX env variable.
+ * or falls back to the D3GOP_SORT_SUFFIX env variable.
  * Safe to call multiple times — only registers once.
  */
 function ensureSortRegistered() {
 	if (sortEnumRegistered) return;
-	const suffix =
-		gqlTypesSuffix ||
-		process.env['D3GOP_SORT_SUFFIX'] ||
-		process.env['D3GOP_TYPES_SUFFIX'] ||
-		'';
+	const suffix = gqlSortSuffix || process.env['D3GOP_SORT_SUFFIX'] || '';
 	registerEnumType(Sort, { name: `Sort${suffix}` });
 	sortEnumRegistered = true;
 }
@@ -268,7 +266,9 @@ export function GQLEntityClass<T extends Object, K>(
  * attempt to derive it from the decorated type class's `.relatedEntityName` static.
  * This allows `defineFields` consumers to skip the redundant `relatedEntityName` boilerplate.
  */
-function _resolveRelatedEntityNames<T>(fields: Partial<FieldsSettings<T>>): Partial<FieldsSettings<T>> {
+function _resolveRelatedEntityNames<T>(
+	fields: Partial<FieldsSettings<T>>
+): Partial<FieldsSettings<T>> {
 	const resolved: Partial<FieldsSettings<T>> = {};
 	for (const [fieldName, fieldOptions] of Object.entries(fields)) {
 		if (!fieldOptions) {
@@ -386,14 +386,7 @@ export function createGQLEntity<T extends Object, K>(
 	ObjectType(gqlEntityName)(GQLEntity);
 
 	function buildResolvers() {
-		return _buildResolversForEntity(
-			GQLEntity,
-			gqlEntityName,
-			fields,
-			opts,
-			metadata,
-			customFields
-		);
+		return _buildResolversForEntity(GQLEntity, gqlEntityName, fields, opts, metadata, customFields);
 	}
 
 	return {
@@ -671,7 +664,7 @@ export function createGQLEntityFilters<T, K>(
 			? options.filter(
 					({ appliesToArray }) =>
 						(!appliesToArray && includeNotArrays) || (appliesToArray && getFilterType)
-			  )
+				)
 			: [];
 
 		if (canFilterForField && applicableOptions.length > 0) {
@@ -744,7 +737,7 @@ export function createGQLEntityFilters<T, K>(
 								TypeMap[getGQLEntityNameFor(fieldOptions.relatedEntityName()) + 'FilterInput'] ??
 								GQLEntityFilterInputField
 							);
-					  }
+						}
 					: () => GQLEntityFilterInputField,
 			options: { ...fieldOptions.options, nullable: true },
 			typeOptions: { nullable: true },

@@ -48,28 +48,29 @@ Use this when the ORM entity declares the relationship as a `@ManyToOne` / `@One
 ```typescript
 @Entity({ tableName: 'quest_item' })
 export class QuestItem extends BaseEntity {
-  @PrimaryKey({ type: 'uuid' })
-  id!: string;
+	@PrimaryKey({ type: 'uuid' })
+	id!: string;
 
-  @Property({ type: 'string', nullable: true })
-  questId?: string;
+	@Property({ type: 'string', nullable: true })
+	questId?: string;
 
-  // The FK column is stored as a plain property...
-  @ManyToOne(() => Quest, {
-    fieldName: 'quest_id',
-    columnType: 'uuid',
-    ref: true,
-    nullable: true,
-    persist: false,   // ...but the relation is NOT persisted through the ORM
-  })
-  quest?: Ref<Quest>;
+	// The FK column is stored as a plain property...
+	@ManyToOne(() => Quest, {
+		fieldName: 'quest_id',
+		columnType: 'uuid',
+		ref: true,
+		nullable: true,
+		persist: false, // ...but the relation is NOT persisted through the ORM
+	})
+	quest?: Ref<Quest>;
 
-  @Property({ type: 'float', nullable: true })
-  quantity?: number;
+	@Property({ type: 'float', nullable: true })
+	quantity?: number;
 }
 ```
 
 **Key points:**
+
 - The FK value (`questId`) is a regular `@Property` — it gets persisted normally.
 - The relation (`quest`) is `@ManyToOne` with `persist: false` — the ORM knows the metadata (table, join columns, reference type) but will never try to write through this field.
 - The `ref: true` wraps the relation in a `Ref<T>` proxy for lazy loading if needed outside of GQL of Power.
@@ -83,17 +84,17 @@ import { ID } from 'type-graphql';
 import { QuestGQL } from './quest.gql';
 
 const fields = defineFields(QuestItem, {
-  id: { type: () => ID, generateFilter: true },
-  questId: { type: () => String, generateFilter: true },
-  quantity: { type: () => Float, generateFilter: true },
-  // Direct relation — the ORM metadata tells GQL of Power how to JOIN
-  quest: {
-    type: () => QuestGQL,
-    generateFilter: true,
-    relatedEntityName: () => QuestGQL.relatedEntityName,
-    getFilterType: () => QuestGQL.FilterInput,
-    options: { nullable: true },
-  },
+	id: { type: () => ID, generateFilter: true },
+	questId: { type: () => String, generateFilter: true },
+	quantity: { type: () => Float, generateFilter: true },
+	// Direct relation — the ORM metadata tells GQL of Power how to JOIN
+	quest: {
+		type: () => QuestGQL,
+		generateFilter: true,
+		relatedEntityName: () => QuestGQL.relatedEntityName,
+		getFilterType: () => QuestGQL.FilterInput,
+		options: { nullable: true },
+	},
 });
 
 @GQLEntityClass(QuestItem, fields)
@@ -101,6 +102,7 @@ export class QuestItemGQL extends GQLEntityBase {}
 ```
 
 **Key points:**
+
 - `relatedEntityName` returns the ORM class name (e.g. `'Quest'`), used to look up metadata.
 - `getFilterType` returns the generated `FilterInput` class for nested filtering.
 - The `type` must point to another `@GQLEntityClass`-decorated class.
@@ -117,20 +119,20 @@ const queryManager = new GQLQueryManager();
 
 @GQLResolver(QuestItemGQL)
 export class QuestItemGQLResolver {
-  @Query(() => [QuestItemGQL])
-  async questItemsV2(
-    @Arg('filter', () => QuestItemGQL.FilterInput, { nullable: true }) filter: any,
-    @Arg('pagination', () => QuestItemGQL.PaginationInput, { nullable: true }) pagination: any,
-    @Info() info: GraphQLResolveInfo
-  ): Promise<any[]> {
-    return queryManager.getQueryResultsForInfo(
-      mikroMetadataProvider,
-      QuestItemGQL,
-      info,
-      filter,
-      pagination
-    );
-  }
+	@Query(() => [QuestItemGQL])
+	async questItemsV2(
+		@Arg('filter', () => QuestItemGQL.FilterInput, { nullable: true }) filter: any,
+		@Arg('pagination', () => QuestItemGQL.PaginationInput, { nullable: true }) pagination: any,
+		@Info() info: GraphQLResolveInfo
+	): Promise<any[]> {
+		return queryManager.getQueryResultsForInfo(
+			mikroMetadataProvider,
+			QuestItemGQL,
+			info,
+			filter,
+			pagination
+		);
+	}
 }
 ```
 
@@ -145,12 +147,12 @@ Use this when the FK column exists as a plain property on the ORM entity but the
 ```typescript
 @Entity({ tableName: 'weapon' })
 export class Weapon extends BaseEntity {
-  @PrimaryKey({ type: new BigIntType('string') })
-  id!: string;
+	@PrimaryKey({ type: new BigIntType('string') })
+	id!: string;
 
-  // Plain FK column — no @ManyToOne relation declared
-  @Property({ type: 'string', columnType: 'uuid', nullable: false })
-  weaponTypeId?: string;
+	// Plain FK column — no @ManyToOne relation declared
+	@Property({ type: 'string', columnType: 'uuid', nullable: false })
+	weaponTypeId?: string;
 }
 ```
 
@@ -163,28 +165,29 @@ import { ID } from 'type-graphql';
 import { WeaponTypeGQL } from './weapon-type.gql';
 
 const fields = defineFields(Weapon, {
-  id: { type: () => ID, generateFilter: true },
-  weaponTypeId: { type: () => String, generateFilter: true },
+	id: { type: () => ID, generateFilter: true },
+	weaponTypeId: { type: () => String, generateFilter: true },
 });
 
 @GQLEntityClass(Weapon, fields, {
-  customFields: {
-    // This field does NOT exist as an ORM relation — it's resolved purely via SQL JOIN
-    weaponType: {
-      type: () => WeaponTypeGQL,
-      options: { nullable: true },
-      mapping: {
-        refEntity: WeaponType,       // ORM class to JOIN to
-        refFields: 'id',              // column on WeaponType to match
-        fields: 'weaponTypeId',       // column on Weapon (the FK)
-      },
-    },
-  },
+	customFields: {
+		// This field does NOT exist as an ORM relation — it's resolved purely via SQL JOIN
+		weaponType: {
+			type: () => WeaponTypeGQL,
+			options: { nullable: true },
+			mapping: {
+				refEntity: WeaponType, // ORM class to JOIN to
+				refFields: 'id', // column on WeaponType to match
+				fields: 'weaponTypeId', // column on Weapon (the FK)
+			},
+		},
+	},
 })
 export class WeaponGQL extends GQLEntityBase {}
 ```
 
 **Key points:**
+
 - `weaponType` is not a property on the ORM entity, so it goes in `customFields` (not `fields`).
 - `mapping.refEntity` is the **ORM class** (not the GQL class). GQL of Power uses the metadata provider to resolve table/column names.
 - `mapping.refFields` and `mapping.fields` accept a single string or an array for composite keys.
@@ -194,12 +197,12 @@ export class WeaponGQL extends GQLEntityBase {}
 
 ## When to use which strategy?
 
-| Situation | Strategy | Why |
-|---|---|---|
-| ORM already has a `@ManyToOne` / `@OneToMany` | **A — Direct relation** | GQL of Power reads the ORM metadata directly. Less config. |
-| FK exists as a plain `@Property` column, no ORM relation | **B — Custom field mapping** | No need to add an ORM relation just for GQL. The `mapping` config handles the JOIN. |
-| You need a DataLoader or custom resolver logic | **B — Custom field with `resolve`** | Use `resolve` + `resolveDecorators` for batch loading. |
-| Composite FK (multi-column join) | **B — Custom field mapping** | `mapping.fields` and `mapping.refFields` accept arrays. |
+| Situation                                                | Strategy                            | Why                                                                                 |
+| -------------------------------------------------------- | ----------------------------------- | ----------------------------------------------------------------------------------- |
+| ORM already has a `@ManyToOne` / `@OneToMany`            | **A — Direct relation**             | GQL of Power reads the ORM metadata directly. Less config.                          |
+| FK exists as a plain `@Property` column, no ORM relation | **B — Custom field mapping**        | No need to add an ORM relation just for GQL. The `mapping` config handles the JOIN. |
+| You need a DataLoader or custom resolver logic           | **B — Custom field with `resolve`** | Use `resolve` + `resolveDecorators` for batch loading.                              |
+| Composite FK (multi-column join)                         | **B — Custom field mapping**        | `mapping.fields` and `mapping.refFields` accept arrays.                             |
 
 ---
 

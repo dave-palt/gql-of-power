@@ -60,8 +60,8 @@ import { ID, Int } from 'type-graphql';
 
 // --- Author ---
 const authorFields = defineFields(Author, {
-  id:   { type: () => ID,     generateFilter: true },
-  name: { type: () => String, generateFilter: true },
+	id: { type: () => ID, generateFilter: true },
+	name: { type: () => String, generateFilter: true },
 });
 
 @GQLEntityClass(Author, authorFields)
@@ -69,10 +69,10 @@ export class AuthorGQL extends GQLEntityBase {}
 
 // --- Book ---
 const bookFields = defineFields(Book, {
-  id:              { type: () => ID,     generateFilter: true },
-  title:           { type: () => String, generateFilter: true },
-  publishedYear:   { type: () => Int,    generateFilter: true },
-  author:          { type: () => AuthorGQL, options: { nullable: true } },
+	id: { type: () => ID, generateFilter: true },
+	title: { type: () => String, generateFilter: true },
+	publishedYear: { type: () => Int, generateFilter: true },
+	author: { type: () => AuthorGQL, options: { nullable: true } },
 });
 
 @GQLEntityClass(Book, bookFields)
@@ -81,14 +81,14 @@ export class BookGQL extends GQLEntityBase {}
 
 The decorator attaches generated statics to the class:
 
-| Static | Purpose |
-|--------|---------|
-| `BookGQL.FilterInput` | Generated filter input type |
-| `BookGQL.PaginationInput` | Generated pagination input type |
-| `BookGQL.OrderBy` | Generated order-by input type |
-| `BookGQL.FieldsResolver` | Auto-generated field resolver class |
-| `BookGQL.gqlEntityName` | GQL type name (with suffix if configured) |
-| `BookGQL.relatedEntityName` | ORM entity class name (`'Book'`) |
+| Static                      | Purpose                                   |
+| --------------------------- | ----------------------------------------- |
+| `BookGQL.FilterInput`       | Generated filter input type               |
+| `BookGQL.PaginationInput`   | Generated pagination input type           |
+| `BookGQL.OrderBy`           | Generated order-by input type             |
+| `BookGQL.FieldsResolver`    | Auto-generated field resolver class       |
+| `BookGQL.gqlEntityName`     | GQL type name (with suffix if configured) |
+| `BookGQL.relatedEntityName` | ORM entity class name (`'Book'`)          |
 
 ### 2. Write Resolvers
 
@@ -99,14 +99,14 @@ import { GraphQLResolveInfo } from 'graphql';
 
 @GQLResolver(BookGQL)
 export class BookResolver {
-  @Query(() => [BookGQL])
-  async books(
-    @Arg('filter',     () => BookGQL.FilterInput,     { nullable: true }) filter: any,
-    @Arg('pagination', () => BookGQL.PaginationInput, { nullable: true }) pagination: any,
-    @Info() info: GraphQLResolveInfo,
-  ) {
-    return queryManager.getQueryResultsForInfo(metadataProvider, BookGQL, info, filter, pagination);
-  }
+	@Query(() => [BookGQL])
+	async books(
+		@Arg('filter', () => BookGQL.FilterInput, { nullable: true }) filter: any,
+		@Arg('pagination', () => BookGQL.PaginationInput, { nullable: true }) pagination: any,
+		@Info() info: GraphQLResolveInfo
+	) {
+		return queryManager.getQueryResultsForInfo(metadataProvider, BookGQL, info, filter, pagination);
+	}
 }
 ```
 
@@ -118,10 +118,10 @@ import { getAutoResolvers } from '@dav3/gql-of-power';
 import '../entities'; // trigger @GQLEntityClass decoration
 
 const schema = buildSchemaSync({
-  resolvers: [
-    BookResolver,
-    ...getAutoResolvers(), // FieldsResolver for every @GQLEntityClass entity
-  ],
+	resolvers: [
+		BookResolver,
+		...getAutoResolvers(), // FieldsResolver for every @GQLEntityClass entity
+	],
 });
 ```
 
@@ -141,23 +141,23 @@ Typed wrapper that constrains config keys to `keyof T`. Identity function at run
 
 ```typescript
 const fields = defineFields(Book, {
-  id:    { type: () => ID,     generateFilter: true },
-  title: { type: () => String, generateFilter: true },
-  typo:  { type: () => String }, // TS error — 'typo' is not keyof Book ✗
+	id: { type: () => ID, generateFilter: true },
+	title: { type: () => String, generateFilter: true },
+	typo: { type: () => String }, // TS error — 'typo' is not keyof Book ✗
 });
 ```
 
 #### Field options
 
-| Option | Type | Purpose |
-|--------|------|---------|
-| `type` | `() => GraphQLType` | GraphQL return type (required) |
-| `generateFilter` | `boolean` | Generate filter input fields for this property |
-| `options` | `FieldOptions` | type-graphql field options (nullable, description, etc.) |
-| `alias` | `string` | Override the GQL field name |
-| `array` | `true` | Mark as array return type |
-| `relatedEntityName` | `() => string` | ORM entity name for array relation fields (auto-derived when using `@GQLEntityClass`) |
-| `enum` | `EnumData` | Register an enum type |
+| Option              | Type                | Purpose                                                                               |
+| ------------------- | ------------------- | ------------------------------------------------------------------------------------- |
+| `type`              | `() => GraphQLType` | GraphQL return type (required)                                                        |
+| `generateFilter`    | `boolean`           | Generate filter input fields for this property                                        |
+| `options`           | `FieldOptions`      | type-graphql field options (nullable, description, etc.)                              |
+| `alias`             | `string`            | Override the GQL field name                                                           |
+| `array`             | `true`              | Mark as array return type                                                             |
+| `relatedEntityName` | `() => string`      | ORM entity name for array relation fields (auto-derived when using `@GQLEntityClass`) |
+| `enum`              | `EnumData`          | Register an enum type                                                                 |
 
 ### `@GQLEntityClass(OrmClass, fields, extra?)`
 
@@ -195,29 +195,29 @@ Provide a GraphQL `@FieldResolver` function. The library fetches field(s) listed
 
 ```typescript
 @GQLEntityClass(Fellowship, fields, {
-  customFields: {
-    firstMember: {
-      type: () => GraphQLJSON,
-      options: { nullable: true },
-      requires: 'id', // ensure 'id' is fetched even if client didn't request it
-      resolveDecorators: [Root(), Ctx()],
-      resolve: (root: Fellowship, ctx: any) => {
-        return memberDataLoader.load(root.id);
-      },
-    },
-  },
+	customFields: {
+		firstMember: {
+			type: () => GraphQLJSON,
+			options: { nullable: true },
+			requires: 'id', // ensure 'id' is fetched even if client didn't request it
+			resolveDecorators: [Root(), Ctx()],
+			resolve: (root: Fellowship, ctx: any) => {
+				return memberDataLoader.load(root.id);
+			},
+		},
+	},
 })
 export class FellowshipGQL extends GQLEntityBase {}
 ```
 
 #### `resolve` field options
 
-| Option | Purpose |
-|--------|---------|
-| `type` | GraphQL return type |
-| `options` | type-graphql field options |
-| `requires` | Field name(s) to ensure are fetched from DB |
-| `resolve` | The resolver function (required) |
+| Option              | Purpose                                                                |
+| ------------------- | ---------------------------------------------------------------------- |
+| `type`              | GraphQL return type                                                    |
+| `options`           | type-graphql field options                                             |
+| `requires`          | Field name(s) to ensure are fetched from DB                            |
+| `resolve`           | The resolver function (required)                                       |
 | `resolveDecorators` | type-graphql parameter decorators in order (`[Root(), Ctx(), Info()]`) |
 
 ### Strategy 2: `mapping` — automatic SQL JOIN
@@ -227,63 +227,63 @@ Provide a `FieldMappingConfig`. The library generates a SQL `LEFT JOIN LATERAL` 
 Use this when the foreign key exists as a plain column on the entity (not declared as an ORM relation).
 
 ```typescript
-import { CrmAccount } from './orm-entities';
+import { Kingdom } from './orm-entities';
 
-@GQLEntityClass(Job, fields, {
-  customFields: {
-    account: {
-      type: () => CrmAccountGQL,
-      options: { nullable: true },
-      mapping: {
-        refEntity: CrmAccount,    // ORM entity class to JOIN to
-        refFields: 'id',          // column(s) on CrmAccount — keyof CrmAccount ✓
-        fields: 'crmAccountId',   // column(s) on Job — keyof Job ✓
-      },
-    },
-  },
+@GQLEntityClass(Hobbit, fields, {
+	customFields: {
+		kingdom: {
+			type: () => KingdomGQL,
+			options: { nullable: true },
+			mapping: {
+				refEntity: Kingdom, // ORM entity class to JOIN to
+				refFields: 'id', // column(s) on Kingdom — keyof Kingdom ✓
+				fields: 'kingdomId', // column(s) on Hobbit — keyof Hobbit ✓
+			},
+		},
+	},
 })
-export class JobGQL extends GQLEntityBase {}
+export class HobbitGQL extends GQLEntityBase {}
 ```
 
 Composite FK — use arrays (must have the same length):
 
 ```typescript
 mapping: {
-  refEntity: OrderLine,
-  refFields: ['tenantId', 'externalId'],
-  fields:    ['tenantId', 'lineExternalId'],
+  refEntity: Weapon,
+  refFields: ['realmId', 'weaponCode'],
+  fields:    ['realmId', 'weaponExternalId'],
 }
 ```
 
 #### `mapping` field options
 
-| Option | Type | Purpose |
-|--------|------|---------|
-| `type` | `() => GraphQLType` | GraphQL return type |
-| `options` | `FieldOptions` | type-graphql field options (nullable, etc.) |
-| `mapping.refEntity` | `new () => TRef` | ORM entity class to JOIN to (must be in the metadata provider) |
-| `mapping.refFields` | `keyof TRef \| Array<keyof TRef>` | Column(s) on the ref entity to match against |
-| `mapping.fields` | `keyof T \| Array<keyof T>` | Column(s) on the owner entity to match from |
+| Option              | Type                              | Purpose                                                        |
+| ------------------- | --------------------------------- | -------------------------------------------------------------- |
+| `type`              | `() => GraphQLType`               | GraphQL return type                                            |
+| `options`           | `FieldOptions`                    | type-graphql field options (nullable, etc.)                    |
+| `mapping.refEntity` | `new () => TRef`                  | ORM entity class to JOIN to (must be in the metadata provider) |
+| `mapping.refFields` | `keyof TRef \| Array<keyof TRef>` | Column(s) on the ref entity to match against                   |
+| `mapping.fields`    | `keyof T \| Array<keyof T>`       | Column(s) on the owner entity to match from                    |
 
 > **Note**: `resolve` and `mapping` are mutually exclusive — TypeScript enforces this via a discriminated union. `resolveDecorators` and `requires` are only valid on the `resolve` branch.
 
 #### Generated SQL
 
-For `account: { mapping: { refEntity: CrmAccount, refFields: 'id', fields: 'crmAccountId' } }`:
+For `kingdom: { mapping: { refEntity: Kingdom, refFields: 'id', fields: 'kingdomId' } }`:
 
 ```sql
-select e_a1.id, e_a1.crm_account_id, f_j1.value as "account"
+select e_a1.id, e_a1.kingdom_id, f_j1.value as "kingdom"
 from (
-  select e_a1.id, e_a1.crm_account_id
-  from job as e_a1
+  select e_a1.id, e_a1.kingdom_id
+  from hobbit as e_a1
   where true
 ) as e_a1
 left outer join lateral (
   select row_to_json(f_j1)::jsonb as value
   from (
-    select f_j1.id, f_j1.account_name
-    from "crm_account" as f_j1
-    where e_a1.crm_account_id = f_j1.id
+    select f_j1.id, f_j1.name
+    from kingdom as f_j1
+    where e_a1.kingdom_id = f_j1.id
   ) as f_j1
 ) as f_j1 on true
 ```
@@ -317,17 +317,17 @@ filter: {
 
 ### Filter operations
 
-| Operation | Meaning |
-|-----------|---------|
-| `_eq` | Equal |
-| `_ne` | Not equal |
-| `_in` | In array |
-| `_nin` | Not in array |
-| `_like` | ILIKE (case-insensitive contains) |
+| Operation      | Meaning                              |
+| -------------- | ------------------------------------ |
+| `_eq`          | Equal                                |
+| `_ne`          | Not equal                            |
+| `_in`          | In array                             |
+| `_nin`         | Not in array                         |
+| `_like`        | ILIKE (case-insensitive contains)    |
 | `_gt` / `_gte` | Greater than / greater than or equal |
-| `_lt` / `_lte` | Less than / less than or equal |
-| `_and` | Logical AND |
-| `_or` | Logical OR (generates UNION ALL) |
+| `_lt` / `_lte` | Less than / less than or equal       |
+| `_and`         | Logical AND                          |
+| `_or`          | Logical OR (generates UNION ALL)     |
 
 ---
 
@@ -345,13 +345,13 @@ pagination: {
 
 ## Relationship Handling
 
-| Relationship | SQL Strategy |
-|--------------|-------------|
-| **m:1** (many-to-one) | `LEFT JOIN LATERAL` + `row_to_json` |
-| **1:1** (one-to-one) | `LEFT JOIN LATERAL` + `row_to_json` |
-| **1:m** (one-to-many) | `LEFT JOIN LATERAL` + `json_agg` |
-| **m:m** (many-to-many) | Pivot table subquery + `json_agg` |
-| **custom `mapping`** | `LEFT JOIN LATERAL` + `row_to_json` (same as m:1) |
+| Relationship           | SQL Strategy                                      |
+| ---------------------- | ------------------------------------------------- |
+| **m:1** (many-to-one)  | `LEFT JOIN LATERAL` + `row_to_json`               |
+| **1:1** (one-to-one)   | `LEFT JOIN LATERAL` + `row_to_json`               |
+| **1:m** (one-to-many)  | `LEFT JOIN LATERAL` + `json_agg`                  |
+| **m:m** (many-to-many) | Pivot table subquery + `json_agg`                 |
+| **custom `mapping`**   | `LEFT JOIN LATERAL` + `row_to_json` (same as m:1) |
 
 ---
 
@@ -359,15 +359,15 @@ pagination: {
 
 ### Environment Variables
 
-| Variable | Purpose |
-|----------|---------|
-| `D3GOP_SORT_SUFFIX` | Suffix appended to all generated GQL type names and the Sort enum (e.g. `'V2'` → `BookV2`, `SortV2`) |
-| `D3GOP_TYPES_SUFFIX` | Fallback suffix if `D3GOP_SORT_SUFFIX` is not set |
-| `D3GOP_LOG_TYPE` | Logging level: `debug` or `disabled` |
-| `D3GOP_DEFAULT_QUERY_LIMIT` | Default query limit when pagination is not specified (default: `3000`) |
-| `D3GOP_USE_STRING_FOR_JSONB` | Toggle between JSONB and string concatenation for JSON aggregation |
+| Variable                     | Purpose                                                                                     |
+| ---------------------------- | ------------------------------------------------------------------------------------------- |
+| `D3GOP_TYPES_SUFFIX`         | Suffix appended to all generated GQL entity type names (e.g. `'V2'` → `BookV2`, `AuthorV2`) |
+| `D3GOP_SORT_SUFFIX`          | Suffix appended to sort/pagination types only (e.g. `'V2'` → `SortV2`, `BookV2OrderBy`)     |
+| `D3GOP_LOG_TYPE`             | Logging level: `debug` or `disabled`                                                        |
+| `D3GOP_DEFAULT_QUERY_LIMIT`  | Default query limit when pagination is not specified (default: `3000`)                      |
+| `D3GOP_USE_STRING_FOR_JSONB` | Toggle between JSONB and string concatenation for JSON aggregation                          |
 
-> **Type name collision**: If you have both v1 (`createGQLTypes`) and v2 (`@GQLEntityClass`) entities in the same schema, set `D3GOP_SORT_SUFFIX` / `D3GOP_TYPES_SUFFIX` so v2 entity names are distinct (e.g. `Job` → `JobV2`). No `setGlobalConfig()` call is required — the env var is read automatically.
+> **Type name collision**: If you have both v1 (`createGQLTypes`) and v2 (`@GQLEntityClass`) entities in the same schema, set `D3GOP_TYPES_SUFFIX` so v2 entity names are distinct (e.g. `Hobbit` → `HobbitV2`). Use `D3GOP_SORT_SUFFIX` separately if sort/pagination types also need a suffix. No `setGlobalConfig()` call is required — the env vars are read automatically.
 
 ### Programmatic config
 
@@ -376,6 +376,9 @@ import { setGlobalConfig } from '@dav3/gql-of-power';
 
 // Call before any @GQLEntityClass decorators run (i.e. before importing entity files)
 setGlobalConfig({ gqlTypesSuffix: 'V2' });
+
+// Optionally set a separate suffix for sort/pagination types
+setGlobalConfig({ gqlTypesSuffix: 'V2', gqlSortSuffix: 'V2' });
 ```
 
 ---
@@ -387,20 +390,20 @@ const queryManager = new GQLQueryManager();
 
 // From a GraphQL resolver — fields are parsed from resolve info automatically
 const results = await queryManager.getQueryResultsForInfo(
-  metadataProvider,
-  BookGQL,         // @GQLEntityClass-decorated class or plain ORM class
-  info,            // GraphQLResolveInfo
-  filter,
-  pagination
+	metadataProvider,
+	BookGQL, // @GQLEntityClass-decorated class or plain ORM class
+	info, // GraphQLResolveInfo
+	filter,
+	pagination
 );
 
 // With explicit field selection (useful for testing or non-resolver contexts)
 const results = await queryManager.getQueryResultsForFields(
-  metadataProvider,
-  BookGQL,
-  { id: {}, title: {} },
-  filter,
-  pagination
+	metadataProvider,
+	BookGQL,
+	{ id: {}, title: {} },
+	filter,
+	pagination
 );
 ```
 
@@ -412,14 +415,14 @@ const results = await queryManager.getQueryResultsForFields(
 
 ### Core Components
 
-| Component | Purpose |
-|-----------|---------|
-| `GQLtoSQLMapper` | Transforms GraphQL field selections into SQL with proper joins |
-| `GQLQueryManager` | Orchestrates query building and execution |
-| `FilterProcessor` | Translates GQL filter inputs to SQL WHERE clauses |
-| `RelationshipHandler` | Generates JOIN SQL for ORM-declared relations |
-| `SQLBuilder` | Assembles final SQL strings and JSON aggregations |
-| `AliasManager` | Manages incremental SQL aliases to prevent naming conflicts |
+| Component             | Purpose                                                        |
+| --------------------- | -------------------------------------------------------------- |
+| `GQLtoSQLMapper`      | Transforms GraphQL field selections into SQL with proper joins |
+| `GQLQueryManager`     | Orchestrates query building and execution                      |
+| `FilterProcessor`     | Translates GQL filter inputs to SQL WHERE clauses              |
+| `RelationshipHandler` | Generates JOIN SQL for ORM-declared relations                  |
+| `SQLBuilder`          | Assembles final SQL strings and JSON aggregations              |
+| `AliasManager`        | Manages incremental SQL aliases to prevent naming conflicts    |
 
 ### Query Flow
 

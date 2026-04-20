@@ -57,9 +57,10 @@ src/
 - **Runtime**: Bun only. Package manager, test runner, and build tooling all use Bun.
 - **Module output**: CommonJS (`"module": "CommonJS"` in tsconfig).
 - **Decorators**: `experimentalDecorators: true` — required for TypeGraphQL `@GQLEntityClass`.
-- **Prettier**: tabs, single quotes, trailing comma es5, print width 100.
+- **Prettier**: tabs, single quotes, trailing comma es5, print width 100. Config is in `.prettierrc`.
 - **`reflect-metadata`** must be imported before any decorator usage (handled in `tests/setup.ts` for tests).
 - **No separate lint step** — rely on `tsc --strict` and Prettier.
+- **Format before commit**: Always run `bunx prettier --write .` to format all files before committing. This ensures consistent style without relying on pre-commit hooks.
 - **Theming**: All code examples, JSDoc comments, test data, and fixtures use **Lord of the Rings / Middle-earth** references (Person, Ring, Fellowship, Battle, Book, Author, etc.). Never use real-world business entity names like Account, Customer, Order, Tenant, etc.
 
 ## Gotchas
