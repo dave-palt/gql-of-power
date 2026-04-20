@@ -1898,4 +1898,229 @@ describe('GQLtoSQLMapper - Relationship Integration Tests', () => {
 			expect(result.bindings).toBeDefined();
 		});
 	});
+
+	describe('Nested _or/_and at root level', () => {
+		it('should handle _or containing _and branches at root level', () => {
+			const fields = {
+				id: {},
+				name: {},
+				race: {},
+				age: {},
+			};
+
+			const filter = {
+				_or: [
+					{ _and: [{ race_eq: 'Hobbit' }, { age: { _lt: 50 } }] },
+					{ _and: [{ race_eq: 'Elf' }, { age: { _gt: 100 } }] },
+				],
+			};
+
+			const result = mapper.buildQueryAndBindingsFor({
+				fields,
+				entity: Person,
+				customFields: {},
+				filter,
+			});
+
+			expect(result.querySQL).toContain('persons');
+			expect(result.querySQL.toLowerCase()).toContain('union all');
+			expect(result.querySQL.toLowerCase()).toContain('race');
+			expect(result.querySQL.toLowerCase()).toContain('age');
+			expect(result.bindings).toBeDefined();
+		});
+
+		it('should handle _or with _and containing nested _or (Cartesian product) at root level', () => {
+			const fields = {
+				id: {},
+				name: {},
+				race: {},
+				home: {},
+			};
+
+			const filter = {
+				_or: [
+					{
+						_and: [
+							{ race_eq: 'Hobbit' },
+							{
+								_or: [{ home: 'The Shire' as any }, { home: 'Rivendell' as any }],
+							},
+						],
+					},
+				],
+			};
+
+			const result = mapper.buildQueryAndBindingsFor({
+				fields,
+				entity: Person,
+				customFields: {},
+				filter,
+			});
+
+			expect(result.querySQL).toContain('persons');
+			expect(result.querySQL.toLowerCase()).toContain('union all');
+			expect(result.querySQL.toLowerCase()).toContain('race');
+			expect(result.querySQL.toLowerCase()).toContain('home_location');
+			expect(result.bindings).toBeDefined();
+		});
+
+		it('should handle root-level regular fields combined with _or/_and', () => {
+			const fields = {
+				id: {},
+				name: {},
+				race: {},
+				age: {},
+			};
+
+			const filter = {
+				race_eq: 'Hobbit',
+				_or: [{ age: { _lt: 50 } }, { age: { _gt: 500 } }],
+			};
+
+			const result = mapper.buildQueryAndBindingsFor({
+				fields,
+				entity: Person,
+				customFields: {},
+				filter,
+			});
+
+			expect(result.querySQL).toContain('persons');
+			expect(result.querySQL.toLowerCase()).toContain('union all');
+			expect(result.querySQL.toLowerCase()).toContain('race');
+			expect(result.querySQL.toLowerCase()).toContain('age');
+			expect(result.bindings).toBeDefined();
+		});
+	});
+
+	describe('Nested _or/_and inside relationship filters', () => {
+		it('should handle _or with _and inside m:1 relationship filter', () => {
+			const fields = {
+				id: {},
+				name: {},
+				race: {},
+				fellowship: {
+					fieldsByTypeName: {
+						Fellowship: {
+							id: {},
+							name: {},
+						},
+					},
+				},
+			};
+
+			const filter = {
+				fellowship: {
+					_or: [
+						{ _and: [{ name_eq: 'Fellowship of the Ring' }, { disbanded_eq: false }] },
+						{ _and: [{ name_eq: 'The White Council' }, { disbanded_eq: true }] },
+					],
+				},
+			};
+
+			const result = mapper.buildQueryAndBindingsFor({
+				fields,
+				entity: Person,
+				customFields: {},
+				filter,
+			});
+
+			expect(result.querySQL).toContain('persons');
+			expect(result.querySQL).toContain('fellowships');
+			expect(result.querySQL.toLowerCase()).toContain('union all');
+			expect(result.querySQL.toLowerCase()).toContain('disbanded');
+			expect(result.querySQL.toLowerCase()).toContain('fellowship_name');
+			expect(result.bindings).toBeDefined();
+		});
+
+		it('should handle deeply nested _or/_and inside m:1 relationship filter', () => {
+			const fields = {
+				id: {},
+				name: {},
+				race: {},
+				fellowship: {
+					fieldsByTypeName: {
+						Fellowship: {
+							id: {},
+							name: {},
+						},
+					},
+				},
+			};
+
+			const filter = {
+				fellowship: {
+					_or: [
+						{
+							_and: [
+								{ disbanded_eq: false },
+								{ name_eq: 'Fellowship of the Ring' },
+								{
+									_or: [{ purpose: null as any }, { purpose_gte: 'Defeat' as any }],
+								},
+							],
+						},
+						{
+							_and: [{ disbanded_eq: true }, { name_eq: 'The White Council' }],
+						},
+					],
+				},
+			};
+
+			const result = mapper.buildQueryAndBindingsFor({
+				fields,
+				entity: Person,
+				customFields: {},
+				filter,
+			});
+
+			expect(result.querySQL).toContain('persons');
+			expect(result.querySQL).toContain('fellowships');
+			expect(result.querySQL.toLowerCase()).toContain('union all');
+			expect(result.querySQL.toLowerCase()).toContain('disbanded');
+			expect(result.querySQL.toLowerCase()).toContain('fellowship_name');
+			expect(result.querySQL.toLowerCase()).toContain('purpose');
+			expect(result.bindings).toBeDefined();
+		});
+
+		it('should handle root-level fields combined with nested _or/_and inside relationship filter', () => {
+			const fields = {
+				id: {},
+				name: {},
+				race: {},
+				fellowship: {
+					fieldsByTypeName: {
+						Fellowship: {
+							id: {},
+							name: {},
+						},
+					},
+				},
+			};
+
+			const filter = {
+				race_eq: 'Hobbit',
+				fellowship: {
+					_or: [
+						{ _and: [{ name_eq: 'Fellowship of the Ring' }, { disbanded_eq: false }] },
+						{ _and: [{ name_eq: 'The White Council' }, { disbanded_eq: true }] },
+					],
+				},
+			};
+
+			const result = mapper.buildQueryAndBindingsFor({
+				fields,
+				entity: Person,
+				customFields: {},
+				filter,
+			});
+
+			expect(result.querySQL).toContain('persons');
+			expect(result.querySQL).toContain('fellowships');
+			expect(result.querySQL.toLowerCase()).toContain('union all');
+			expect(result.querySQL.toLowerCase()).toContain('race');
+			expect(result.querySQL.toLowerCase()).toContain('disbanded');
+			expect(result.querySQL.toLowerCase()).toContain('fellowship_name');
+			expect(result.bindings).toBeDefined();
+		});
+	});
 });

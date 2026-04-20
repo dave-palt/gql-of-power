@@ -285,7 +285,7 @@ export class FilterProcessor extends ClassOperations {
 
 			keys(filter).forEach((fieldName) => {
 				if (filter[fieldName] === undefined) {
-					return; // skip undefined values
+					return;
 				}
 
 				logger.log(
@@ -299,7 +299,6 @@ export class FilterProcessor extends ClassOperations {
 			});
 
 			const reduced = QueriesUtils.mappingsReducer(newMappings);
-			const { innerJoin, where, values } = reduced;
 
 			logger.log(
 				'FilterProcessor - new mappings',
@@ -308,13 +307,33 @@ export class FilterProcessor extends ClassOperations {
 				i,
 				fieldName,
 				'reduced to',
-				innerJoin,
-				where,
-				values
+				reduced.innerJoin,
+				reduced.where,
+				reduced.values,
+				'_and entries',
+				reduced._and.length
 			);
 
-			mapping._or.push(reduced);
-			mapping.values = { ...mapping.values, ...values };
+			if (reduced._and.length > 0) {
+				for (const andMapping of reduced._and) {
+					const expanded: MappingsType = {
+						...QueriesUtils.newMappings(),
+						where: [...reduced.where, ...andMapping.where],
+						innerJoin: [...reduced.innerJoin, ...andMapping.innerJoin],
+						outerJoin: [...reduced.outerJoin, ...andMapping.outerJoin],
+						json: [...reduced.json, ...andMapping.json],
+						select: new Set([...reduced.select, ...andMapping.select]),
+						rawSelect: new Set([...reduced.rawSelect, ...andMapping.rawSelect]),
+						values: { ...reduced.values, ...andMapping.values },
+						orderBy: [...reduced.orderBy, ...andMapping.orderBy],
+					};
+					mapping._or.push(expanded);
+					mapping.values = { ...mapping.values, ...expanded.values };
+				}
+			} else {
+				mapping._or.push(reduced);
+				mapping.values = { ...mapping.values, ...reduced.values };
+			}
 		});
 
 		logger.log('FilterProcessor - mapping', mapping._or);
@@ -340,7 +359,7 @@ export class FilterProcessor extends ClassOperations {
 					entityMetadata,
 					gqlFilters: [f],
 					parentAlias,
-					alias: this.aliasManager.reset(AliasType.entity, alias.pref),
+					alias,
 				});
 
 				const or = mapped.get('_or');
@@ -874,7 +893,7 @@ export class FilterProcessor extends ClassOperations {
 
 			const subquery =
 				unionAll.length > 0
-					? unionAll.join(' union all ')
+					? unionAll.map((q) => `(${q})`).join(' union all ')
 					: this.buildOneToXJoin(
 							[],
 							alias,
@@ -952,10 +971,10 @@ export class FilterProcessor extends ClassOperations {
 
 				logger.log('FilterProcessor - mapFilterManyToOne: whereSQL', alias.toString(), unionAll);
 
-				const subquery =
-					unionAll.length > 0
-						? unionAll.join(' union all ')
-						: this.buildManyToOneJoin(
+		const subquery =
+				unionAll.length > 0
+					? unionAll.map((q) => `(${q})`).join(' union all ')
+					: this.buildManyToOneJoin(
 								[],
 								alias,
 								referenceField.tableName,
@@ -1047,7 +1066,7 @@ export class FilterProcessor extends ClassOperations {
 			const whereSQL = `(${referenceField.primaryKeys.join(', ')}) in (${ptSQL})`;
 			const subquery =
 				unionAll.length > 0
-					? `with ${ptAlias} as (${ptSQL}) ${unionAll.join(' union all ')}`
+					? `with ${ptAlias} as (${ptSQL}) ${unionAll.map((q) => `(${q})`).join(' union all ')}`
 					: this.buildManyToManyPivotTable(
 							[alias.toColumnName('*')],
 							alias,

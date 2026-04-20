@@ -138,13 +138,9 @@ describe('SQLBuilder', () => {
 				value?: any
 			) => {
 				callCount++;
-				if (value && 'innerJoin' in value) {
-					return `query with innerJoin: ${value.innerJoin}`;
-				}
-				if (value && 'where' in value) {
-					return `query with where: ${value.where}`;
-				}
-				return 'base query';
+				const joins = innerJoin.join(', ');
+				const wheres = whereWithValues.join(', ');
+				return `query with innerJoin: [${joins}] where: [${wheres}]`;
 			};
 
 			const result = SQLBuilder.buildUnionAll(
@@ -159,14 +155,11 @@ describe('SQLBuilder', () => {
 				mockQueryBuilder
 			);
 
-			// Should generate queries for each innerJoin and where condition
-			// First mapping has 1 innerJoin + 1 where = 2 queries
-			// Second mapping has 0 innerJoin + 2 wheres = 2 queries
-			// Total = 4 queries
-			expect(result).toHaveLength(4);
-			expect(result.some((r) => r.includes('join1'))).toBe(true);
-			expect(result.some((r) => r.includes('where2'))).toBe(true);
-			expect(result.some((r) => r.includes('where3'))).toBe(true);
+			expect(result).toHaveLength(2);
+			expect(result[0]).toContain('join1');
+			expect(result[0]).toContain('where1');
+			expect(result[1]).toContain('where2');
+			expect(result[1]).toContain('where3');
 		});
 
 		it('should handle empty OR conditions', () => {

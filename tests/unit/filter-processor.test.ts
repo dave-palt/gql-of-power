@@ -440,4 +440,106 @@ describe('FilterProcessor', () => {
 			expect(ltMapping!.where[0]).toContain('<');
 		});
 	});
+
+	describe('_or with _and expansion', () => {
+		it('should expand _and entries within _or into separate OR branches with populated where', () => {
+			const provider = createMockMetadataProvider();
+			const am = new AliasManager();
+
+			let processor: FilterProcessor;
+			const recursiveMap = (params: any) => {
+				const { entityMetadata, gqlFilters, parentAlias, alias } = params;
+				const ms = new Map<string, MappingsType>();
+				for (const f of gqlFilters ?? []) {
+					for (const key of Object.keys(f ?? {})) {
+						if (f[key] === undefined) continue;
+						processor.mapFilter(entityMetadata, ms, parentAlias, alias, key, f);
+					}
+				}
+				return ms;
+			};
+			processor = new FilterProcessor(am, provider, recursiveMap as any);
+			filterProcessor = processor;
+
+			const personMetadata = provider.getMetadata('Person') as EntityMetadata<Person>;
+			const mapping = QueriesUtils.newMappings();
+			const mappings = new Map<string, MappingsType>();
+			const parentAlias = am.start('p');
+			const alias = am.start('p');
+
+			const gqlFilters = [
+				{ _and: [{ race_eq: 'Hobbit' as any }, { age: { _lt: 50 } as any }] },
+				{ _and: [{ race_eq: 'Elf' as any }, { age: { _gt: 100 } as any }] },
+			];
+
+			processor._or({
+				entityMetadata: personMetadata,
+				gqlFilters,
+				parentAlias,
+				alias,
+				fieldName: '_or',
+				mapping,
+				mappings,
+			});
+
+			expect(mapping._or).toHaveLength(2);
+			expect(mapping._or[0].where.length).toBeGreaterThan(0);
+			expect(mapping._or[1].where.length).toBeGreaterThan(0);
+			expect(mapping._or[0].where.some((w) => w.includes('race'))).toBe(true);
+			expect(mapping._or[0].where.some((w) => w.includes('age'))).toBe(true);
+			expect(mapping._or[1].where.some((w) => w.includes('race'))).toBe(true);
+			expect(mapping._or[1].where.some((w) => w.includes('age'))).toBe(true);
+		});
+
+		it('should expand _and with nested _or into Cartesian product of OR branches', () => {
+			const provider = createMockMetadataProvider();
+			const am = new AliasManager();
+
+			let processor: FilterProcessor;
+			const recursiveMap = (params: any) => {
+				const { entityMetadata, gqlFilters, parentAlias, alias } = params;
+				const ms = new Map<string, MappingsType>();
+				for (const f of gqlFilters ?? []) {
+					for (const key of Object.keys(f ?? {})) {
+						if (f[key] === undefined) continue;
+						processor.mapFilter(entityMetadata, ms, parentAlias, alias, key, f);
+					}
+				}
+				return ms;
+			};
+			processor = new FilterProcessor(am, provider, recursiveMap as any);
+			filterProcessor = processor;
+
+			const personMetadata = provider.getMetadata('Person') as EntityMetadata<Person>;
+			const mapping = QueriesUtils.newMappings();
+			const mappings = new Map<string, MappingsType>();
+			const parentAlias = am.start('p');
+			const alias = am.start('p');
+
+			const gqlFilters = [
+				{
+					_and: [
+						{ race_eq: 'Hobbit' as any },
+						{ _or: [{ home: 'The Shire' as any }, { home: 'Rivendell' as any }] },
+					],
+				},
+			];
+
+			processor._or({
+				entityMetadata: personMetadata,
+				gqlFilters,
+				parentAlias,
+				alias,
+				fieldName: '_or',
+				mapping,
+				mappings,
+			});
+
+			expect(mapping._or).toHaveLength(2);
+			expect(mapping._or[0].where.some((w) => w.includes('race'))).toBe(true);
+			expect(mapping._or[0].where.some((w) => w.includes('home_location'))).toBe(true);
+			expect(mapping._or[1].where.some((w) => w.includes('race'))).toBe(true);
+			expect(mapping._or[1].where.some((w) => w.includes('home_location'))).toBe(true);
+		});
+	});
 });

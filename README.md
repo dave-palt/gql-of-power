@@ -127,6 +127,12 @@ const schema = buildSchemaSync({
 
 ---
 
+## Examples
+
+For complete, LotR-themed walkthroughs of both mapping strategies (direct ORM relation and custom field mapping), see **[EXAMPLES.md](./EXAMPLES.md)**.
+
+---
+
 ## Entity API
 
 ### `defineFields<T>(OrmClass, config)`

@@ -83,37 +83,25 @@ export class SQLBuilder {
 		) => string
 	): string[] {
 		return orConditions
-			.map(({ innerJoin: innerJoins, where: wheres }) => [
-				...innerJoins.map((filterJ) =>
-					queryBuilder(
-						fields,
-						alias,
-						tableName,
-						globalInnerJoin,
-						outerJoin,
-						whereSQL,
-						globalFilterWhere,
-						{
-							innerJoin: filterJ,
-						}
-					)
-				),
-				...wheres.map((w) =>
-					queryBuilder(
-						fields,
-						alias,
-						tableName,
-						globalInnerJoin,
-						outerJoin,
-						whereSQL,
-						globalFilterWhere,
-						{
-							where: w,
-						}
-					)
-				),
-			])
-			.flat();
+			.map(({ innerJoin: innerJoins, where: wheres }) => {
+				if (wheres.length === 0 && innerJoins.length === 0) {
+					return null;
+				}
+
+				const combinedInnerJoin = [...globalInnerJoin, ...innerJoins];
+				const combinedWhere = [...globalFilterWhere, ...wheres];
+
+				return queryBuilder(
+					fields,
+					alias,
+					tableName,
+					combinedInnerJoin,
+					outerJoin,
+					whereSQL,
+					combinedWhere
+				);
+			})
+			.filter((q): q is string => q !== null);
 	}
 	public static getFieldMapper =
 		<T>(metadata: EntityMetadata<T>, alias: Alias) =>
