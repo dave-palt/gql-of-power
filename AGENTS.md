@@ -65,5 +65,5 @@ src/
 
 - Integration tests need PostgreSQL. CI uses a `postgres:16-alpine` service container with env vars `DATABASE_URL`, `POSTGRES_HOST`, etc.
 - `setGlobalConfig()` must be called **before** any `@GQLEntityClass` decorators run (before importing entity files).
-- `jest.config.js` is stale — do not treat it as active config.
 - The package has a workspace for `examples/*` (currently `examples/web-playground`).
+- **Git-flow versioning**: `develop` always carries a `-dev` suffix (e.g., `1.1.0-dev`), `main` has clean versions. Release workflows strip `-dev`, bump, publish, then merge back and set the next `-dev` version.
