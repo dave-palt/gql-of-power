@@ -38,10 +38,12 @@ const autoResolverRegistry = new Map<string, new () => any>();
 // ─── Global config ───────────────────────────────────────────────────────────
 
 let gqlTypesSuffix = '';
+let gqlSortSuffix = '';
 let sortEnumRegistered = false;
 
-export const setGlobalConfig = (config: { gqlTypesSuffix: string }) => {
-	gqlTypesSuffix = config.gqlTypesSuffix;
+export const setGlobalConfig = (config: { gqlTypesSuffix?: string; gqlSortSuffix?: string }) => {
+	if (config.gqlTypesSuffix !== undefined) gqlTypesSuffix = config.gqlTypesSuffix;
+	if (config.gqlSortSuffix !== undefined) gqlSortSuffix = config.gqlSortSuffix;
 };
 
 // ─── Public accessors ────────────────────────────────────────────────────────
@@ -55,7 +57,7 @@ export const getCustomFieldsFor = (name: string) => CustomFieldsMap[name] ?? {};
 export const getACLFor = (name: string) => aclMap[name] ?? {};
 
 export const getGQLEntityNameFor = (name: string) =>
-	`${name}${gqlTypesSuffix || process.env['D3GOP_SORT_SUFFIX'] || process.env['D3GOP_TYPES_SUFFIX'] || ''}`;
+	`${name}${gqlTypesSuffix || process.env['D3GOP_TYPES_SUFFIX'] || ''}`;
 export const getGQLEntityNameForClass = <T>(classType: new () => T) =>
 	getGQLEntityNameFor(classType.name);
 export const getGQLEntityFieldResolverName = (gqlEntityName: string) =>
@@ -83,15 +85,14 @@ export function getAutoResolvers(): Array<new () => any> {
 // ─── Sort enum deferred registration ────────────────────────────────────────
 
 /**
- * Registers the Sort enum with type-graphql using the current suffix.
+ * Registers the Sort enum with type-graphql using the current sort suffix.
  * Deferred from module load so that setGlobalConfig() can be called first,
- * or falls back to the D3GOP_SORT_SUFFIX / D3GOP_TYPES_SUFFIX env variable.
+ * or falls back to the D3GOP_SORT_SUFFIX env variable.
  * Safe to call multiple times — only registers once.
  */
 function ensureSortRegistered() {
 	if (sortEnumRegistered) return;
-	const suffix =
-		gqlTypesSuffix || process.env['D3GOP_SORT_SUFFIX'] || process.env['D3GOP_TYPES_SUFFIX'] || '';
+	const suffix = gqlSortSuffix || process.env['D3GOP_SORT_SUFFIX'] || '';
 	registerEnumType(Sort, { name: `Sort${suffix}` });
 	sortEnumRegistered = true;
 }

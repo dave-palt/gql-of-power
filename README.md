@@ -227,31 +227,31 @@ Provide a `FieldMappingConfig`. The library generates a SQL `LEFT JOIN LATERAL` 
 Use this when the foreign key exists as a plain column on the entity (not declared as an ORM relation).
 
 ```typescript
-import { CrmAccount } from './orm-entities';
+import { Kingdom } from './orm-entities';
 
-@GQLEntityClass(Job, fields, {
+@GQLEntityClass(Hobbit, fields, {
 	customFields: {
-		account: {
-			type: () => CrmAccountGQL,
+		kingdom: {
+			type: () => KingdomGQL,
 			options: { nullable: true },
 			mapping: {
-				refEntity: CrmAccount, // ORM entity class to JOIN to
-				refFields: 'id', // column(s) on CrmAccount — keyof CrmAccount ✓
-				fields: 'crmAccountId', // column(s) on Job — keyof Job ✓
+				refEntity: Kingdom, // ORM entity class to JOIN to
+				refFields: 'id', // column(s) on Kingdom — keyof Kingdom ✓
+				fields: 'kingdomId', // column(s) on Hobbit — keyof Hobbit ✓
 			},
 		},
 	},
 })
-export class JobGQL extends GQLEntityBase {}
+export class HobbitGQL extends GQLEntityBase {}
 ```
 
 Composite FK — use arrays (must have the same length):
 
 ```typescript
 mapping: {
-  refEntity: OrderLine,
-  refFields: ['tenantId', 'externalId'],
-  fields:    ['tenantId', 'lineExternalId'],
+  refEntity: Weapon,
+  refFields: ['realmId', 'weaponCode'],
+  fields:    ['realmId', 'weaponExternalId'],
 }
 ```
 
@@ -269,21 +269,21 @@ mapping: {
 
 #### Generated SQL
 
-For `account: { mapping: { refEntity: CrmAccount, refFields: 'id', fields: 'crmAccountId' } }`:
+For `kingdom: { mapping: { refEntity: Kingdom, refFields: 'id', fields: 'kingdomId' } }`:
 
 ```sql
-select e_a1.id, e_a1.crm_account_id, f_j1.value as "account"
+select e_a1.id, e_a1.kingdom_id, f_j1.value as "kingdom"
 from (
-  select e_a1.id, e_a1.crm_account_id
-  from job as e_a1
+  select e_a1.id, e_a1.kingdom_id
+  from hobbit as e_a1
   where true
 ) as e_a1
 left outer join lateral (
   select row_to_json(f_j1)::jsonb as value
   from (
-    select f_j1.id, f_j1.account_name
-    from "crm_account" as f_j1
-    where e_a1.crm_account_id = f_j1.id
+    select f_j1.id, f_j1.name
+    from kingdom as f_j1
+    where e_a1.kingdom_id = f_j1.id
   ) as f_j1
 ) as f_j1 on true
 ```
@@ -359,15 +359,15 @@ pagination: {
 
 ### Environment Variables
 
-| Variable                     | Purpose                                                                                              |
-| ---------------------------- | ---------------------------------------------------------------------------------------------------- |
-| `D3GOP_SORT_SUFFIX`          | Suffix appended to all generated GQL type names and the Sort enum (e.g. `'V2'` → `BookV2`, `SortV2`) |
-| `D3GOP_TYPES_SUFFIX`         | Fallback suffix if `D3GOP_SORT_SUFFIX` is not set                                                    |
-| `D3GOP_LOG_TYPE`             | Logging level: `debug` or `disabled`                                                                 |
-| `D3GOP_DEFAULT_QUERY_LIMIT`  | Default query limit when pagination is not specified (default: `3000`)                               |
-| `D3GOP_USE_STRING_FOR_JSONB` | Toggle between JSONB and string concatenation for JSON aggregation                                   |
+| Variable                     | Purpose                                                                                     |
+| ---------------------------- | ------------------------------------------------------------------------------------------- |
+| `D3GOP_TYPES_SUFFIX`         | Suffix appended to all generated GQL entity type names (e.g. `'V2'` → `BookV2`, `AuthorV2`) |
+| `D3GOP_SORT_SUFFIX`          | Suffix appended to sort/pagination types only (e.g. `'V2'` → `SortV2`, `BookV2OrderBy`)     |
+| `D3GOP_LOG_TYPE`             | Logging level: `debug` or `disabled`                                                        |
+| `D3GOP_DEFAULT_QUERY_LIMIT`  | Default query limit when pagination is not specified (default: `3000`)                      |
+| `D3GOP_USE_STRING_FOR_JSONB` | Toggle between JSONB and string concatenation for JSON aggregation                          |
 
-> **Type name collision**: If you have both v1 (`createGQLTypes`) and v2 (`@GQLEntityClass`) entities in the same schema, set `D3GOP_SORT_SUFFIX` / `D3GOP_TYPES_SUFFIX` so v2 entity names are distinct (e.g. `Job` → `JobV2`). No `setGlobalConfig()` call is required — the env var is read automatically.
+> **Type name collision**: If you have both v1 (`createGQLTypes`) and v2 (`@GQLEntityClass`) entities in the same schema, set `D3GOP_TYPES_SUFFIX` so v2 entity names are distinct (e.g. `Hobbit` → `HobbitV2`). Use `D3GOP_SORT_SUFFIX` separately if sort/pagination types also need a suffix. No `setGlobalConfig()` call is required — the env vars are read automatically.
 
 ### Programmatic config
 
@@ -376,6 +376,9 @@ import { setGlobalConfig } from '@dav3/gql-of-power';
 
 // Call before any @GQLEntityClass decorators run (i.e. before importing entity files)
 setGlobalConfig({ gqlTypesSuffix: 'V2' });
+
+// Optionally set a separate suffix for sort/pagination types
+setGlobalConfig({ gqlTypesSuffix: 'V2', gqlSortSuffix: 'V2' });
 ```
 
 ---
