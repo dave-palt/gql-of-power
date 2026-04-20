@@ -1,10 +1,9 @@
 {
 	"name": "@dav3/gql-of-power",
-	"version": "1.0.1",
+	"version": "1.1.0",
 	"description": "",
 	"main": "dist/index.js",
 	"types": "dist/index.d.ts",
-	"type": "module",
 	"module": "esnext",
 	"repository": {
 		"url": "https://github.com/dave-palt/gql-of-power",
@@ -36,7 +35,7 @@
 		"typescript": "^5.8.3"
 	},
 	"dependencies": {
-		"graphql": "^16.11.0",
+		"graphql": "^16.13.2",
 		"graphql-fields": "^2.0.3",
 		"graphql-parse-resolve-info": "^4.14.1",
 		"knex": "^3.1.0",

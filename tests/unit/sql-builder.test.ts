@@ -138,13 +138,9 @@ describe('SQLBuilder', () => {
 				value?: any
 			) => {
 				callCount++;
-				if (value && 'innerJoin' in value) {
-					return `query with innerJoin: ${value.innerJoin}`;
-				}
-				if (value && 'where' in value) {
-					return `query with where: ${value.where}`;
-				}
-				return 'base query';
+				const joins = innerJoin.join(', ');
+				const wheres = whereWithValues.join(', ');
+				return `query with innerJoin: [${joins}] where: [${wheres}]`;
 			};
 
 			const result = SQLBuilder.buildUnionAll(
@@ -159,14 +155,11 @@ describe('SQLBuilder', () => {
 				mockQueryBuilder
 			);
 
-			// Should generate queries for each innerJoin and where condition
-			// First mapping has 1 innerJoin + 1 where = 2 queries
-			// Second mapping has 0 innerJoin + 2 wheres = 2 queries
-			// Total = 4 queries
-			expect(result).toHaveLength(4);
-			expect(result.some((r) => r.includes('join1'))).toBe(true);
-			expect(result.some((r) => r.includes('where2'))).toBe(true);
-			expect(result.some((r) => r.includes('where3'))).toBe(true);
+			expect(result).toHaveLength(2);
+			expect(result[0]).toContain('join1');
+			expect(result[0]).toContain('where1');
+			expect(result[1]).toContain('where2');
+			expect(result[1]).toContain('where3');
 		});
 
 		it('should handle empty OR conditions', () => {
@@ -284,6 +277,36 @@ describe('SQLBuilder', () => {
 			expect(result).not.toMatch(/\s{2,}/);
 			expect(result).not.toContain('\n');
 			expect(result).not.toContain('\t');
+		});
+
+		it('should wrap inner subquery when joins and jsonColumns are both present', () => {
+			const jsonSelect = "coalesce(json_agg(row_to_json(f_p1))::json, '[]'::json)::jsonb";
+			const fromSQL =
+				'( select f_p1.id from "locations" as f_p1 where true ) as f_p1';
+			const joins = [
+				'left outer join lateral ( select row_to_json(f_p2)::jsonb as value from ( select f_p2.id from "rings" as f_p2 ) as f_p2 ) as f_p2 on true',
+			];
+			const jsonColumns = ['f_p2.value as "ring"'];
+
+			const result = SQLBuilder.buildLateralJoin(jsonSelect, fromSQL, joins, 'f_p1', jsonColumns);
+
+			expect(result).toContain('select f_p1.*, f_p2.value as "ring"');
+			expect(result).toContain('from ( select f_p1.id');
+			expect(result).toContain('left outer join lateral ( select row_to_json(f_p2)');
+			expect(result).toContain(`select ${jsonSelect} as value`);
+		});
+
+		it('should not wrap when joins are present but jsonColumns is empty', () => {
+			const result = SQLBuilder.buildLateralJoin(
+				'json_select',
+				'from_sql',
+				['some join'],
+				'alias1',
+				[]
+			);
+
+			expect(result).not.toContain('alias1.*');
+			expect(result).toContain('from from_sql');
 		});
 	});
 

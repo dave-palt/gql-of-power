@@ -285,7 +285,7 @@ export class FilterProcessor extends ClassOperations {
 
 			keys(filter).forEach((fieldName) => {
 				if (filter[fieldName] === undefined) {
-					return; // skip undefined values
+					return;
 				}
 
 				logger.log(
@@ -299,7 +299,6 @@ export class FilterProcessor extends ClassOperations {
 			});
 
 			const reduced = QueriesUtils.mappingsReducer(newMappings);
-			const { innerJoin, where, values } = reduced;
 
 			logger.log(
 				'FilterProcessor - new mappings',
@@ -308,13 +307,33 @@ export class FilterProcessor extends ClassOperations {
 				i,
 				fieldName,
 				'reduced to',
-				innerJoin,
-				where,
-				values
+				reduced.innerJoin,
+				reduced.where,
+				reduced.values,
+				'_and entries',
+				reduced._and.length
 			);
 
-			mapping._or.push(reduced);
-			mapping.values = { ...mapping.values, ...values };
+			if (reduced._and.length > 0) {
+				for (const andMapping of reduced._and) {
+					const expanded: MappingsType = {
+						...QueriesUtils.newMappings(),
+						where: [...reduced.where, ...andMapping.where],
+						innerJoin: [...reduced.innerJoin, ...andMapping.innerJoin],
+						outerJoin: [...reduced.outerJoin, ...andMapping.outerJoin],
+						json: [...reduced.json, ...andMapping.json],
+						select: new Set([...reduced.select, ...andMapping.select]),
+						rawSelect: new Set([...reduced.rawSelect, ...andMapping.rawSelect]),
+						values: { ...reduced.values, ...andMapping.values },
+						orderBy: [...reduced.orderBy, ...andMapping.orderBy],
+					};
+					mapping._or.push(expanded);
+					mapping.values = { ...mapping.values, ...expanded.values };
+				}
+			} else {
+				mapping._or.push(reduced);
+				mapping.values = { ...mapping.values, ...reduced.values };
+			}
 		});
 
 		logger.log('FilterProcessor - mapping', mapping._or);
@@ -340,7 +359,7 @@ export class FilterProcessor extends ClassOperations {
 					entityMetadata,
 					gqlFilters: [f],
 					parentAlias,
-					alias: this.aliasManager.reset(AliasType.entity, alias.pref),
+					alias,
 				});
 
 				const or = mapped.get('_or');
@@ -872,25 +891,24 @@ export class FilterProcessor extends ClassOperations {
 				this.buildOneToXJoin
 			);
 
-			const jsonSQL = `inner join lateral (
-								${
-									unionAll.length > 0
-										? unionAll.join(' union all ')
-										: this.buildOneToXJoin(
-												[],
-												alias,
-												referenceField.tableName,
-												innerJoin,
-												outerJoin,
-												whereSQL,
-												whereWithValues
-										  )
-								}
-							) as ${alias.toString()} on true`.replaceAll(/[ \n\t]+/gi, ' ');
+			const subquery =
+				unionAll.length > 0
+					? unionAll.map((q) => `(${q})`).join(' union all ')
+					: this.buildOneToXJoin(
+							[],
+							alias,
+							referenceField.tableName,
+							innerJoin,
+							outerJoin,
+							whereSQL,
+							whereWithValues
+					  );
 
-			logger.log('FilterProcessor - mapFilterOneToX', gqlFieldName, 'unionAll', unionAll);
+			const existsSQL = `exists (${subquery})`.replaceAll(/[ \n\t]+/gi, ' ');
 
-			mapping.innerJoin.push(jsonSQL);
+			logger.log('FilterProcessor - mapFilterOneToX', gqlFieldName, 'existsSQL', existsSQL);
+
+			mapping.where.push(existsSQL);
 			mapping.values = { ...mapping.values, ...values };
 		}
 	}
@@ -953,23 +971,22 @@ export class FilterProcessor extends ClassOperations {
 
 				logger.log('FilterProcessor - mapFilterManyToOne: whereSQL', alias.toString(), unionAll);
 
-				const jsonSQL = `inner join lateral (
-								${
-									unionAll.length > 0
-										? unionAll.join(' union all ')
-										: this.buildManyToOneJoin(
-												[],
-												alias,
-												referenceField.tableName,
-												innerJoin,
-												outerJoin,
-												whereSQL,
-												whereWithValues
-										  )
-								}
-							) as ${alias.toString()} on true`.replaceAll(/[ \n\t]+/gi, ' ');
+		const subquery =
+				unionAll.length > 0
+					? unionAll.map((q) => `(${q})`).join(' union all ')
+					: this.buildManyToOneJoin(
+								[],
+								alias,
+								referenceField.tableName,
+								innerJoin,
+								outerJoin,
+								whereSQL,
+								whereWithValues
+						  );
 
-				mapping.innerJoin.push(jsonSQL);
+				const existsSQL = `exists (${subquery})`.replaceAll(/[ \n\t]+/gi, ' ');
+
+				mapping.where.push(existsSQL);
 				mapping.values = { ...mapping.values, ...values };
 			}
 		}
@@ -1047,11 +1064,9 @@ export class FilterProcessor extends ClassOperations {
 			);
 
 			const whereSQL = `(${referenceField.primaryKeys.join(', ')}) in (${ptSQL})`;
-			const innerJoinSQL = `inner join lateral (
-			${
+			const subquery =
 				unionAll.length > 0
-					? `with ${ptAlias} as (${ptSQL}) 
-						${unionAll.join(' union all ')}`
+					? `with ${ptAlias} as (${ptSQL}) ${unionAll.map((q) => `(${q})`).join(' union all ')}`
 					: this.buildManyToManyPivotTable(
 							[alias.toColumnName('*')],
 							alias,
@@ -1060,19 +1075,20 @@ export class FilterProcessor extends ClassOperations {
 							outerJoin,
 							whereSQL,
 							whereWithValues
-					  )
-			}
-			) as ${alias} on true`.replaceAll(/[ \n\t]+/gi, ' ');
+					  );
 
-			logger.log('FilterProcessor - mapFilterManyToMany: whereSQL', alias.toString(), unionAll);
+			const existsSQL = `exists (${subquery})`.replaceAll(/[ \n\t]+/gi, ' ');
 
-			mapping.innerJoin.push(innerJoinSQL);
+			logger.log('FilterProcessor - mapFilterManyToMany: existsSQL', alias.toString(), existsSQL);
+
+			mapping.where.push(existsSQL);
 			mapping.values = { ...mapping.values, ...values };
 		}
 	}
 
 	/**
-	 * Builds a join query for One-to-X relationships
+	 * Builds the inner query for One-to-X EXISTS filters.
+	 * Selects 1 since we only need existence, not the actual rows.
 	 */
 	protected buildOneToXJoin(
 		_fields: string[],
@@ -1084,23 +1100,20 @@ export class FilterProcessor extends ClassOperations {
 		whereWithValues: string[],
 		value?: { innerJoin: string } | { where: string }
 	): string {
-		return `select ${alias.toColumnName('*')} 
-					from (
-						select ${alias.toColumnName('*')} 
-							from "${tableName}" as ${alias}
-							${innerJoin.join(' \n')}
-							${value && 'innerJoin' in value ? value.innerJoin : ''}
-							where ${whereSQL} 
-							${whereWithValues.length > 0 ? ' and ' : ''}
-							${whereWithValues.join(' and ')}
-							${value && 'where' in value ? `and ${value.where}` : ''}
-					) as ${alias}
-				${outerJoin.join(' \n')}
-				`.replaceAll(/[ \n\t]+/gi, ' ');
+		return `select 1
+					from "${tableName}" as ${alias}
+					${innerJoin.join(' \n')}
+					${value && 'innerJoin' in value ? value.innerJoin : ''}
+					${outerJoin.join(' \n')}
+				where ${whereSQL}
+				${whereWithValues.length > 0 ? ` and ( ${whereWithValues.join(' and ')} )` : ''}
+				${value && 'where' in value ? `and ${value.where}` : ''}
+				limit 1`.replaceAll(/[ \n\t]+/gi, ' ');
 	}
 
 	/**
-	 * Builds a join query for Many-to-One relationships
+	 * Builds the inner query for Many-to-One EXISTS filters.
+	 * Selects 1 since we only need existence, not the actual rows.
 	 */
 	protected buildManyToOneJoin(
 		_fields: string[],
@@ -1112,26 +1125,23 @@ export class FilterProcessor extends ClassOperations {
 		whereWithValues: string[],
 		value?: { innerJoin: string } | { where: string }
 	): string {
-		return `select ${alias.toColumnName('*')} 
-					from (
-						select ${alias.toColumnName('*')} 
-							from "${tableName}" as ${alias}
-							${innerJoin.join(' \n')}
-							${value && 'innerJoin' in value ? value.innerJoin : ''}
-						where ${whereSQL} 
-						${whereWithValues.length > 0 ? ' and ' : ''}
-						${whereWithValues.join(' and ')}
-						${value && 'where' in value ? `and ${value.where}` : ''}
-					) as ${alias}
-				${outerJoin.join(' \n')}
-				`.replaceAll(/[ \n\t]+/gi, ' ');
+		return `select 1
+					from "${tableName}" as ${alias}
+					${innerJoin.join(' \n')}
+					${value && 'innerJoin' in value ? value.innerJoin : ''}
+					${outerJoin.join(' \n')}
+				where ${whereSQL}
+				${whereWithValues.length > 0 ? ` and ( ${whereWithValues.join(' and ')} )` : ''}
+				${value && 'where' in value ? `and ${value.where}` : ''}
+				limit 1`.replaceAll(/[ \n\t]+/gi, ' ');
 	}
 
 	/**
-	 * Builds a pivot table query for Many-to-Many relationships
+	 * Builds the inner query for Many-to-Many EXISTS filters.
+	 * Selects 1 since we only need existence, not the actual rows.
 	 */
 	protected buildManyToManyPivotTable(
-		fieldNames: string[],
+		_fieldNames: string[],
 		alias: Alias,
 		tableName: string,
 		innerJoin: string[],
@@ -1140,17 +1150,14 @@ export class FilterProcessor extends ClassOperations {
 		whereWithValues: string[],
 		value?: { innerJoin: string } | { where: string }
 	): string {
-		return `select ${fieldNames.join(', ')} 
-					from (
-						select ${alias.toColumnName('*')}
-							from "${tableName}" as ${alias.toString()}
-							${value && 'innerJoin' in value ? value.innerJoin : ''}
-							${innerJoin.join(' \n')}
-						${whereSQL.length > 0 ? ` where ${whereSQL}` : ''}
-						${whereWithValues.length > 0 ? ` and ${whereWithValues.join(' and ')}` : ''}
-						${value && 'where' in value ? `and ${value.where}` : ''}
-					) as ${alias.toString()}
+		return `select 1
+					from "${tableName}" as ${alias.toString()}
+					${value && 'innerJoin' in value ? value.innerJoin : ''}
+					${innerJoin.join(' \n')}
 					${outerJoin.join(' \n')}
-						`.replaceAll(/[ \n\t]+/gi, ' ');
+				${whereSQL.length > 0 ? ` where ${whereSQL}` : ''}
+				${whereWithValues.length > 0 ? ` and ( ${whereWithValues.join(' and ')} )` : ''}
+				${value && 'where' in value ? `and ${value.where}` : ''}
+				limit 1`.replaceAll(/[ \n\t]+/gi, ' ');
 	}
 }

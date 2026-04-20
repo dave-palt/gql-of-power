@@ -83,38 +83,43 @@ export class SQLBuilder {
 		) => string
 	): string[] {
 		return orConditions
-			.map(({ innerJoin: innerJoins, where: wheres }) => [
-				...innerJoins.map((filterJ) =>
-					queryBuilder(
-						fields,
-						alias,
-						tableName,
-						globalInnerJoin,
-						outerJoin,
-						whereSQL,
-						globalFilterWhere,
-						{
-							innerJoin: filterJ,
-						}
-					)
-				),
-				...wheres.map((w) =>
-					queryBuilder(
-						fields,
-						alias,
-						tableName,
-						globalInnerJoin,
-						outerJoin,
-						whereSQL,
-						globalFilterWhere,
-						{
-							where: w,
-						}
-					)
-				),
-			])
-			.flat();
+			.map(({ innerJoin: innerJoins, where: wheres }) => {
+				if (wheres.length === 0 && innerJoins.length === 0) {
+					return null;
+				}
+
+				const combinedInnerJoin = [...globalInnerJoin, ...innerJoins];
+				const combinedWhere = [...globalFilterWhere, ...wheres];
+
+				return queryBuilder(
+					fields,
+					alias,
+					tableName,
+					combinedInnerJoin,
+					outerJoin,
+					whereSQL,
+					combinedWhere
+				);
+			})
+			.filter((q): q is string => q !== null);
 	}
+	public static buildInnerBranch(
+		rawSelect: string[],
+		tableName: string,
+		alias: Alias,
+		innerJoin: string[],
+		whereConditions: string[]
+	): string {
+		return `select ${rawSelect.join(', ')}
+			from ${tableName} as ${alias}
+			${innerJoin.join(' \n')}
+		where true 
+		${whereConditions.length > 0 ? ` and ( ${whereConditions.join(' and ')} )` : ''}`.replaceAll(
+			/[ \n\t]+/gi,
+			' '
+		);
+	}
+
 	public static getFieldMapper =
 		<T>(metadata: EntityMetadata<T>, alias: Alias) =>
 		(ob: string) => {
@@ -172,10 +177,15 @@ export class SQLBuilder {
 		jsonSelect: string,
 		fromSQL: string,
 		joins: string[],
-		alias: string
+		alias: string,
+		jsonColumns: string[] = []
 	): string {
+		if (joins.length > 0 && jsonColumns.length > 0) {
+			const innerBody = `( select ${alias}.*, ${jsonColumns.join(', ')} from ${fromSQL} ${joins.join(' \n')} ) as ${alias}`;
+			return `left outer join lateral ( select ${jsonSelect} as value from ${innerBody} ) as ${alias} on true`.replaceAll(/[ \n\t]+/gi, ' ');
+		}
 		return `left outer join lateral (
-			select ${jsonSelect} as value 
+			select ${jsonSelect} as value
 			from ${fromSQL}
 			${joins.join(' \n')}
 		) as ${alias} on true`.replaceAll(/[ \n\t]+/gi, ' ');

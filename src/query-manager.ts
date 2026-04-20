@@ -5,7 +5,7 @@ import {
 	simplifyParsedResolveInfoFragmentWithType,
 } from 'graphql-parse-resolve-info';
 import knex from 'knex';
-import { getCustomFieldsFor, getGQLEntityNameForClass } from './entities/gql-entity';
+import { getCustomFieldsFor, getGQLEntityNameFor, getGQLEntityNameForClass } from './entities/gql-entity';
 import { GQLtoSQLMapper } from './queries/gql-to-sql-mapper';
 import {
 	DatabaseDriver,
@@ -50,25 +50,17 @@ export class GQLQueryManager {
 		filter?: GQLEntityFilterInputFieldType<T>,
 		pagination?: Partial<GQLEntityPaginationInputType<T>>
 	): Promise<K[]> {
-		if (!entity) {
+		if (!entity?.name) {
 			throw new Error(`Entity not provided`);
 		}
-		const logName = 'GetQueryResultsFor - ' + entity.name;
-		logger.time(logName);
-		logger.timeLog(logName);
-		if (!entity || !entity.name) {
-			logger.timeEnd(logName);
-			throw new Error(`Entity ${entity} not compatible`);
-		}
-		const { exists } = provider;
-		if (!exists(entity.name)) {
-			logger.timeEnd(logName);
-			throw new Error(`Entity ${entity.name} not found in metadata`);
+		// Support @GQLEntityClass-decorated classes: use relatedEntityName (ORM class name)
+		// for metadata provider lookup, since provider knows 'Author' not 'AuthorGQL'.
+		const entityName = (entity as any).relatedEntityName ?? entity.name;
+		if (!provider.exists(entityName)) {
+			throw new Error(`Entity ${entityName} not found in metadata`);
 		}
 		const fields = getGQLFields(info) as FieldSelection<T>;
-		logger.log(logName, 'fields', JSON.stringify(fields, null, 2));
-
-		return this.getQueryResultsForFields<K, T>(provider, entity, fields, filter, pagination);
+		return this.getQueryResultsForFields<K, T>(provider, entity, fields, filter, pagination, entityName);
 	}
 
 	async getQueryResultsForFields<K extends { _____name: string }, T>(
@@ -76,40 +68,49 @@ export class GQLQueryManager {
 		entity: new () => T,
 		fields: FieldSelection<T>,
 		filter?: GQLEntityFilterInputFieldType<T>,
-		pagination?: Partial<GQLEntityPaginationInputType<T>>
+		pagination?: Partial<GQLEntityPaginationInputType<T>>,
+		entityNameOverride?: string
 	): Promise<K[]> {
-		if (!entity) {
+		if (!entity?.name) {
 			throw new Error(`Entity not provided`);
 		}
-		const logName = 'GetQueryResultsFor - ' + entity.name;
+		// Support @GQLEntityClass-decorated classes: use relatedEntityName (ORM class name)
+		const entityName = entityNameOverride ?? (entity as any).relatedEntityName ?? entity.name;
+		const logName = 'getQueryResultsForFields - ' + entityName;
 		logger.time(logName);
-		logger.timeLog(logName);
-		if (!entity || !entity.name) {
-			logger.timeEnd(logName);
-			throw new Error(`Entity ${entity} not compatible`);
+		try {
+			const { exists, executeQuery } = provider;
+			if (!exists(entityName)) {
+				throw new Error(`Entity ${entityName} not found in metadata`);
+			}
+			const customFields = getCustomFieldsFor(getGQLEntityNameFor(entityName));
+			const mapper = new GQLtoSQLMapper(provider, this.opts);
+
+			// If entityName differs from entity.name (i.e. @GQLEntityClass decorated class),
+			// create a named proxy so the mapper can look up the ORM entity metadata by name.
+			let entityForMapper: new () => T = entity;
+			if (entityName !== entity.name) {
+				entityForMapper = class {} as any;
+				Object.defineProperty(entityForMapper, 'name', { value: entityName });
+				Object.setPrototypeOf(entityForMapper, entity);
+			}
+
+			const { bindings, querySQL } = mapper.buildQueryAndBindingsFor({
+				fields,
+				customFields,
+				entity: entityForMapper,
+				filter,
+				pagination,
+			});
+
+			logger.timeLog(logName, 'query built', querySQL, bindings);
+			const sql = this.bindSQLQuery(provider, querySQL, bindings);
+			const res = (await executeQuery(sql)) as Array<K>;
+
+			return res;
+		} finally {
+			logger.timeEnd(logName); // eslint-disable-line
 		}
-		const { exists, executeQuery } = provider;
-		if (!exists(entity.name)) {
-			logger.timeEnd(logName);
-			throw new Error(`Entity ${entity.name} not found in metadata`);
-		}
-		const customFields = getCustomFieldsFor(getGQLEntityNameForClass(entity));
-		const mapper = new GQLtoSQLMapper(provider, this.opts);
-
-		const { bindings, querySQL } = mapper.buildQueryAndBindingsFor({
-			fields,
-			customFields,
-			entity,
-			filter,
-			pagination,
-		});
-
-		logger.timeLog(logName, 'input processed, query created', querySQL, bindings);
-		const sql = this.bindSQLQuery(provider, querySQL, bindings);
-
-		const res = (await executeQuery(sql)) as Array<K>;
-
-		return res;
 	}
 
 	protected bindSQLQuery(driver: DatabaseDriver, sql: string, bindings: any) {
