@@ -282,15 +282,15 @@ describe('SQLBuilder', () => {
 		it('should wrap inner subquery when joins and jsonColumns are both present', () => {
 			const jsonSelect = "coalesce(json_agg(row_to_json(f_p1))::json, '[]'::json)::jsonb";
 			const fromSQL =
-				'( select f_p1.id from "site_locations" as f_p1 where true ) as f_p1';
+				'( select f_p1.id from "locations" as f_p1 where true ) as f_p1';
 			const joins = [
-				'left outer join lateral ( select row_to_json(f_p2)::jsonb as value from ( select f_p2.id from "accounts" as f_p2 ) as f_p2 ) as f_p2 on true',
+				'left outer join lateral ( select row_to_json(f_p2)::jsonb as value from ( select f_p2.id from "rings" as f_p2 ) as f_p2 ) as f_p2 on true',
 			];
-			const jsonColumns = ['f_p2.value as "account"'];
+			const jsonColumns = ['f_p2.value as "ring"'];
 
 			const result = SQLBuilder.buildLateralJoin(jsonSelect, fromSQL, joins, 'f_p1', jsonColumns);
 
-			expect(result).toContain('select f_p1.*, f_p2.value as "account"');
+			expect(result).toContain('select f_p1.*, f_p2.value as "ring"');
 			expect(result).toContain('from ( select f_p1.id');
 			expect(result).toContain('left outer join lateral ( select row_to_json(f_p2)');
 			expect(result).toContain(`select ${jsonSelect} as value`);

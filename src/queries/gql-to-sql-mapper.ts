@@ -377,7 +377,7 @@ export class GQLtoSQLMapper {
 			const joinAlias = this.Alias.next(AliasType.field, 'j');
 
 			// Resolve ORM property names to SQL column names via metadata.
-			// localSqlCols: FK columns on the owner entity (e.g. 'crm_account_id')
+			// localSqlCols: FK columns on the owner entity (e.g. 'author_id')
 			// refSqlCols: PK/matched columns on the ref entity (e.g. 'id')
 			const localSqlCols = localFields.map(
 				(localProp) =>
@@ -395,7 +395,7 @@ export class GQLtoSQLMapper {
 				})
 				.join(' AND ');
 
-			// fieldsByTypeName is keyed by the GQL type name which may have a suffix (e.g. 'CrmAccountV2').
+			// fieldsByTypeName is keyed by the GQL type name which may have a suffix (e.g. 'AuthorV2').
 			// Resolve via getGQLEntityNameFor so the suffix is applied consistently.
 			const subFields = fieldsByTypeName?.[getGQLEntityNameFor(refEntityName)] ?? fieldsByTypeName?.[refEntityName];
 			const newMappings = this.recursiveMap({

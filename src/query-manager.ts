@@ -54,7 +54,7 @@ export class GQLQueryManager {
 			throw new Error(`Entity not provided`);
 		}
 		// Support @GQLEntityClass-decorated classes: use relatedEntityName (ORM class name)
-		// for metadata provider lookup, since provider knows 'CrmAccount' not 'CrmAccountGQL'.
+		// for metadata provider lookup, since provider knows 'Author' not 'AuthorGQL'.
 		const entityName = (entity as any).relatedEntityName ?? entity.name;
 		if (!provider.exists(entityName)) {
 			throw new Error(`Entity ${entityName} not found in metadata`);

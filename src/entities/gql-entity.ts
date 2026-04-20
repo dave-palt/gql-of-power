@@ -72,7 +72,7 @@ export const getGQLEntityTypeFor = <T extends Object, K>(classType: new () => T)
  *
  * Usage in schema/index.ts:
  *   export const v2Resolvers = [
- *     CrmAccountV2Resolver,   // custom queries/mutations
+ *     AuthorV2Resolver,       // custom queries/mutations
  *     ...getAutoResolvers(),  // field resolvers for all entities
  *   ];
  */
@@ -120,11 +120,11 @@ export type GQLEntityStaticMembers = {
  * Extend this in your entity class to get full type safety without `declare static` boilerplate.
  *
  * @example
- * @GQLEntityClass(CrmAccount, fields)
- * export class CrmAccountGQL extends GQLEntityBase {}
+ * @GQLEntityClass(Author, fields)
+ * export class AuthorGQL extends GQLEntityBase {}
  *
- * CrmAccountGQL.FilterInput   // ✓ TypeScript knows about this
- * CrmAccountGQL.PaginationInput // ✓
+ * AuthorGQL.FilterInput   // ✓ TypeScript knows about this
+ * AuthorGQL.PaginationInput // ✓
  */
 export abstract class GQLEntityBase {
 	static FilterInput: new () => any;
@@ -143,10 +143,10 @@ export abstract class GQLEntityBase {
  * the config keys to `keyof T` at compile time. Identity function at runtime.
  *
  * @example
- * const fields = defineFields(CrmAccount, {
+ * const fields = defineFields(Author, {
  *   id: { type: () => ID, generateFilter: true },
  *   name: { type: () => String, generateFilter: true },
- *   siteLocations: { type: () => CrmSiteLocationGQL, array: true, generateFilter: true },
+ *   books: { type: () => BookGQL, array: true, generateFilter: true },
  * });
  */
 export function defineFields<T extends Object>(
@@ -172,15 +172,15 @@ export function defineFields<T extends Object>(
  * the decorated class is a class constructor (hoisted), identical to type-graphql @ObjectType.
  *
  * @example
- * const fields = defineFields(CrmAccount, {
+ * const fields = defineFields(Author, {
  *   id: { type: () => ID, generateFilter: true },
- *   siteLocations: { type: () => CrmSiteLocationGQL, array: true, generateFilter: true },
+ *   books: { type: () => BookGQL, array: true, generateFilter: true },
  * });
  *
- * @GQLEntityClass(CrmAccount, fields)
- * export class CrmAccountGQL {}
+ * @GQLEntityClass(Author, fields)
+ * export class AuthorGQL {}
  *
- * // CrmAccountGQL.FilterInput, .PaginationInput, .OrderBy, .FieldsResolver are now available
+ * // AuthorGQL.FilterInput, .PaginationInput, .OrderBy, .FieldsResolver are now available
  */
 export function GQLEntityClass<T extends Object, K>(
 	ormClass: new () => T,
@@ -306,10 +306,10 @@ function _resolveRelatedEntityNames<T>(fields: Partial<FieldsSettings<T>>): Part
  * type-graphql merges both into the final schema for the same type.
  *
  * @example
- * @GQLResolver(CrmAccountGQL)
- * export class CrmAccountV2Resolver {
- *   @Query(() => [CrmAccountGQL])
- *   async crmAccountsV2(...) { ... }
+ * @GQLResolver(AuthorGQL)
+ * export class AuthorV2Resolver {
+ *   @Query(() => [AuthorGQL])
+ *   async authorsV2(...) { ... }
  * }
  */
 export function GQLResolver(entityClass: new () => any): ClassDecorator {

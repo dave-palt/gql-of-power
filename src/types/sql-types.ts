@@ -91,7 +91,7 @@ export type RelatedFieldSettings<T> = FieldBaseSettings & {
 	options?: RelatedFieldOptions;
 	/**
 	 * Required field/s to resolve the custom field.
-	 * Example: the custom field is for Account and requires accountId set this to 'accountId' and it will be fetched from the entity even if accountId is not requested in the gql query.
+	 * Example: the custom field is for Author and requires authorId set this to 'authorId' and it will be fetched from the entity even if authorId is not requested in the gql query.
 	 */
 	requires?: (string & keyof T) | Array<string & keyof T>;
 	resolve?: (...any: any) => any;
@@ -103,7 +103,7 @@ export type RelatedFieldSettings<T> = FieldBaseSettings & {
  * one or more foreign key columns.
  *
  * Use this in `customFields` when the relationship is **not** declared as an ORM
- * relation (e.g. the FK exists as a plain property like `crmAccountId: string`)
+ * relation (e.g. the FK exists as a plain property like `authorId: string`)
  * and you want the library to generate the SQL JOIN automatically.
  *
  * Both `refFields` and `fields` accept a single string (shorthand for the common
@@ -114,18 +114,18 @@ export type RelatedFieldSettings<T> = FieldBaseSettings & {
  *
  * @example
  * // Single FK column — string shorthand
- * const mapping: FieldMappingConfig<Job, CrmAccount> = {
- *   refEntity: CrmAccount,
- *   refFields: 'id',           // column on CrmAccount
- *   fields:    'crmAccountId', // column on Job
+ * const mapping: FieldMappingConfig<Book, Author> = {
+ *   refEntity: Author,
+ *   refFields: 'id',           // column on Author
+ *   fields:    'authorId',     // column on Book
  * };
  *
  * @example
  * // Composite FK — array form
- * const mapping: FieldMappingConfig<Order, OrderLine> = {
- *   refEntity: OrderLine,
- *   refFields: ['tenantId', 'externalId'],
- *   fields:    ['tenantId',  'lineExternalId'],
+ * const mapping: FieldMappingConfig<Fellowship, Person> = {
+ *   refEntity: Person,
+ *   refFields: ['fellowshipId', 'race'],
+ *   fields:    ['fellowshipId',  'race'],
  * };
  */
 export type FieldMappingConfig<TOwner, TRef = any> = {
@@ -162,11 +162,11 @@ export type FieldMappingConfig<TOwner, TRef = any> = {
  *
  * @example
  * ```typescript
- * account: {
- *   type: () => CrmAccountGQL,
- *   requires: 'crmAccountId',
+ * author: {
+ *   type: () => AuthorGQL,
+ *   requires: 'authorId',
  *   resolveDecorators: [Root()],
- *   resolve: (root: Job) => accountDataLoader.load(root.crmAccountId),
+ *   resolve: (root: Book) => authorDataLoader.load(root.authorId),
  * }
  * ```
  *
@@ -179,13 +179,13 @@ export type FieldMappingConfig<TOwner, TRef = any> = {
  *
  * @example
  * ```typescript
- * account: {
- *   type: () => CrmAccountGQL,
+ * author: {
+ *   type: () => AuthorGQL,
  *   options: { nullable: true },
  *   mapping: {
- *     refEntity: CrmAccount,
+ *     refEntity: Author,
  *     refFields: 'id',
- *     fields: 'crmAccountId',
+ *     fields: 'authorId',
  *   },
  * }
  * ```

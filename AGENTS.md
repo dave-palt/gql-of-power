@@ -60,6 +60,7 @@ src/
 - **Prettier**: tabs, single quotes, trailing comma es5, print width 100.
 - **`reflect-metadata`** must be imported before any decorator usage (handled in `tests/setup.ts` for tests).
 - **No separate lint step** — rely on `tsc --strict` and Prettier.
+- **Theming**: All code examples, JSDoc comments, test data, and fixtures use **Lord of the Rings / Middle-earth** references (Person, Ring, Fellowship, Battle, Book, Author, etc.). Never use real-world business entity names like Account, Customer, Order, Tenant, etc.
 
 ## Gotchas
 
