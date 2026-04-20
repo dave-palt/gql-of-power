@@ -1,6 +1,6 @@
 {
 	"name": "@dav3/gql-of-power",
-	"version": "1.2.0-dev",
+	"version": "1.2.0",
 	"description": "",
 	"main": "dist/index.js",
 	"types": "dist/index.d.ts",
