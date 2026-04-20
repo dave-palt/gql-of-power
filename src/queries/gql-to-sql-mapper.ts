@@ -123,57 +123,39 @@ export class GQLtoSQLMapper {
 		logger.log('orderByFields', orderByFields, 'select', select, 'orderBy');
 		const selectFields = [...new Set(orderByFields.concat(Array.from(select)).concat(json))];
 
-		// Build subquery using SQLBuilder
-		const buildSubQueryWrapper = (
-			globalInnerJoin: string[],
-			globalFilterWhere: string[],
-			alias: Alias,
-			value?: { innerJoin: string[] } | { where: string[] } | { outerJoin: string[] }
-		) => {
-			const allOuterJoins = value && 'outerJoin' in value ? value.outerJoin : [];
-			const allInnerJoins = [
-				...globalInnerJoin,
-				...(value && 'innerJoin' in value ? value.innerJoin : []),
-			];
+		const rawSelectArr = [...rawSelect];
+		const unionAllEntries = [..._or, ..._and];
 
-			const allWhere = [...globalFilterWhere, ...(value && 'where' in value ? value.where : [])];
+		let queryBody: string;
+		if (unionAllEntries.length > 0) {
+			const unionBranches = unionAllEntries.map(({ innerJoin: orInnerJoin, where: orWheres }) => {
+				const allInnerJoins = [...innerJoin, ...orInnerJoin];
+				const allWhere = [...where, ...orWheres];
+				return SQLBuilder.buildInnerBranch(
+					rawSelectArr,
+					metadata.tableName,
+					alias,
+					allInnerJoins,
+					allWhere
+				);
+			});
 
-			// Convert arrays to single values for SQLBuilder compatibility
-			let valueForBuilder: { innerJoin: string } | { where: string } | undefined;
-			if (value && 'innerJoin' in value) {
-				valueForBuilder = { innerJoin: value.innerJoin.join('\n') };
-			} else if (value && 'where' in value) {
-				valueForBuilder = { where: value.where.join(' and ') };
-			}
+			const innerUnion = unionBranches.map((q) => `(${q})`).join(' union all ');
 
-			return SQLBuilder.buildSubQuery(
+			queryBody = `select ${selectFields.join(', ')} from ( select distinct * from (${innerUnion}) as ${alias.toString()}_u ) as ${alias.toString()} ${outerJoin.join(' \n')}`;
+		} else {
+			queryBody = SQLBuilder.buildSubQuery(
 				selectFields,
-				[...rawSelect],
+				rawSelectArr,
 				metadata.tableName,
 				alias,
-				allInnerJoins,
-				allOuterJoins,
-				allWhere,
-				valueForBuilder
-			);
-		};
-
-		// Use SQLBuilder.buildUnionAll for OR conditions
-		const unionAll = [..._or, ..._and].map(({ innerJoin, where: wheres, alias: mapAlias }) =>
-			buildSubQueryWrapper(innerJoin, where, mapAlias ?? alias, {
 				innerJoin,
-				where: wheres,
 				outerJoin,
-			})
-		);
-
-		const querySQL = `${
-			unionAll.length > 0
-				? `select distinct * from (${unionAll.join(' union all ')}) as ${alias.toString()}`
-				: buildSubQueryWrapper(innerJoin, where, alias, {
-						outerJoin,
-				  })
+				where
+			);
 		}
+
+		const querySQL = `${queryBody}
 		${
 			pagination?.orderBy
 				? SQLBuilder.buildOrderBySQL(pagination.orderBy, SQLBuilder.getFieldMapper(metadata, alias))
@@ -185,7 +167,7 @@ export class GQLtoSQLMapper {
 			' '
 		);
 
-		logger.log(logName, 'sourceDataSQL', unionAll.length);
+		logger.log(logName, 'sourceDataSQL', unionAllEntries.length);
 
 		logger.log(logName, 'final querySQL', querySQL);
 

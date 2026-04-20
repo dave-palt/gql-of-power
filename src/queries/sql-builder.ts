@@ -103,6 +103,23 @@ export class SQLBuilder {
 			})
 			.filter((q): q is string => q !== null);
 	}
+	public static buildInnerBranch(
+		rawSelect: string[],
+		tableName: string,
+		alias: Alias,
+		innerJoin: string[],
+		whereConditions: string[]
+	): string {
+		return `select ${rawSelect.join(', ')}
+			from ${tableName} as ${alias}
+			${innerJoin.join(' \n')}
+		where true 
+		${whereConditions.length > 0 ? ` and ( ${whereConditions.join(' and ')} )` : ''}`.replaceAll(
+			/[ \n\t]+/gi,
+			' '
+		);
+	}
+
 	public static getFieldMapper =
 		<T>(metadata: EntityMetadata<T>, alias: Alias) =>
 		(ob: string) => {
