@@ -74,6 +74,36 @@ export type FieldBaseSettings = { generateFilter?: boolean; enum?: EnumData } & 
 			 */
 			getFilterType?: GetFieldResolverType;
 			alias?: string;
+			/**
+			 * When set, generates an additional Int field on the GQL entity that returns
+			 * the count of related entities. The value becomes the field name in the GQL schema.
+			 * A `filter` argument is automatically registered on the count field, allowing
+			 * clients to filter the related entities before counting.
+			 *
+			 * The generated SQL is a correlated subquery:
+			 * ```sql
+			 * (SELECT COUNT(*) FROM "books" AS e_w1 WHERE e_w1.author_id = a_1.id AND <filter>) AS "bookCount"
+			 * ```
+			 *
+			 * @example
+			 * // Author entity with book count
+			 * const fields = defineFields(Author, {
+			 *   books: {
+			 *     type: () => BookGQL,
+			 *     array: true,
+			 *     countFieldName: 'bookCount',
+			 *     relatedEntityName: () => 'Book',
+			 *   },
+			 * });
+			 *
+			 * // GQL query:
+			 * query {
+			 *   authors {
+			 *     bookCount(filter: { genre: 'Fantasy' })
+			 *   }
+			 * }
+			 */
+			countFieldName?: string;
 	  }
 );
 
@@ -225,6 +255,19 @@ export type FieldsSettings<T> = {
 };
 export type CustomFieldsSettings<T> = {
 	[key in Exclude<string, keyof T>]: CustomFieldSettings<T>;
+};
+
+/**
+ * Metadata for an auto-generated count field.
+ * Stored internally in CountFieldsMap when a relationship field has `countFieldName` set.
+ */
+export type CountFieldMeta = {
+	/** The GQL field name for the count (e.g. 'bookCount'). */
+	countFieldName: string;
+	/** The ORM relationship field name that this count derives from (e.g. 'books'). */
+	relationshipFieldName: string;
+	/** Resolves to the related entity's ORM class name (e.g. 'Book'). */
+	relatedEntityName: () => string;
 };
 
 export type GQLArgumentsFilterAndPagination<T> =

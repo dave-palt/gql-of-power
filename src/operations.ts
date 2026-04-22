@@ -4,7 +4,8 @@ import { EntityMetadata, GQLEntityFilterInputFieldType, MappingsType } from './t
 export type ClassOperationInputType<T> = {
 	entityMetadata: EntityMetadata<T>;
 	gqlFilters: GQLEntityFilterInputFieldType<T>[];
-	fieldName: string & keyof Pick<MappingsType, '_and' | '_not' | '_or'>;
+	fieldName: string &
+		(keyof Pick<MappingsType, '_and' | '_not' | '_or'> | '_exists' | '_not_exists');
 	parentAlias: Alias;
 	alias: Alias;
 	mapping: MappingsType;
@@ -15,6 +16,8 @@ export abstract class ClassOperations {
 	abstract _and(input: ClassOperationInputType<any>): any;
 	abstract _or(input: ClassOperationInputType<any>): any;
 	abstract _not(input: ClassOperationInputType<any>): any;
+	abstract _exists(input: ClassOperationInputType<any>): any;
+	abstract _not_exists(input: ClassOperationInputType<any>): any;
 }
 export abstract class ClassOperationsClass<T> {
 	abstract _and: T[];

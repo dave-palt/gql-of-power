@@ -42,6 +42,8 @@ src/
 
 - Query flow: GraphQL resolve info → `GQLtoSQLMapper.recursiveMap()` → `SQLBuilder` → single SQL → `executeQuery()`
 - OR conditions are split into separate SELECTs combined with UNION ALL
+- **Count fields**: Set `countFieldName` on array relation fields to auto-generate an Int count field via correlated `COUNT(*)` subquery. Also generates filter operators (`bookCount_gt`, etc.). Registry: `CountFieldsMap` in `gql-entity.ts`, accessor `getCountFieldsFor()`.
+- **Existence filters**: `_exists` and `_not_exists` are class-level filter operators that generate `EXISTS`/`NOT EXISTS` subqueries for relationship fields. Multiple keys are AND-combined. Auto-generates `EntityExistsFilterInput` types.
 
 ## Testing
 

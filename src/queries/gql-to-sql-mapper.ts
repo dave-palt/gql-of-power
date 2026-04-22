@@ -1,5 +1,6 @@
-import { getFieldByAlias, getGQLEntityNameFor } from '../entities';
+import { getCountFieldsFor, getFieldByAlias, getGQLEntityNameFor } from '../entities';
 import {
+	CountFieldMeta,
 	CustomFieldSettings,
 	CustomFieldsSettings,
 	EntityMetadata,
@@ -268,6 +269,17 @@ export class GQLtoSQLMapper {
 				logger.log('args', args, { name, gqlFieldAlias }, { fieldName });
 
 				const mapping = QueriesUtils.getMapping(mappings, fieldName);
+
+				// Check if this field is a count field (e.g. "bookCount") — before handleFieldArguments
+				// because count field args (filter) must be processed against the related entity, not the parent
+				const countFieldMeta = getCountFieldsFor(getGQLEntityNameFor(entityMetadata.name ?? ''))[
+					fieldName
+				];
+				if (countFieldMeta) {
+					this.mapCountField<T>(countFieldMeta, mapping, alias, entityMetadata, args);
+					return { mappings };
+				}
+
 				if (args) {
 					this.handleFieldArguments<T>(fieldName, args, alias, entityMetadata, mapping);
 				}
@@ -476,6 +488,120 @@ export class GQLtoSQLMapper {
 		// This is because if the field is not present in the entity apollo server will not calculate the field
 		mapping.select.add(`null AS "${gqlFieldName}"`);
 		return { mappings, latestAlias };
+	}
+
+	/**
+	 * Generates a correlated COUNT(*) subquery for a count field.
+	 *
+	 * Produces SQL like:
+	 * ```sql
+	 * (SELECT COUNT(*) FROM "books" AS e_w1 WHERE e_w1.author_id = a_1.id AND <filter>) AS "bookCount"
+	 * ```
+	 *
+	 * The relationship join condition is derived from the entity metadata (same logic as
+	 * FilterProcessor's EXISTS subqueries). Optional filter args on the count field are
+	 * processed recursively into WHERE conditions within the subquery.
+	 */
+	protected mapCountField<T>(
+		countFieldMeta: CountFieldMeta,
+		mapping: MappingsType,
+		parentAlias: Alias,
+		entityMetadata: EntityMetadata<T>,
+		args?: any
+	): void {
+		const { countFieldName, relationshipFieldName, relatedEntityName } = countFieldMeta;
+
+		const relatedName = relatedEntityName();
+		if (!this.exists(relatedName)) {
+			mapping.select.add(`0 AS "${countFieldName}"`);
+			return;
+		}
+
+		const relatedMetadata = this.getMetadata<any, EntityMetadata<any>>(relatedName);
+		const fieldProps =
+			entityMetadata.properties[relationshipFieldName as keyof typeof entityMetadata.properties];
+
+		if (!fieldProps) {
+			logger.warn('mapCountField: relationship field not found', relationshipFieldName);
+			mapping.select.add(`0 AS "${countFieldName}"`);
+			return;
+		}
+
+		const countAlias = this.Alias.next(AliasType.entity, 'w');
+
+		// Build the join condition between parent and child, same logic as FilterProcessor
+		let joinCondition = '';
+		if (
+			fieldProps.reference === ReferenceType.ONE_TO_MANY ||
+			fieldProps.reference === ReferenceType.ONE_TO_ONE
+		) {
+			const refFieldProps = relatedMetadata.properties[
+				fieldProps.mappedBy as keyof typeof relatedMetadata.properties
+			] as EntityProperty;
+			const ons = refFieldProps.joinColumns;
+			const entityOns = refFieldProps.referencedColumnNames;
+			joinCondition = entityOns
+				.map((o, i) => `${parentAlias.toColumnName(o)} = ${countAlias.toColumnName(ons[i])}`)
+				.join(' and ');
+		} else if (fieldProps.reference === ReferenceType.MANY_TO_ONE) {
+			const ons = relatedMetadata.primaryKeys;
+			const entityOns = fieldProps.fieldNames;
+			joinCondition = entityOns
+				.map((o, i) => `${parentAlias.toColumnName(o)} = ${countAlias.toColumnName(ons[i])}`)
+				.join(' and ');
+		} else if (fieldProps.reference === ReferenceType.MANY_TO_MANY) {
+			// For m:n, use a pivot subquery in the join condition
+			const pivotCols = fieldProps.joinColumns;
+			const inverseCols = fieldProps.inverseJoinColumns;
+			const pivotSubquery = `select ${inverseCols.join(', ')} from ${fieldProps.pivotTable} where ${pivotCols.map((c, i) => `${parentAlias.toColumnName(entityMetadata.primaryKeys[i])} = ${fieldProps.pivotTable}.${c}`).join(' and ')}`;
+			joinCondition = `(${relatedMetadata.primaryKeys.map((c) => countAlias.toColumnName(c)).join(', ')}) in (${pivotSubquery})`;
+		}
+
+		// Process optional filter args
+		let filterWhere: string[] = [];
+		let filterValues: Record<string, any> = [];
+		let filterInnerJoin: string[] = [];
+		let filterOuterJoin: string[] = [];
+		let filterOr: MappingsType[] = [];
+
+		if (args?.filter) {
+			const filterMapped = this.recursiveMap({
+				entityMetadata: relatedMetadata,
+				parentAlias: countAlias,
+				alias: countAlias,
+				gqlFilters: [args.filter],
+				isFieldFilter: true,
+			});
+
+			const reduced = QueriesUtils.mappingsReducer(filterMapped);
+			filterWhere = reduced.where;
+			filterValues = reduced.values as Record<string, any>;
+			filterInnerJoin = reduced.innerJoin;
+			filterOuterJoin = reduced.outerJoin;
+			filterOr = reduced._or;
+		}
+
+		// Build the COUNT subquery
+		let subquery: string;
+
+		if (filterOr.length > 0) {
+			// When filter has _or branches, use UNION ALL inside the count subquery
+			const branches = filterOr.map((orMapping) => {
+				const allWhere = [joinCondition, ...filterWhere, ...orMapping.where];
+				const allInnerJoin = [...filterInnerJoin, ...orMapping.innerJoin];
+				return `select 1 from "${relatedMetadata.tableName}" as ${countAlias.toString()} ${allInnerJoin.join(' \n')} where ${allWhere.join(' and ')}`;
+			});
+			subquery = `select count(*) from (${branches.map((b) => `(${b})`).join(' union all ')}) as ${countAlias.toString()}_cnt`;
+		} else {
+			const whereParts = [joinCondition, ...filterWhere].filter((w) => w.length > 0);
+			subquery = `select count(*) from "${relatedMetadata.tableName}" as ${countAlias.toString()} ${filterInnerJoin.join(' \n')} ${filterOuterJoin.join(' \n')} ${whereParts.length > 0 ? `where ${whereParts.join(' and ')}` : ''}`;
+		}
+
+		subquery = subquery.replaceAll(/[ \n\t]+/gi, ' ').trim();
+		mapping.select.add(`(${subquery}) AS "${countFieldName}"`);
+		mapping.values = { ...mapping.values, ...filterValues };
+
+		logger.log('mapCountField', countFieldName, 'subquery', subquery);
 	}
 
 	protected mapField<T>(

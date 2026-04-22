@@ -107,6 +107,43 @@ export class QuestItemGQL extends GQLEntityBase {}
 - `getFilterType` returns the generated `FilterInput` class for nested filtering.
 - The `type` must point to another `@GQLEntityClass`-decorated class.
 
+### Array relations with count fields
+
+For array relationships, you can generate a count field by adding `countFieldName`:
+
+```typescript
+import { defineFields, GQLEntityBase, GQLEntityClass } from '@dav3/gql-of-power';
+import { Author, Book } from './orm-entities';
+import { ID, Int } from 'type-graphql';
+
+const authorFields = defineFields(Author, {
+	id: { type: () => ID, generateFilter: true },
+	name: { type: () => String, generateFilter: true },
+	books: {
+		type: () => BookGQL,
+		array: true,
+		relatedEntityName: () => 'Book',
+		countFieldName: 'bookCount', // generates `bookCount: Int` + filter operators
+	},
+});
+
+@GQLEntityClass(Author, authorFields)
+export class AuthorGQL extends GQLEntityBase {}
+
+// In your GraphQL query:
+// query {
+//   authors {
+//     name
+//     bookCount                        # total books
+//     bookCount(filter: { title: { _like: "%Ring%" } })  # filtered count
+//   }
+// }
+//
+// In filters:
+// filter: { bookCount_gt: 3 }    # authors with more than 3 books
+// filter: { _exists: { books: { title: "The Hobbit" } } }  # authors with a specific book
+```
+
 ### Resolver
 
 ```typescript

@@ -157,6 +157,7 @@ const fields = defineFields(Book, {
 | `alias`             | `string`            | Override the GQL field name                                                           |
 | `array`             | `true`              | Mark as array return type                                                             |
 | `relatedEntityName` | `() => string`      | ORM entity name for array relation fields (auto-derived when using `@GQLEntityClass`) |
+| `countFieldName`    | `string`            | Generate a count field for this relationship (see [Count Fields](#count-fields))      |
 | `enum`              | `EnumData`          | Register an enum type                                                                 |
 
 ### `@GQLEntityClass(OrmClass, fields, extra?)`
@@ -317,17 +318,114 @@ filter: {
 
 ### Filter operations
 
-| Operation      | Meaning                              |
-| -------------- | ------------------------------------ |
-| `_eq`          | Equal                                |
-| `_ne`          | Not equal                            |
-| `_in`          | In array                             |
-| `_nin`         | Not in array                         |
-| `_like`        | ILIKE (case-insensitive contains)    |
-| `_gt` / `_gte` | Greater than / greater than or equal |
-| `_lt` / `_lte` | Less than / less than or equal       |
-| `_and`         | Logical AND                          |
-| `_or`          | Logical OR (generates UNION ALL)     |
+| Operation      | Meaning                                                |
+| -------------- | ------------------------------------------------------ |
+| `_eq`          | Equal                                                  |
+| `_ne`          | Not equal                                              |
+| `_in`          | In array                                               |
+| `_nin`         | Not in array                                           |
+| `_like`        | ILIKE (case-insensitive contains)                      |
+| `_gt` / `_gte` | Greater than / greater than or equal                   |
+| `_lt` / `_lte` | Less than / less than or equal                         |
+| `_and`         | Logical AND                                            |
+| `_or`          | Logical OR (generates UNION ALL)                       |
+| `_exists`      | Check related entities exist (AND-combined per key)    |
+| `_not_exists`  | Check no related entities exist (AND-combined per key) |
+
+### Existence Filters (`_exists` / `_not_exists`)
+
+Check whether related entities match a set of conditions. Each key is a relationship field name; the value is a filter applied to that related entity. Multiple keys are AND-combined.
+
+```graphql
+# Authors that have at least one book titled "The Hobbit"
+filter: {
+  _exists: {
+    books: { title: "The Hobbit" }
+  }
+}
+
+# Authors that have a book titled "The Hobbit" AND no books in the "Horror" genre
+filter: {
+  _and: [
+    { _exists: { books: { title: "The Hobbit" } } }
+    { _not_exists: { books: { genre: "Horror" } } }
+  ]
+}
+
+# Persons who fought in a victory battle AND wrote a book about it
+filter: {
+  _exists: {
+    battles: { outcome: "Victory" }
+    books: { title: { _like: "%War%" } }
+  }
+}
+```
+
+`_exists` generates `EXISTS (SELECT 1 FROM ... WHERE ...)` subqueries. `_not_exists` generates `NOT EXISTS (...)`. Multiple keys within one `_exists`/`_not_exists` each produce a separate `EXISTS`/`NOT EXISTS` clause, AND-combined in the WHERE. OR across exists conditions is achieved via `_or`.
+
+---
+
+## Count Fields
+
+Add `countFieldName` to any relationship field with `array: true` to auto-generate an Int count field. The count is computed via a correlated `COUNT(*)` subquery — no JOINs in the outer query.
+
+### Definition
+
+```typescript
+const authorFields = defineFields(Author, {
+	id: { type: () => ID, generateFilter: true },
+	name: { type: () => String, generateFilter: true },
+	books: {
+		type: () => BookGQL,
+		array: true,
+		relatedEntityName: () => 'Book',
+		countFieldName: 'bookCount', // generates an `bookCount: Int` field
+	},
+});
+```
+
+### Querying
+
+```graphql
+query {
+	authors {
+		name
+		bookCount # total books
+		bookCount(filter: { publishedYear: { _gt: 1950 } }) # filtered count
+	}
+}
+```
+
+### Filtering by Count
+
+The count field is also available as a filter key with numeric operators:
+
+```graphql
+# Authors with exactly 4 books
+filter: { bookCount: 4 }
+
+# Authors with more than 3 books
+filter: { bookCount_gt: 3 }
+
+# Nested object form
+filter: { BookCount: { _gte: 2, _lte: 10 } }
+```
+
+Supported operators: `_eq`, `_ne`, `_gt`, `_gte`, `_lt`, `_lte`.
+
+### Generated SQL
+
+```sql
+-- bookCount (select)
+SELECT ...,
+  (SELECT COUNT(*) FROM "books" AS e_w1 WHERE e_w1.author_id = a_1.id) AS "bookCount"
+FROM authors AS a_1 ...
+
+-- bookCount_gt (filter)
+WHERE (SELECT COUNT(*) FROM "books" AS e_w1 WHERE e_w1.author_id = a_1.id) > :v_bookCount_gt__1
+```
+
+Works for all relationship types (1:m, m:1, m:n). For m:n, the pivot table is included in the subquery.
 
 ---
 

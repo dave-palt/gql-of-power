@@ -10,6 +10,7 @@ import {
 } from 'type-graphql';
 import { FieldOperations } from '../operations';
 import {
+	CountFieldMeta,
 	CustomFieldsSettings,
 	FieldSettings,
 	FieldsSettings,
@@ -29,6 +30,7 @@ const TypeMap: { [key: string]: any } = {};
 
 const FieldsOptionsMap: Record<string, Record<string, string>> = {};
 const CustomFieldsMap: Record<string, CustomFieldsSettings<any>> = {};
+const CountFieldsMap: Record<string, Record<string, CountFieldMeta>> = {};
 
 const aclMap: AccessControlList<any, any> = {};
 
@@ -53,6 +55,41 @@ export const getFieldsOptionsFor = (name: string): Record<string, string> =>
 export const getFieldByAlias = (entityName: string | undefined, alias: string): string =>
 	FieldsOptionsMap[entityName ?? '__no__use__']?.[alias] ?? alias;
 export const getCustomFieldsFor = (name: string) => CustomFieldsMap[name] ?? {};
+
+/**
+ * Returns the count fields registered for the given GQL entity name.
+ * Keyed by the count field name (e.g. 'bookCount'), value is the count field metadata.
+ */
+export const getCountFieldsFor = (name: string): Record<string, CountFieldMeta> =>
+	CountFieldsMap[name] ?? {};
+
+/**
+ * Manually registers a count field for an entity.
+ * Useful for testing without the @GQLEntityClass decorator.
+ * In production, count fields are auto-registered by the decorator when `countFieldName` is set.
+ */
+export const registerCountField = (
+	gqlEntityName: string,
+	countFieldName: string,
+	relationshipFieldName: string,
+	relatedEntityName: () => string
+): void => {
+	CountFieldsMap[gqlEntityName] = CountFieldsMap[gqlEntityName] || {};
+	CountFieldsMap[gqlEntityName][countFieldName] = {
+		countFieldName,
+		relationshipFieldName,
+		relatedEntityName,
+	};
+};
+
+/**
+ * Clears all registered count fields. Intended for test teardown.
+ */
+export const clearCountFields = (): void => {
+	for (const key of Object.keys(CountFieldsMap)) {
+		delete CountFieldsMap[key];
+	}
+};
 
 export const getACLFor = (name: string) => aclMap[name] ?? {};
 
@@ -531,6 +568,183 @@ function _buildResolversForEntity<T>(
 			gqlEntityName,
 			GQLEntityFilterInput
 		);
+
+		// Register count fields derived from relationship fields with countFieldName
+		if (fieldOptions.countFieldName) {
+			const countFieldName = fieldOptions.countFieldName as string;
+			const relatedEntityName = fieldOptions.relatedEntityName as () => string;
+
+			// Register the Int field on the GQLEntity ObjectType
+			metadata.collectClassFieldMetadata({
+				target: GQLEntity,
+				name: countFieldName,
+				schemaName: countFieldName,
+				getType: () => Int,
+				typeOptions: { nullable: true },
+				complexity: undefined,
+				description: `Count of ${fieldName} with optional filter`,
+				deprecationReason: undefined,
+			});
+
+			// Register filter arg on the count field (same as array relationship fields)
+			const relatedGQLEntityName = getGQLEntityNameFor(relatedEntityName());
+
+			metadata.collectHandlerParamMetadata({
+				kind: 'arg',
+				name: 'filter',
+				description: undefined,
+				methodName: countFieldName,
+				index: 0,
+				getType: () => TypeMap[relatedGQLEntityName + 'FilterInput'],
+				target: GQLEntity,
+				typeOptions: { nullable: true },
+				deprecationReason: undefined,
+				validateFn: undefined,
+				validateSettings: undefined,
+			});
+
+			// Store in CountFieldsMap
+			CountFieldsMap[gqlEntityName] = CountFieldsMap[gqlEntityName] || {};
+			CountFieldsMap[gqlEntityName][countFieldName] = {
+				countFieldName,
+				relationshipFieldName: fieldNameToUse,
+				relatedEntityName,
+			};
+
+			// Register count filter operators on the entity's FilterInput
+			// Supports: bookCount_eq, bookCount_gt, bookCount: 4, BookCount: { _gt: 3 }
+			const countFilterOperators: Array<{ key: string; array?: boolean }> = [
+				{ key: '_eq' },
+				{ key: '_ne' },
+				{ key: '_gt' },
+				{ key: '_gte' },
+				{ key: '_lt' },
+				{ key: '_lte' },
+			];
+
+			for (const op of countFilterOperators) {
+				const opFieldName = countFieldName + op.key;
+				metadata.collectClassFieldMetadata({
+					target: GQLEntityFilterInput,
+					name: opFieldName,
+					schemaName: opFieldName,
+					getType: () => Int,
+					typeOptions: { nullable: true },
+					complexity: undefined,
+					description: `Filter by ${countFieldName} ${op.key}`,
+					deprecationReason: undefined,
+				});
+			}
+
+			// bookCount: 4 (implicit _eq)
+			metadata.collectClassFieldMetadata({
+				target: GQLEntityFilterInput,
+				name: countFieldName,
+				schemaName: countFieldName,
+				getType: () => Int,
+				typeOptions: { nullable: true },
+				complexity: undefined,
+				description: `Filter by ${countFieldName} (equals)`,
+				deprecationReason: undefined,
+			});
+
+			// BookCount: { _gt: 3 } (nested object form)
+			const UppercasedCountFieldName = countFieldName[0].toUpperCase() + countFieldName.slice(1);
+			const countFieldFilterTypeName = `${gqlEntityName}_${UppercasedCountFieldName}`;
+
+			@InputType(countFieldFilterTypeName)
+			class CountFieldFilterInput {}
+			Object.defineProperty(CountFieldFilterInput, 'name', {
+				value: countFieldFilterTypeName,
+			});
+			TypeMap[countFieldFilterTypeName] = CountFieldFilterInput;
+
+			for (const op of countFilterOperators) {
+				metadata.collectClassFieldMetadata({
+					target: CountFieldFilterInput,
+					name: op.key,
+					schemaName: op.key,
+					getType: () => Int,
+					typeOptions: { nullable: true },
+					complexity: undefined,
+					description: op.key,
+					deprecationReason: undefined,
+				});
+			}
+
+			InputType(countFieldFilterTypeName)(CountFieldFilterInput);
+
+			metadata.collectClassFieldMetadata({
+				target: GQLEntityFilterInput,
+				name: UppercasedCountFieldName,
+				schemaName: UppercasedCountFieldName,
+				getType: () => CountFieldFilterInput,
+				typeOptions: { nullable: true },
+				complexity: undefined,
+				description: `Filter by ${countFieldName} with operators`,
+				deprecationReason: undefined,
+			});
+		}
+	}
+
+	// Generate ExistsFilterInput with a field for each relationship
+	const relationshipFields = fields.filter((f) => {
+		const opts2 = (opts as any)[f];
+		return opts2 && 'array' in opts2 && opts2.array && opts2.relatedEntityName;
+	});
+
+	if (relationshipFields.length > 0) {
+		@InputType(gqlEntityName + 'ExistsFilterInput')
+		class GQLEntityExistsFilterInput {}
+		Object.defineProperty(GQLEntityExistsFilterInput, 'name', {
+			value: gqlEntityName + 'ExistsFilterInput',
+		});
+		TypeMap[gqlEntityName + 'ExistsFilterInput'] = GQLEntityExistsFilterInput;
+
+		for (const relFieldName of relationshipFields) {
+			const relOpts = (opts as any)[relFieldName];
+			const relEntityName = relOpts.relatedEntityName();
+			const relGQLEntityName = getGQLEntityNameFor(relEntityName);
+			const relFilterTypeName = relGQLEntityName + 'FilterInput';
+
+			metadata.collectClassFieldMetadata({
+				target: GQLEntityExistsFilterInput,
+				name: relFieldName,
+				schemaName: relFieldName,
+				getType: () => TypeMap[relFilterTypeName] ?? GQLEntityFilterInput,
+				typeOptions: { nullable: true },
+				complexity: undefined,
+				description: `Filter ${relFieldName} by their fields for existence check`,
+				deprecationReason: undefined,
+			});
+		}
+
+		InputType(gqlEntityName + 'ExistsFilterInput')(GQLEntityExistsFilterInput);
+
+		// Register _exists and _not_exists on the entity's FilterInput
+		metadata.collectClassFieldMetadata({
+			target: GQLEntityFilterInput,
+			name: '_exists',
+			schemaName: '_exists',
+			getType: () => GQLEntityExistsFilterInput,
+			typeOptions: { nullable: true },
+			complexity: undefined,
+			description:
+				'Check that related entities exist matching the given filters. Multiple keys are AND-combined.',
+			deprecationReason: undefined,
+		});
+
+		metadata.collectClassFieldMetadata({
+			target: GQLEntityFilterInput,
+			name: '_not_exists',
+			schemaName: '_not_exists',
+			getType: () => GQLEntityExistsFilterInput,
+			typeOptions: { nullable: true },
+			complexity: undefined,
+			description:
+				'Check that NO related entities exist matching the given filters. Multiple keys are AND-combined.',
+			deprecationReason: undefined,
+		});
 	}
 
 	InputType(gqlEntityName + 'FilterInput')(GQLEntityFilterInput);

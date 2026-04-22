@@ -1,3 +1,4 @@
+import { getCountFieldsFor, getGQLEntityNameFor } from '../entities';
 import {
 	ClassOperationInputType,
 	ClassOperations,
@@ -5,6 +6,7 @@ import {
 	FieldOperationsType,
 } from '../operations';
 import {
+	CountFieldMeta,
 	CustomFieldsSettings,
 	EntityMetadata,
 	EntityProperty,
@@ -63,12 +65,19 @@ export class FilterProcessor extends ClassOperations {
 
 		const { properties, primaryKeys } = entityMetadata;
 
-		// Handle class operations (_and, _or, _not)
+		// Handle class operations (_and, _or, _not, _exists, _not_exists)
 		if (
 			typeof gqlFilter === 'object' &&
-			(gqlFieldNameKey === '_and' || gqlFieldNameKey === '_or' || gqlFieldNameKey === '_not')
+			(gqlFieldNameKey === '_and' ||
+				gqlFieldNameKey === '_or' ||
+				gqlFieldNameKey === '_not' ||
+				gqlFieldNameKey === '_exists' ||
+				gqlFieldNameKey === '_not_exists')
 		) {
-			if (!(gqlFieldNameKey in gqlFilter) || gqlFilter[gqlFieldNameKey] === undefined) {
+			if (
+				!(gqlFieldNameKey in (gqlFilter as object)) ||
+				(gqlFilter as any)[gqlFieldNameKey] === undefined
+			) {
 				return;
 			}
 
@@ -90,6 +99,21 @@ export class FilterProcessor extends ClassOperations {
 		}
 
 		const filterValue = gqlFilter[gqlFieldNameKey as keyof typeof gqlFilter];
+
+		// Check if this filter key matches a count field (e.g. bookCount_eq: 4, bookCount: 4)
+		const countFilterResult = this.tryMapCountFieldFilter<T>(
+			gqlFieldNameKey,
+			filterValue,
+			entityMetadata,
+			parentAlias,
+			alias,
+			mappings,
+			customFields,
+			isFieldFilter
+		);
+		if (countFilterResult) {
+			return;
+		}
 
 		// Handle field operations (id_in, id_eq, etc.)
 		const fieldOperation = keys(FieldOperations).find((k) => gqlFieldNameKey.endsWith(k));
@@ -409,6 +433,364 @@ export class FilterProcessor extends ClassOperations {
 	}: ClassOperationInputType<T>): void {
 		// TODO: Implement _not operation
 		logger.warn('FilterProcessor - _not operation not yet implemented');
+	}
+
+	/**
+	 * Handles _exists operations.
+	 *
+	 * The filter value is an object where each key is a relationship field name
+	 * and each value is a filter for the related entity. Multiple keys are
+	 * AND-combined — each produces a separate `EXISTS (...)` clause.
+	 *
+	 * @example
+	 * ```graphql
+	 * filter: {
+	 *   _exists: {
+	 *     books: { name: 'The Hobbit' },
+	 *     ring: { name: 'The One Ring' }
+	 *   }
+	 * }
+	 * ```
+	 * Generates:
+	 * ```sql
+	 * WHERE EXISTS (SELECT 1 FROM books WHERE ...) AND EXISTS (SELECT 1 FROM rings WHERE ...)
+	 * ```
+	 */
+	public _exists<T>({
+		entityMetadata,
+		gqlFilters,
+		parentAlias,
+		alias,
+		fieldName,
+		mapping,
+		mappings,
+	}: ClassOperationInputType<T>): void {
+		this.processExistsOperation<T>(
+			entityMetadata,
+			gqlFilters,
+			parentAlias,
+			alias,
+			mapping,
+			mappings,
+			false
+		);
+	}
+
+	/**
+	 * Handles _not_exists operations.
+	 *
+	 * Same as _exists but generates `NOT EXISTS (...)` clauses.
+	 * Multiple keys are AND-combined.
+	 *
+	 * @example
+	 * ```graphql
+	 * filter: {
+	 *   _not_exists: {
+	 *     books: { name: 'The Hobbit' }
+	 *   }
+	 * }
+	 * ```
+	 * Generates:
+	 * ```sql
+	 * WHERE NOT EXISTS (SELECT 1 FROM books WHERE ...)
+	 * ```
+	 */
+	public _not_exists<T>({
+		entityMetadata,
+		gqlFilters,
+		parentAlias,
+		alias,
+		fieldName,
+		mapping,
+		mappings,
+	}: ClassOperationInputType<T>): void {
+		this.processExistsOperation<T>(
+			entityMetadata,
+			gqlFilters,
+			parentAlias,
+			alias,
+			mapping,
+			mappings,
+			true
+		);
+	}
+
+	/**
+	 * Shared implementation for _exists and _not_exists.
+	 * Iterates over each relationship key in the filter value and generates
+	 * an EXISTS (or NOT EXISTS) subquery per key, AND-combined.
+	 */
+	protected processExistsOperation<T>(
+		entityMetadata: EntityMetadata<T>,
+		gqlFilters: any,
+		parentAlias: Alias,
+		alias: Alias,
+		mapping: MappingsType,
+		mappings: Map<string, MappingsType>,
+		negate: boolean
+	): void {
+		const { properties, primaryKeys } = entityMetadata;
+
+		if (typeof gqlFilters !== 'object' || gqlFilters === null) {
+			return;
+		}
+
+		for (const relFieldName of keys(gqlFilters)) {
+			const filterValue = gqlFilters[relFieldName];
+			if (filterValue === undefined || filterValue === null) {
+				continue;
+			}
+
+			const fieldProps = properties[relFieldName as keyof typeof properties];
+			if (!fieldProps) {
+				logger.warn(
+					'FilterProcessor - processExistsOperation: field',
+					relFieldName,
+					'not found in entity properties'
+				);
+				continue;
+			}
+
+			const referenceField =
+				this.metadataProvider.exists(fieldProps.type) &&
+				this.metadataProvider.getMetadata<any, any>(fieldProps.type);
+
+			if (!referenceField) {
+				logger.warn(
+					'FilterProcessor - processExistsOperation: no metadata for field type',
+					fieldProps.type
+				);
+				continue;
+			}
+
+			// Use a temporary mapping to capture the EXISTS subquery
+			const tempMapping = QueriesUtils.newMappings();
+			tempMapping.alias = alias;
+
+			this.handleReferenceFieldFilter<T>(
+				fieldProps,
+				referenceField,
+				alias,
+				parentAlias,
+				filterValue,
+				tempMapping,
+				primaryKeys,
+				relFieldName
+			);
+
+			// tempMapping.where now contains the "exists (...)" string
+			for (const whereClause of tempMapping.where) {
+				if (negate) {
+					const negated = whereClause.replace(/^exists\s*\(/i, 'not exists (');
+					mapping.where.push(negated);
+				} else {
+					mapping.where.push(whereClause);
+				}
+			}
+			mapping.values = { ...mapping.values, ...tempMapping.values };
+		}
+	}
+
+	/**
+	 * Attempts to detect and handle a count field filter.
+	 * Returns true if the filter key matches a count field, false otherwise.
+	 *
+	 * Handles forms like:
+	 * - bookCount: 4 (implicit _eq)
+	 * - bookCount_eq: 4
+	 * - bookCount_gt: 3
+	 * - BookCount: { _gt: 3 } (nested object)
+	 */
+	protected tryMapCountFieldFilter<T>(
+		gqlFieldNameKey: string,
+		filterValue: any,
+		entityMetadata: EntityMetadata<T>,
+		parentAlias: Alias,
+		alias: Alias,
+		mappings: Map<string, MappingsType>,
+		customFields: CustomFieldsSettings<T> | undefined,
+		isFieldFilter?: boolean
+	): boolean {
+		const gqlEntityName = getGQLEntityNameFor(entityMetadata.name ?? '');
+		const countFields = getCountFieldsFor(gqlEntityName);
+
+		if (Object.keys(countFields).length === 0) {
+			return false;
+		}
+
+		// Try to match the filter key against count field names with operators
+		const numericOps = ['_eq', '_ne', '_gt', '_gte', '_lt', '_lte'] as const;
+		for (const [countFieldName, countMeta] of Object.entries(countFields)) {
+			// Check: bookCount_eq, bookCount_gt, etc.
+			const opSuffix = numericOps.find((k) => gqlFieldNameKey === countFieldName + k);
+
+			// Check: BookCount (capitalized, nested object form)
+			const capitalizedCountFieldName = countFieldName[0].toUpperCase() + countFieldName.slice(1);
+
+			if (opSuffix) {
+				this.applyCountFilterOperation(
+					countMeta,
+					entityMetadata,
+					parentAlias,
+					alias,
+					mappings,
+					opSuffix,
+					filterValue
+				);
+				return true;
+			}
+
+			if (gqlFieldNameKey === countFieldName && isPrimitive(filterValue)) {
+				this.applyCountFilterOperation(
+					countMeta,
+					entityMetadata,
+					parentAlias,
+					alias,
+					mappings,
+					'_eq',
+					filterValue
+				);
+				return true;
+			}
+
+			if (gqlFieldNameKey === capitalizedCountFieldName && typeof filterValue === 'object') {
+				for (const opKey of keys(filterValue ?? {})) {
+					const matchedOp = numericOps.find((k) => k === opKey);
+					if (matchedOp) {
+						this.applyCountFilterOperation(
+							countMeta,
+							entityMetadata,
+							parentAlias,
+							alias,
+							mappings,
+							matchedOp,
+							(filterValue as any)[opKey]
+						);
+					}
+				}
+				return true;
+			}
+		}
+
+		return false;
+	}
+
+	/**
+	 * Generates a WHERE clause comparing a COUNT subquery against a value.
+	 * SQL: `(SELECT COUNT(*) FROM ... WHERE <join>) <operator> :param`
+	 */
+	protected applyCountFilterOperation<T>(
+		countMeta: CountFieldMeta,
+		entityMetadata: EntityMetadata<T>,
+		parentAlias: Alias,
+		alias: Alias,
+		mappings: Map<string, MappingsType>,
+		operation: string,
+		value: any
+	): void {
+		const mapping = QueriesUtils.getMapping(mappings, countMeta.countFieldName);
+		mapping.alias = alias;
+
+		const countSubquery = this.buildCountSubquerySQL(countMeta, entityMetadata, parentAlias, alias);
+
+		if (!countSubquery) {
+			logger.warn(
+				'FilterProcessor - applyCountFilterOperation: could not build count subquery for',
+				countMeta.countFieldName
+			);
+			return;
+		}
+
+		const valueAlias = this.aliasManager.next(AliasType.value, countMeta.countFieldName);
+		const paramRef = `${this.namedParameterPrefix}${valueAlias.toParamName(1)}`;
+
+		const opFunc = FieldOperations[operation as keyof FieldOperationsType];
+		if (!opFunc) {
+			logger.warn('FilterProcessor - unknown operation for count filter:', operation);
+			return;
+		}
+
+		const { where, value: valOverride } = opFunc([countSubquery, paramRef], ['', value]);
+		mapping.where.push(where);
+		mapping.values = {
+			...mapping.values,
+			...(valOverride ?? { [valueAlias.toParamName(1)]: value }),
+		};
+
+		logger.log(
+			'FilterProcessor - applyCountFilterOperation',
+			countMeta.countFieldName,
+			operation,
+			value,
+			'where',
+			where
+		);
+	}
+
+	/**
+	 * Builds a COUNT(*) correlated subquery for use in WHERE clauses.
+	 * Returns the SQL string (without alias), e.g.:
+	 * `(select count(*) from "books" as e_w1 where e_w1.author_id = a_1.id)`
+	 */
+	protected buildCountSubquerySQL<T>(
+		countMeta: CountFieldMeta,
+		entityMetadata: EntityMetadata<T>,
+		parentAlias: Alias,
+		alias: Alias
+	): string | null {
+		const { relationshipFieldName, relatedEntityName } = countMeta;
+		const relatedName = relatedEntityName();
+
+		if (!this.metadataProvider.exists(relatedName)) {
+			return null;
+		}
+
+		const relatedMetadata = this.metadataProvider.getMetadata<any, EntityMetadata<any>>(
+			relatedName
+		);
+		const fieldProps =
+			entityMetadata.properties[relationshipFieldName as keyof typeof entityMetadata.properties];
+
+		if (!fieldProps) {
+			return null;
+		}
+
+		const countAlias = this.aliasManager.next(AliasType.entity, 'w');
+
+		let joinCondition = '';
+		if (
+			fieldProps.reference === ReferenceType.ONE_TO_MANY ||
+			fieldProps.reference === ReferenceType.ONE_TO_ONE
+		) {
+			const refFieldProps = relatedMetadata.properties[
+				fieldProps.mappedBy as keyof typeof relatedMetadata.properties
+			] as EntityProperty;
+			const ons = refFieldProps.joinColumns;
+			const entityOns = refFieldProps.referencedColumnNames;
+			joinCondition = entityOns
+				.map((o, i) => `${parentAlias.toColumnName(o)} = ${countAlias.toColumnName(ons[i])}`)
+				.join(' and ');
+		} else if (fieldProps.reference === ReferenceType.MANY_TO_ONE) {
+			const ons = relatedMetadata.primaryKeys;
+			const entityOns = fieldProps.fieldNames;
+			joinCondition = entityOns
+				.map((o, i) => `${parentAlias.toColumnName(o)} = ${countAlias.toColumnName(ons[i])}`)
+				.join(' and ');
+		} else if (fieldProps.reference === ReferenceType.MANY_TO_MANY) {
+			const pivotCols = fieldProps.joinColumns;
+			const inverseCols = fieldProps.inverseJoinColumns;
+			const pivotSubquery = `select ${inverseCols.join(', ')} from ${fieldProps.pivotTable} where ${pivotCols.map((c, i) => `${parentAlias.toColumnName(entityMetadata.primaryKeys[i])} = ${fieldProps.pivotTable}.${c}`).join(' and ')}`;
+			joinCondition = `(${relatedMetadata.primaryKeys.map((c) => countAlias.toColumnName(c)).join(', ')}) in (${pivotSubquery})`;
+		}
+
+		if (!joinCondition) {
+			return null;
+		}
+
+		return `(select count(*) from "${relatedMetadata.tableName}" as ${countAlias.toString()} where ${joinCondition})`.replaceAll(
+			/[ \n\t]+/gi,
+			' '
+		);
 	}
 
 	private processRegularFieldFilter<T>(
