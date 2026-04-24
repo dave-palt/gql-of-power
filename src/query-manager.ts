@@ -8,7 +8,7 @@ import knex from 'knex';
 import {
 	getCustomFieldsFor,
 	getGQLEntityNameFor,
-	getGQLEntityNameForClass,
+	getMapEnumFieldsFor,
 } from './entities/gql-entity';
 import { GQLtoSQLMapper } from './queries/gql-to-sql-mapper';
 import {
@@ -44,6 +44,106 @@ export const getGQLFields = (info: GraphQLResolveInfo) => {
 		throw 'Error parsing GraphQL fields from info';
 	}
 };
+
+const ENUM_OPERATORS = [
+	'_eq',
+	'_ne',
+	'_gt',
+	'_gte',
+	'_lt',
+	'_lte',
+	'_like',
+	'_re',
+	'_ilike',
+	'_fulltext',
+	'_in',
+	'_nin',
+	'_between',
+] as const;
+
+function toDbValue(value: any, enumObj: any, isArray: boolean): any {
+	if (value === null || value === undefined) return value;
+	if (isArray && Array.isArray(value)) {
+		return value.map((v) => {
+			if (typeof v === 'string' && v in enumObj) return enumObj[v];
+			return v;
+		});
+	}
+	if (typeof value === 'string' && value in enumObj) return enumObj[value];
+	return value;
+}
+
+function findEnumFieldName(key: string, enumFields: Record<string, any>): string | null {
+	if (key in enumFields) return key;
+	for (const op of ENUM_OPERATORS) {
+		if (key.endsWith(op)) {
+			const fieldName = key.slice(0, -op.length);
+			if (fieldName in enumFields) return fieldName;
+		}
+	}
+	const lowercased = key.charAt(0).toLowerCase() + key.slice(1);
+	if (lowercased in enumFields) return lowercased;
+	return null;
+}
+
+function convertFilterEnumValues(
+	filter: any,
+	enumFields: Record<string, any>,
+	mappedCustomFields?: Record<string, { mapping: { refEntity: new () => any } }>
+): any {
+	if (!filter || typeof filter !== 'object' || Array.isArray(filter)) return filter;
+	if (Object.keys(enumFields).length === 0 && !mappedCustomFields) return filter;
+
+	const result: any = {};
+	for (const [key, value] of Object.entries(filter)) {
+		if (key === '_and' || key === '_or' || key === '_not') {
+			result[key] = Array.isArray(value)
+				? value.map((v: any) => convertFilterEnumValues(v, enumFields, mappedCustomFields))
+				: value;
+			continue;
+		}
+		if (key === '_exists' || key === '_not_exists') {
+			result[key] = value;
+			continue;
+		}
+
+		const enumFieldName = findEnumFieldName(key, enumFields);
+		if (enumFieldName) {
+			const enumObj = enumFields[enumFieldName];
+			if (typeof value === 'object' && value !== null && !Array.isArray(value)) {
+				const converted: any = {};
+				for (const [op, opVal] of Object.entries(value as Record<string, any>)) {
+					const isArr = op === '_in' || op === '_nin';
+					converted[op] = toDbValue(opVal, enumObj, isArr);
+				}
+				result[key] = converted;
+			} else {
+				const isArr = key.endsWith('_in') || key.endsWith('_nin');
+				result[key] = toDbValue(value, enumObj, isArr);
+			}
+		} else if (
+			typeof value === 'object' &&
+			value !== null &&
+			!Array.isArray(value) &&
+			mappedCustomFields
+		) {
+			const lowercased = key.charAt(0).toLowerCase() + key.slice(1);
+			const mappedField =
+				mappedCustomFields[key as keyof typeof mappedCustomFields] ??
+				mappedCustomFields[lowercased as keyof typeof mappedCustomFields];
+			if (mappedField) {
+				const refGqlEntityName = getGQLEntityNameFor(mappedField.mapping.refEntity.name);
+				const refEnumFields = getMapEnumFieldsFor(refGqlEntityName);
+				result[key] = convertFilterEnumValues(value, refEnumFields);
+			} else {
+				result[key] = value;
+			}
+		} else {
+			result[key] = value;
+		}
+	}
+	return result;
+}
 
 export class GQLQueryManager {
 	constructor(private opts?: { namedParameterPrefix?: string }) {}
@@ -95,10 +195,9 @@ export class GQLQueryManager {
 				throw new Error(`Entity ${entityName} not found in metadata`);
 			}
 			const customFields = getCustomFieldsFor(getGQLEntityNameFor(entityName));
+			const enumFields = getMapEnumFieldsFor(getGQLEntityNameFor(entityName));
 			const mapper = new GQLtoSQLMapper(provider, this.opts);
 
-			// If entityName differs from entity.name (i.e. @GQLEntityClass decorated class),
-			// create a named proxy so the mapper can look up the ORM entity metadata by name.
 			let entityForMapper: new () => T = entity;
 			if (entityName !== entity.name) {
 				entityForMapper = class {} as any;
@@ -106,11 +205,13 @@ export class GQLQueryManager {
 				Object.setPrototypeOf(entityForMapper, entity);
 			}
 
+			const convertedFilter = convertFilterEnumValues(filter, enumFields, customFields);
+
 			const { bindings, querySQL } = mapper.buildQueryAndBindingsFor({
 				fields,
 				customFields,
 				entity: entityForMapper,
-				filter,
+				filter: convertedFilter,
 				pagination,
 			});
 

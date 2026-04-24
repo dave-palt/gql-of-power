@@ -7,6 +7,7 @@ import {
 	ObjectType,
 	registerEnumType,
 	Resolver,
+	Root,
 } from 'type-graphql';
 import { FieldOperations } from '../operations';
 import {
@@ -22,7 +23,6 @@ import {
 } from '../types';
 import { AccessControlEntry, AccessControlList } from '../types/access-control';
 import { keys } from '../utils';
-import { logger } from '../variables';
 
 // ─── Internal registries ────────────────────────────────────────────────────
 
@@ -31,6 +31,7 @@ const TypeMap: { [key: string]: any } = {};
 const FieldsOptionsMap: Record<string, Record<string, string>> = {};
 const CustomFieldsMap: Record<string, CustomFieldsSettings<any>> = {};
 const CountFieldsMap: Record<string, Record<string, CountFieldMeta>> = {};
+const MapEnumFieldsMap: Record<string, Record<string, any>> = {};
 
 const aclMap: AccessControlList<any, any> = {};
 
@@ -88,6 +89,14 @@ export const registerCountField = (
 export const clearCountFields = (): void => {
 	for (const key of Object.keys(CountFieldsMap)) {
 		delete CountFieldsMap[key];
+	}
+};
+export const getMapEnumFieldsFor = (name: string): Record<string, any> =>
+	MapEnumFieldsMap[name] ?? {};
+
+export const clearMapEnumFields = (): void => {
+	for (const key of Object.keys(MapEnumFieldsMap)) {
+		delete MapEnumFieldsMap[key];
 	}
 };
 
@@ -252,6 +261,16 @@ export function GQLEntityClass<T extends Object, K>(
 			const fieldNameToUse = fieldNameOverride ?? fieldName;
 			const isArray = 'array' in fieldOptions && fieldOptions.array;
 
+			if ((fieldOptions as any).mapNumericEnum) {
+				try {
+					const enumObj = fieldOptions.type();
+					MapEnumFieldsMap[gqlEntityName] = MapEnumFieldsMap[gqlEntityName] || {};
+					MapEnumFieldsMap[gqlEntityName][fieldNameToUse] = enumObj;
+				} catch {
+					// type thunk may throw for forward refs — safe to skip
+				}
+			}
+
 			metadata.collectClassFieldMetadata({
 				target: GQLEntity,
 				name: fieldNameToUse,
@@ -278,7 +297,8 @@ export function GQLEntityClass<T extends Object, K>(
 			fieldNames,
 			resolvedFields,
 			metadata,
-			customFields
+			customFields,
+			fields
 		);
 
 		// Attach statics — the class IS the GQLEntity
@@ -404,6 +424,16 @@ export function createGQLEntity<T extends Object, K>(
 		}
 		const fieldNameToUse = fieldNameOverride ?? fieldName;
 
+		if ((fieldOptions as any).mapNumericEnum) {
+			try {
+				const enumObj = fieldOptions.type();
+				MapEnumFieldsMap[gqlEntityName] = MapEnumFieldsMap[gqlEntityName] || {};
+				MapEnumFieldsMap[gqlEntityName][fieldNameToUse] = enumObj;
+			} catch {
+				// type thunk may throw for forward refs — safe to skip
+			}
+		}
+
 		const isArray = 'array' in fieldOptions && fieldOptions.array;
 		metadata.collectClassFieldMetadata({
 			target: GQLEntity,
@@ -423,7 +453,15 @@ export function createGQLEntity<T extends Object, K>(
 	ObjectType(gqlEntityName)(GQLEntity);
 
 	function buildResolvers() {
-		return _buildResolversForEntity(GQLEntity, gqlEntityName, fields, opts, metadata, customFields);
+		return _buildResolversForEntity(
+			GQLEntity,
+			gqlEntityName,
+			fields,
+			opts,
+			metadata,
+			customFields,
+			opts
+		);
 	}
 
 	return {
@@ -442,7 +480,8 @@ function _buildResolversForEntity<T>(
 	fields: string[],
 	opts: Partial<FieldsSettings<T>>,
 	metadata: ReturnType<typeof getMetadataStorage>,
-	customFields?: CustomFieldsSettings<T>
+	customFields?: CustomFieldsSettings<T>,
+	rawFields?: Partial<FieldsSettings<T>>
 ) {
 	class GQLEntityFilterInput {
 		@Field(() => [GQLEntityFilterInput], { nullable: true })
@@ -468,10 +507,51 @@ function _buildResolversForEntity<T>(
 	@Resolver(() => GQLEntity)
 	class FieldsResolver {}
 
+	if (rawFields) {
+		for (const fieldName of Object.keys(rawFields)) {
+			const fieldOpts = (rawFields as any)[fieldName];
+			if (!fieldOpts?.mapNumericEnum) continue;
+
+			const fieldNameToUse = fieldOpts.alias ?? fieldName;
+			const enumTypeThunk = fieldOpts.type;
+
+			const resolveFn = (root: any) => {
+				const value = root[fieldNameToUse];
+				if (value === null || value === undefined) return null;
+				try {
+					const enumObj = enumTypeThunk();
+					const key = enumObj[value];
+					if (typeof key === 'string') return key;
+					for (const enumKey of Object.keys(enumObj)) {
+						if (enumObj[enumKey] === value) return enumKey;
+					}
+					return value;
+				} catch {
+					return value;
+				}
+			};
+
+			Object.defineProperty(FieldsResolver.prototype, fieldNameToUse, {
+				value: resolveFn,
+				writable: true,
+				configurable: true,
+			});
+
+			FieldResolver(enumTypeThunk, {
+				...fieldOpts.options,
+				name: fieldNameToUse,
+			})(
+				FieldsResolver.prototype,
+				fieldNameToUse,
+				Object.getOwnPropertyDescriptor(FieldsResolver.prototype, fieldNameToUse)!
+			);
+
+			Root()(FieldsResolver.prototype, fieldNameToUse, 0);
+		}
+	}
+
 	if (customFields) {
 		CustomFieldsMap[gqlEntityName] = customFields;
-
-		logger.info('CustomFieldsMap', gqlEntityName, customFields);
 
 		for (const fieldName of keys(customFields)) {
 			const fieldOptions = fieldName in customFields ? customFields[fieldName] : undefined;
@@ -523,6 +603,23 @@ function _buildResolversForEntity<T>(
 				});
 			} else if ('mapping' in fieldOptions && fieldOptions.mapping) {
 				// mapping strategy: SQL mapper generates the JOIN — no FieldResolver needed
+				if (fieldOptions.generateFilter) {
+					const UppercasedFieldName = fieldNameToUse[0].toUpperCase() + fieldNameToUse.slice(1);
+					const refEntityName = fieldOptions.mapping.refEntity.name;
+					const refGqlEntityName = getGQLEntityNameFor(refEntityName);
+					const refFilterTypeName = refGqlEntityName + 'FilterInput';
+
+					metadata.collectClassFieldMetadata({
+						target: GQLEntityFilterInput,
+						name: UppercasedFieldName,
+						schemaName: UppercasedFieldName,
+						getType: () => TypeMap[refFilterTypeName] ?? GQLEntityFilterInput,
+						typeOptions: { nullable: true },
+						complexity: undefined,
+						description: `Filter by ${fieldNameToUse} fields`,
+						deprecationReason: undefined,
+					});
+				}
 			}
 		}
 	}

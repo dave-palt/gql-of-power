@@ -62,7 +62,24 @@ export type EnumData = Parameters<typeof registerEnumType>;
 type GetFieldType = NonNullable<Parameters<typeof Field>[0]>;
 type GetFieldResolverType = NonNullable<Parameters<typeof FieldResolver>[0]>;
 
-export type FieldBaseSettings = { generateFilter?: boolean; enum?: EnumData } & (
+export type FieldBaseSettings = {
+	generateFilter?: boolean;
+	/**
+	 * When true, generates a FieldResolver that converts numeric DB values to
+	 * the TypeScript enum's string keys for GraphQL serialization, and converts
+	 * filter values back to numeric values for SQL parameters.
+	 *
+	 * Use this for fields backed by TypeScript numeric enums where the database
+	 * stores the numeric value (e.g. 913710001) but GraphQL expects the string
+	 * key (e.g. "Active").
+	 *
+	 * @example
+	 * // Given: enum Status { Active = 913710001, Inactive = 913710002 }
+	 * // Field definition:
+	 * status: { type: () => Status, mapNumericEnum: true, generateFilter: true }
+	 */
+	mapNumericEnum?: boolean;
+} & (
 	| {}
 	| {
 			array: true;
