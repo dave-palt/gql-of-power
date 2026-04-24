@@ -9,7 +9,7 @@ import { EntityMetadata, setGlobalConfig } from '../../src';
 import { GQLtoSQLMapper } from '../../src/queries/gql-to-sql-mapper';
 import { SQLBuilder } from '../../src/queries/sql-builder';
 import { QueriesUtils } from '../../src/queries/utils';
-import { Fellowship, Person, Ring } from '../fixtures/middle-earth-schema';
+import { Fellowship, Person, Ring, Weapon, Artifact } from '../fixtures/middle-earth-schema';
 import { createMockMetadataProvider } from '../fixtures/test-data';
 import '../setup';
 
@@ -404,6 +404,166 @@ describe('GQLtoSQLMapper - Unit Tests', () => {
 				result.querySQL.toLowerCase().includes('union') ||
 					result.querySQL.toLowerCase().includes('where')
 			).toBe(true);
+		});
+	});
+
+	describe('OneToOne owning-side routing', () => {
+		it('should handle owning-side OneToOne (Person.signatureWeapon) without crashing', () => {
+			const fields = {
+				id: {},
+				name: {},
+				signatureWeapon: {
+					fieldsByTypeName: {
+						Weapon: { id: {}, name: {}, type: {} },
+					},
+				},
+			};
+
+			const result = mapper.buildQueryAndBindingsFor({
+				fields,
+				entity: Person,
+				customFields: {},
+			});
+
+			expect(result.querySQL).toContain('persons');
+			expect(result.querySQL).toContain('weapons');
+			expect(result.querySQL).toContain('signature_weapon_id');
+			expect(result.querySQL).toContain('left outer join lateral');
+			expect(result.querySQL).toContain('row_to_json');
+			expect(result.querySQL).toContain('"signatureWeapon"');
+		});
+
+		it('should handle multiple owning-side OneToOne relationships in one query', () => {
+			const fields = {
+				id: {},
+				name: {},
+				signatureWeapon: {
+					fieldsByTypeName: {
+						Weapon: { id: {}, name: {} },
+					},
+				},
+				signatureArtifact: {
+					fieldsByTypeName: {
+						Artifact: { id: {}, name: {} },
+					},
+				},
+			};
+
+			const result = mapper.buildQueryAndBindingsFor({
+				fields,
+				entity: Person,
+				customFields: {},
+			});
+
+			expect(result.querySQL).toContain('weapons');
+			expect(result.querySQL).toContain('artifacts');
+			expect(result.querySQL).toContain('signature_weapon_id');
+			expect(result.querySQL).toContain('signature_artifact_id');
+			expect(result.querySQL).toContain('"signatureWeapon"');
+			expect(result.querySQL).toContain('"signatureArtifact"');
+		});
+
+		it('should still handle inverse-side OneToOne (Person.ring) correctly', () => {
+			const fields = {
+				id: {},
+				name: {},
+				ring: {
+					fieldsByTypeName: {
+						Ring: { id: {}, name: {}, power: {} },
+					},
+				},
+			};
+
+			const result = mapper.buildQueryAndBindingsFor({
+				fields,
+				entity: Person,
+				customFields: {},
+			});
+
+			expect(result.querySQL).toContain('persons');
+			expect(result.querySQL).toContain('rings');
+			expect(result.querySQL).toContain('left outer join lateral');
+			expect(result.querySQL).toContain('"ring"');
+		});
+
+		it('should handle owning-side OneToOne alongside inverse-side OneToOne', () => {
+			const fields = {
+				id: {},
+				name: {},
+				signatureWeapon: {
+					fieldsByTypeName: {
+						Weapon: { id: {}, name: {} },
+					},
+				},
+				ring: {
+					fieldsByTypeName: {
+						Ring: { id: {}, name: {} },
+					},
+				},
+			};
+
+			const result = mapper.buildQueryAndBindingsFor({
+				fields,
+				entity: Person,
+				customFields: {},
+			});
+
+			expect(result.querySQL).toContain('weapons');
+			expect(result.querySQL).toContain('rings');
+			expect(result.querySQL).toContain('signature_weapon_id');
+			expect(result.querySQL).toContain('"signatureWeapon"');
+			expect(result.querySQL).toContain('"ring"');
+		});
+
+		it('should handle owning-side OneToOne alongside ManyToOne and OneToMany', () => {
+			const fields = {
+				id: {},
+				name: {},
+				signatureWeapon: {
+					fieldsByTypeName: {
+						Weapon: { id: {}, name: {} },
+					},
+				},
+				fellowship: {
+					fieldsByTypeName: {
+						Fellowship: { id: {}, name: {} },
+					},
+				},
+			};
+
+			const result = mapper.buildQueryAndBindingsFor({
+				fields,
+				entity: Person,
+				customFields: {},
+			});
+
+			expect(result.querySQL).toContain('weapons');
+			expect(result.querySQL).toContain('fellowships');
+			expect(result.querySQL).toContain('"signatureWeapon"');
+			expect(result.querySQL).toContain('"fellowship"');
+		});
+
+		it('should handle inverse-side OneToOne from Weapon back to Person', () => {
+			const fields = {
+				id: {},
+				name: {},
+				owner: {
+					fieldsByTypeName: {
+						Person: { id: {}, name: {} },
+					},
+				},
+			};
+
+			const result = mapper.buildQueryAndBindingsFor({
+				fields,
+				entity: Weapon,
+				customFields: {},
+			});
+
+			expect(result.querySQL).toContain('weapons');
+			expect(result.querySQL).toContain('persons');
+			expect(result.querySQL).toContain('left outer join lateral');
+			expect(result.querySQL).toContain('"owner"');
 		});
 	});
 

@@ -215,6 +215,15 @@ export class GQLtoSQLMapper {
 		const definedFields = fields ?? {};
 		const fieldKeys = keys(definedFields);
 
+		console.warn(
+			'[DIAG recursiveMap] entity:',
+			entityMetadata.name,
+			'property keys:',
+			Object.keys(properties),
+			'fieldKeys from query:',
+			fieldKeys
+		);
+
 		const allFields =
 			primaryKeys.reduce(
 				(acc, pk) =>
@@ -234,7 +243,11 @@ export class GQLtoSQLMapper {
 			({ mappings }, gqlFieldNameKey) => {
 				logger.log('========================== FIELD ==========================', {
 					gqlFieldNameKey,
-					entityMetadata,
+					entityMetadata: {
+						name: entityMetadata.name,
+						tableName,
+						properties: Object.keys(properties),
+					},
 				});
 				if (typeof allFields[gqlFieldNameKey] !== 'object' || allFields[gqlFieldNameKey] === null) {
 					logger.warn(
@@ -245,33 +258,18 @@ export class GQLtoSQLMapper {
 					return { mappings };
 				}
 				const { args, fieldsByTypeName, name, alias: gqlFieldAlias } = allFields[gqlFieldNameKey];
-				// When a GQL query alias is used (e.g. `randomName: field1`), graphql-parse-resolve-info
-				// keys the FieldSelection by the alias ("randomName") and sets `name` to the actual schema
-				// field name ("field1"). getFieldByAlias always returns its input as a fallback (never
-				// null), so check whether the result differs from the input to detect a real decorator
-				// alias. If no decorator alias is registered, fall back to `name` (the schema field name).
 				const decoratorAlias = getFieldByAlias(entityMetadata.name, gqlFieldNameKey);
 				const fieldName =
 					decoratorAlias !== gqlFieldNameKey
 						? decoratorAlias
 						: ((name as string | undefined) ?? gqlFieldNameKey);
-				logger.log(
-					logPrefix,
-					'- mapFilter for',
-					gqlFieldNameKey,
-					'alias for',
-					fieldName
-					// 'keys:',
-					// ...mappings.keys()
-				);
+				logger.log(logPrefix, '- mapFilter for', gqlFieldNameKey, 'alias for', fieldName);
 
 				logger.log('==========================', name, '==========================');
 				logger.log('args', args, { name, gqlFieldAlias }, { fieldName });
 
 				const mapping = QueriesUtils.getMapping(mappings, fieldName);
 
-				// Check if this field is a count field (e.g. "bookCount") — before handleFieldArguments
-				// because count field args (filter) must be processed against the related entity, not the parent
 				const countFieldMeta = getCountFieldsFor(getGQLEntityNameFor(entityMetadata.name ?? ''))[
 					fieldName
 				];
@@ -294,17 +292,24 @@ export class GQLtoSQLMapper {
 					properties[fieldName as keyof EntityMetadata<T>['properties']] ??
 					properties[customFieldProps?.requires as keyof EntityMetadata<T>['properties']];
 
-				// When a GQL query alias is used (e.g. `randomName: field1`), the GraphQL execution
-				// layer remaps the SQL column to the alias in the response — so the SQL output column
-				// name must be the actual schema field name, not the query alias.
-				const gqlFieldName = (customFieldProps?.requires as string) ?? fieldName;
-				logger.log(
-					'recursiveMap fields | gqlFieldName',
-					gqlFieldName,
-					// mapping
-					fieldsByTypeName
-					// gqlFieldNameKey
+				logger.warn(
+					'[DIAG]',
+					fieldName,
+					'fieldProps found:',
+					!!fieldProps,
+					'customFieldProps found:',
+					!!customFieldProps,
+					fieldProps
+						? {
+								type: fieldProps.type,
+								reference: fieldProps.reference,
+								fieldNames: fieldProps.fieldNames,
+							}
+						: 'N/A'
 				);
+
+				const gqlFieldName = (customFieldProps?.requires as string) ?? fieldName;
+				logger.log('recursiveMap fields | gqlFieldName', gqlFieldName, fieldsByTypeName);
 
 				if (!fieldProps) {
 					return this.mapCustomField<T>(
@@ -616,6 +621,21 @@ export class GQLtoSQLMapper {
 		const referenceField =
 			this.exists(fieldProps.type) && this.getMetadata<any, EntityMetadata<any>>(fieldProps.type);
 
+		logger.warn(
+			'[DIAG mapField]',
+			gqlFieldName,
+			'fieldProps.type:',
+			fieldProps.type,
+			'exists:',
+			this.exists(fieldProps.type),
+			'reference found:',
+			!!referenceField,
+			'reference:',
+			fieldProps.reference,
+			'fieldNames:',
+			fieldProps.fieldNames
+		);
+
 		if (referenceField) {
 			logger.log('GQLtoSQLMapper - recursiveMap - referenceField latest alias', alias.toString());
 			const childAlias = this.Alias.next(AliasType.field, 'p');
@@ -717,8 +737,9 @@ export class GQLtoSQLMapper {
 			);
 			if (
 				fieldProps.reference === ReferenceType.ONE_TO_MANY ||
-				fieldProps.reference === ReferenceType.ONE_TO_ONE
+				(fieldProps.reference === ReferenceType.ONE_TO_ONE && fieldProps.mappedBy)
 			) {
+				logger.warn('[DIAG mapField dispatch]', gqlFieldName, '→ mapOneToX');
 				this.relationshipHandler.mapOneToX(
 					referenceField,
 					fieldProps,
@@ -736,7 +757,19 @@ export class GQLtoSQLMapper {
 					innerJoin,
 					outerJoin
 				);
-			} else if (fieldProps.reference === ReferenceType.MANY_TO_ONE) {
+			} else if (
+				fieldProps.reference === ReferenceType.MANY_TO_ONE ||
+				(fieldProps.reference === ReferenceType.ONE_TO_ONE && !fieldProps.mappedBy)
+			) {
+				logger.warn(
+					'[DIAG mapField dispatch]',
+					gqlFieldName,
+					'→ mapManyToOne',
+					'fieldNames:',
+					fieldProps.fieldNames,
+					'refTableName:',
+					referenceField.tableName
+				);
 				this.relationshipHandler.mapManyToOne(
 					fieldProps,
 					referenceField,
@@ -754,6 +787,7 @@ export class GQLtoSQLMapper {
 					outerJoin
 				);
 			} else if (fieldProps.reference === ReferenceType.MANY_TO_MANY) {
+				logger.warn('[DIAG mapField dispatch]', gqlFieldName, '→ mapManyToMany');
 				this.relationshipHandler.mapManyToMany(
 					referenceField,
 					primaryKeys,
@@ -772,14 +806,13 @@ export class GQLtoSQLMapper {
 					orderBy
 				);
 			} else {
-				logger.log(
-					'GQLtoSQLMapper - recursiveMap - reference type',
+				logger.warn(
+					'[DIAG mapField dispatch] UNHANDLED reference type',
 					fieldProps.reference,
-					'not handled for field',
+					'for field',
 					gqlFieldName,
-					'with referenceField',
-					limit,
-					offset
+					'expected one of:',
+					Object.values(ReferenceType)
 				);
 			}
 		} else if (fieldProps.fieldNames.length > 0) {

@@ -6,7 +6,14 @@
  */
 
 import { MetadataProvider } from '../../src/types';
-import { AllEntityMetadata, Fellowship, Person, Ring } from './middle-earth-schema';
+import {
+	AllEntityMetadata,
+	Fellowship,
+	Person,
+	Ring,
+	Weapon,
+	Artifact,
+} from './middle-earth-schema';
 
 // Sample data for testing
 export const SamplePersons = [
@@ -17,6 +24,8 @@ export const SamplePersons = [
 		race: 'Hobbit',
 		home_location: 'Bag End, Shire',
 		fellowship_id: 1,
+		signature_weapon_id: 1,
+		signature_artifact_id: 1,
 	},
 	{
 		id: 2,
@@ -25,6 +34,7 @@ export const SamplePersons = [
 		race: 'Wizard',
 		home_location: null,
 		fellowship_id: 1,
+		signature_weapon_id: 2,
 	},
 	{
 		id: 3,
@@ -33,6 +43,7 @@ export const SamplePersons = [
 		race: 'Human',
 		home_location: 'Gondor',
 		fellowship_id: 1,
+		signature_weapon_id: 3,
 	},
 	{
 		id: 4,
@@ -317,6 +328,51 @@ export const SampleBooks = [
 	},
 ];
 
+export const SampleWeapons = [
+	{
+		id: 1,
+		weapon_name: 'Sting',
+		weapon_type: 'Dagger',
+		power_level: 80,
+	},
+	{
+		id: 2,
+		weapon_name: 'Glamdring',
+		weapon_type: 'Sword',
+		power_level: 90,
+	},
+	{
+		id: 3,
+		weapon_name: 'Andúril',
+		weapon_type: 'Sword',
+		power_level: 95,
+	},
+	{
+		id: 4,
+		weapon_name: 'Orcrist',
+		weapon_type: 'Sword',
+		power_level: 85,
+	},
+];
+
+export const SampleArtifacts = [
+	{
+		id: 1,
+		artifact_name: 'Phial of Galadriel',
+		origin_realm: 'Lothlórien',
+	},
+	{
+		id: 2,
+		artifact_name: 'Palantír of Orthanc',
+		origin_realm: 'Númenor',
+	},
+	{
+		id: 3,
+		artifact_name: 'Silmaril of Fëanor',
+		origin_realm: 'Valinor',
+	},
+];
+
 export const SampleGenres = [
 	{
 		id: 1,
@@ -395,6 +451,8 @@ export const AllSampleData = {
 	authors: SampleAuthors,
 	books: SampleBooks,
 	genres: SampleGenres,
+	weapons: SampleWeapons,
+	artifacts: SampleArtifacts,
 	// Junction tables
 	person_battles: SamplePersonBattles,
 	army_battles: SampleArmyBattles,

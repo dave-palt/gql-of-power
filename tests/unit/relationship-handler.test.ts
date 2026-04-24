@@ -10,7 +10,7 @@ import { AliasManager, AliasType } from '../../src/queries/alias';
 import { RelationshipHandler } from '../../src/queries/relationship-handler';
 import { QueriesUtils } from '../../src/queries/utils';
 import { EntityMetadata, EntityProperty, ReferenceType } from '../../src/types';
-import { Fellowship, Person, Ring } from '../fixtures/middle-earth-schema';
+import { Fellowship, Person, Ring, Weapon, Artifact } from '../fixtures/middle-earth-schema';
 import { createMockMetadataProvider } from '../fixtures/test-data';
 import '../setup';
 
@@ -226,6 +226,50 @@ describe('RelationshipHandler', () => {
 			expect(mapping.outerJoin).toHaveLength(1);
 			expect(mapping.outerJoin[0]).toContain('left outer join lateral');
 			expect(mapping.outerJoin[0]).toContain('row_to_json');
+		});
+
+		it('should handle owning-side OneToOne relationship (Person.signatureWeapon) via mapManyToOne', () => {
+			const personMetadata = mockProvider.getMetadata('Person') as EntityMetadata<Person>;
+			const weaponMetadata = mockProvider.getMetadata('Weapon') as EntityMetadata<Weapon>;
+
+			const fieldProps = personMetadata.properties.signatureWeapon as EntityProperty;
+
+			// Verify this is an owning-side OneToOne (no mappedBy)
+			expect(fieldProps.reference).toBe(ReferenceType.ONE_TO_ONE);
+			expect(fieldProps.mappedBy).toBe('');
+			expect(fieldProps.fieldNames).toEqual(['signature_weapon_id']);
+
+			const parentAlias = aliasManager.start('p');
+			const alias = aliasManager.next(AliasType.field, 'w');
+			const mapping = QueriesUtils.newMappings();
+
+			const mockJson = ["'id'", 'w.id', "'name'", 'w.weapon_name'];
+			const mockSelect = new Set(['w.id', 'w.weapon_name']);
+
+			relationshipHandler.mapManyToOne(
+				fieldProps,
+				weaponMetadata,
+				parentAlias,
+				alias,
+				mapping,
+				[], // whereWithValues
+				{}, // values
+				[], // innerJoin
+				undefined, // limit
+				undefined, // offset
+				'signatureWeapon',
+				mockSelect,
+				mockJson,
+				[] // join
+			);
+
+			expect(mapping.select.size).toBeGreaterThan(0);
+			expect(mapping.json).toContain('f_w1.value as "signatureWeapon"');
+			expect(mapping.outerJoin).toHaveLength(1);
+			expect(mapping.outerJoin[0]).toContain('left outer join lateral');
+			expect(mapping.outerJoin[0]).toContain('row_to_json');
+			expect(mapping.outerJoin[0]).toContain('weapons');
+			expect(mapping.outerJoin[0]).toContain('signature_weapon_id');
 		});
 
 		it('should throw error for mismatched field lengths', () => {
