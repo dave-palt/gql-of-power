@@ -38,6 +38,7 @@ export class FilterProcessor extends ClassOperations {
 			parentAlias: Alias;
 			alias: Alias;
 			gqlFilters?: Array<GQLEntityFilterInputFieldType<T>>;
+			customFields?: CustomFieldsSettings<T>;
 		}) => Map<string, MappingsType>,
 		private namedParameterPrefix: string = ':'
 	) {
@@ -93,7 +94,8 @@ export class FilterProcessor extends ClassOperations {
 				gqlFieldNameKey,
 				mappings,
 				parentAlias,
-				alias
+				alias,
+				customFields
 			);
 			return;
 		}
@@ -180,7 +182,8 @@ export class FilterProcessor extends ClassOperations {
 				mappings,
 				alias,
 				parentAlias,
-				primaryKeys
+				primaryKeys,
+				entityMetadata
 			);
 		}
 	}
@@ -274,7 +277,8 @@ export class FilterProcessor extends ClassOperations {
 		gqlFieldNameKey: string & keyof ClassOperations,
 		mappings: Map<string, MappingsType>,
 		parentAlias: Alias,
-		alias: Alias
+		alias: Alias,
+		customFields?: CustomFieldsSettings<T>
 	): void {
 		const filters = gqlFilter[gqlFieldNameKey as keyof typeof gqlFilter];
 		if (typeof filters !== 'object') {
@@ -292,6 +296,7 @@ export class FilterProcessor extends ClassOperations {
 			gqlFilters: filters as any,
 			mapping,
 			mappings,
+			customFields,
 		});
 	}
 
@@ -306,6 +311,7 @@ export class FilterProcessor extends ClassOperations {
 		fieldName,
 		mapping,
 		mappings,
+		customFields,
 	}: ClassOperationInputType<T>): void {
 		gqlFilters.forEach((filter, i) => {
 			const newMappings = new Map<string, MappingsType>();
@@ -322,7 +328,15 @@ export class FilterProcessor extends ClassOperations {
 					alias.toString()
 				);
 
-				this.mapFilter(entityMetadata, newMappings, parentAlias, alias, fieldName, filter);
+				this.mapFilter(
+					entityMetadata,
+					newMappings,
+					parentAlias,
+					alias,
+					fieldName,
+					filter,
+					customFields
+				);
 			});
 
 			const reduced = QueriesUtils.mappingsReducer(newMappings);
@@ -377,6 +391,7 @@ export class FilterProcessor extends ClassOperations {
 		fieldName,
 		mapping,
 		mappings,
+		customFields,
 	}: ClassOperationInputType<T>): void {
 		logger.log('FilterProcessor - _and - gqlFilters', gqlFilters);
 
@@ -387,6 +402,7 @@ export class FilterProcessor extends ClassOperations {
 					gqlFilters: [f],
 					parentAlias,
 					alias,
+					customFields,
 				});
 
 				const or = mapped.get('_or');
@@ -801,7 +817,8 @@ export class FilterProcessor extends ClassOperations {
 		mappings: Map<string, MappingsType>,
 		alias: Alias,
 		parentAlias: Alias,
-		primaryKeys: string[]
+		primaryKeys: string[],
+		entityMetadata?: EntityMetadata<T>
 	): void {
 		const lowercasedFirstFieldNameKey = gqlFieldNameKey[0].toLowerCase() + gqlFieldNameKey.slice(1);
 
@@ -826,6 +843,32 @@ export class FilterProcessor extends ClassOperations {
 		const gqlFieldName = (customFieldProps?.requires as string) ?? fieldNameKey;
 
 		logger.log('FilterProcessor field ==>', gqlFieldNameKey, 'fieldNameKey', fieldNameKey);
+
+		if (
+			!fieldNameKey &&
+			customFieldProps &&
+			'mapping' in customFieldProps &&
+			customFieldProps.mapping &&
+			entityMetadata
+		) {
+			this.handleMappedCustomFieldFilter<T>(
+				customFieldProps as {
+					mapping: {
+						refEntity: new () => any;
+						refFields: string | string[];
+						fields: string | string[];
+					};
+				},
+				entityMetadata,
+				gqlFieldNameKey,
+				filterValue,
+				mappings,
+				alias,
+				parentAlias,
+				primaryKeys
+			);
+			return;
+		}
 
 		if (!fieldNameKey) {
 			logger.log(
@@ -1006,6 +1049,125 @@ export class FilterProcessor extends ClassOperations {
 			'mapping',
 			mapping
 		);
+	}
+
+	protected handleMappedCustomFieldFilter<T>(
+		customFieldProps: {
+			mapping: {
+				refEntity: new () => any;
+				refFields: string | string[];
+				fields: string | string[];
+			};
+		},
+		entityMetadata: EntityMetadata<T>,
+		gqlFieldNameKey: string,
+		filterValue: any,
+		mappings: Map<string, MappingsType>,
+		parentAlias: Alias,
+		alias: Alias,
+		primaryKeys: string[]
+	): void {
+		const { refEntity, refFields: rawRefFields, fields: rawLocalFields } = customFieldProps.mapping;
+		const refFields = Array.isArray(rawRefFields) ? rawRefFields : [rawRefFields];
+		const localFields = Array.isArray(rawLocalFields) ? rawLocalFields : [rawLocalFields];
+		const refEntityName = refEntity.name;
+
+		if (!this.metadataProvider.exists(refEntityName)) {
+			throw new Error(`Reference entity ${refEntityName} not found in metadata for mapped filter`);
+		}
+
+		const refMetadata = this.metadataProvider.getMetadata<any, EntityMetadata<any>>(refEntityName);
+		const childAlias = this.aliasManager.next(AliasType.entity, 'w');
+
+		const recursiveMapResults = this.recursiveMapFunction({
+			entityMetadata: refMetadata,
+			parentAlias: alias,
+			alias: childAlias,
+			gqlFilters: [filterValue],
+		});
+
+		const {
+			outerJoin,
+			where: whereWithValues,
+			values,
+			innerJoin,
+			_or,
+		} = QueriesUtils.mappingsReducer(recursiveMapResults);
+
+		const localSqlCols = localFields.map(
+			(localProp) =>
+				entityMetadata.properties[localProp as keyof typeof entityMetadata.properties]
+					?.fieldNames?.[0] ?? String(localProp)
+		);
+		const refSqlCols = refFields.map(
+			(refProp) => refMetadata.properties[refProp]?.fieldNames?.[0] ?? String(refProp)
+		);
+
+		if (localSqlCols.length !== refSqlCols.length) {
+			throw new Error(
+				`Mapped filter column count mismatch: ${localSqlCols.length} local !== ${refSqlCols.length} ref`
+			);
+		}
+
+		const joinCondition = localSqlCols
+			.map(
+				(localCol, i) =>
+					`${parentAlias.toColumnName(localCol)} = ${childAlias.toColumnName(refSqlCols[i])}`
+			)
+			.join(' and ');
+
+		logger.log(
+			'FilterProcessor - handleMappedCustomFieldFilter',
+			gqlFieldNameKey,
+			'joinCondition',
+			joinCondition,
+			'childAlias',
+			childAlias.toString()
+		);
+
+		if (
+			joinCondition.length > 0 &&
+			(innerJoin.length > 0 || whereWithValues.length > 0 || outerJoin.length > 0 || _or.length > 0)
+		) {
+			const unionAll = SQLBuilder.buildUnionAll(
+				[],
+				refMetadata.tableName,
+				childAlias,
+				innerJoin,
+				outerJoin,
+				joinCondition,
+				whereWithValues,
+				_or,
+				this.buildManyToOneJoin.bind(this)
+			);
+
+			const subquery =
+				unionAll.length > 0
+					? unionAll.map((q: string) => `(${q})`).join(' union all ')
+					: this.buildManyToOneJoin(
+							[],
+							childAlias,
+							refMetadata.tableName,
+							innerJoin,
+							outerJoin,
+							joinCondition,
+							whereWithValues
+						);
+
+			const existsSQL = `exists (${subquery})`.replaceAll(/[ \n\t]+/gi, ' ');
+
+			const mapping = QueriesUtils.getMapping(mappings, gqlFieldNameKey);
+			mapping.alias = alias;
+			mapping.where.push(existsSQL);
+			mapping.values = { ...mapping.values, ...values };
+
+			logger.log(
+				'FilterProcessor - handleMappedCustomFieldFilter: existsSQL',
+				existsSQL,
+				'values',
+				values
+			);
+		}
 	}
 
 	protected mapFieldOperation<T>(

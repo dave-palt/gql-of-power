@@ -1,5 +1,10 @@
 import { Alias } from './queries';
-import { EntityMetadata, GQLEntityFilterInputFieldType, MappingsType } from './types';
+import {
+	CustomFieldsSettings,
+	EntityMetadata,
+	GQLEntityFilterInputFieldType,
+	MappingsType,
+} from './types';
 
 export type ClassOperationInputType<T> = {
 	entityMetadata: EntityMetadata<T>;
@@ -10,6 +15,7 @@ export type ClassOperationInputType<T> = {
 	alias: Alias;
 	mapping: MappingsType;
 	mappings: Map<string, MappingsType>;
+	customFields?: CustomFieldsSettings<T>;
 };
 
 export abstract class ClassOperations {
