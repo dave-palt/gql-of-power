@@ -127,6 +127,12 @@ export class GQLtoSQLMapper {
 		const rawSelectArr = [...rawSelect];
 		const unionAllEntries = [..._or, ..._and];
 
+		const orderBySQL = pagination?.orderBy
+			? SQLBuilder.buildOrderBySQL(pagination.orderBy, SQLBuilder.getFieldMapper(metadata, alias))
+			: '';
+		const innerLimitSQL = pagination?.limit ? `limit ${this.namedParameterPrefix}limit` : '';
+		const innerOffsetSQL = pagination?.offset ? `offset ${this.namedParameterPrefix}offset` : '';
+
 		let queryBody: string;
 		if (unionAllEntries.length > 0) {
 			const unionBranches = unionAllEntries.map(({ innerJoin: orInnerJoin, where: orWheres }) => {
@@ -142,8 +148,11 @@ export class GQLtoSQLMapper {
 			});
 
 			const innerUnion = unionBranches.map((q) => `(${q})`).join(' union all ');
+			const unionOrderBySQL = orderBySQL
+				? orderBySQL.replace(new RegExp(`\\b${alias.toString()}\\.`, 'g'), `${alias.toString()}_u.`)
+				: '';
 
-			queryBody = `select ${selectFields.join(', ')} from ( select distinct * from (${innerUnion}) as ${alias.toString()}_u ) as ${alias.toString()} ${outerJoin.join(' \n')}`;
+			queryBody = `select ${selectFields.join(', ')} from ( select distinct * from (${innerUnion}) as ${alias.toString()}_u ${unionOrderBySQL} ${innerLimitSQL} ${innerOffsetSQL} ) as ${alias.toString()} ${outerJoin.join(' \n')}`;
 		} else {
 			queryBody = SQLBuilder.buildSubQuery(
 				selectFields,
@@ -152,21 +161,16 @@ export class GQLtoSQLMapper {
 				alias,
 				innerJoin,
 				outerJoin,
-				where
+				where,
+				undefined,
+				orderBySQL,
+				innerLimitSQL,
+				innerOffsetSQL
 			);
 		}
 
 		const querySQL = `${queryBody}
-		${
-			pagination?.orderBy
-				? SQLBuilder.buildOrderBySQL(pagination.orderBy, SQLBuilder.getFieldMapper(metadata, alias))
-				: ''
-		}
-		${pagination?.limit ? `limit ${this.namedParameterPrefix}limit` : ``}
-		${pagination?.offset ? `offset ${this.namedParameterPrefix}offset` : ``}`.replaceAll(
-			/[ \n\t]+/gi,
-			' '
-		);
+		${orderBySQL}`.replaceAll(/[ \n\t]+/gi, ' ');
 
 		logger.log(logName, 'sourceDataSQL', unionAllEntries.length);
 

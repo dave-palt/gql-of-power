@@ -1250,6 +1250,159 @@ describe('GQLtoSQLMapper - Unit Tests', () => {
 		});
 	});
 
+	describe('inner subquery pushdown of ORDER BY, LIMIT, OFFSET', () => {
+		it('should push ORDER BY into the inner subquery (before LEFT JOINs)', () => {
+			const fields = {
+				id: {},
+				name: {},
+				fellowship: {
+					fieldsByTypeName: {
+						Fellowship: { id: {}, name: {} },
+					},
+				},
+			};
+			const pagination = {
+				orderBy: [{ name: 'asc' as any }],
+				limit: 10,
+			};
+
+			const result = mapper.buildQueryAndBindingsFor({
+				fields,
+				entity: Person,
+				customFields: {},
+				pagination,
+			});
+
+			expect(result.querySQL).toContain('order by');
+			const leftJoinIdx = result.querySQL.indexOf('left outer join lateral');
+			const firstOrderByIdx = result.querySQL.indexOf('order by');
+			expect(leftJoinIdx).toBeGreaterThan(-1);
+			expect(firstOrderByIdx).toBeGreaterThan(-1);
+			expect(firstOrderByIdx).toBeLessThan(leftJoinIdx);
+		});
+
+		it('should push LIMIT into the inner subquery (before LEFT JOINs)', () => {
+			const fields = {
+				id: {},
+				name: {},
+				fellowship: {
+					fieldsByTypeName: {
+						Fellowship: { id: {}, name: {} },
+					},
+				},
+			};
+			const pagination = { limit: 5 };
+
+			const result = mapper.buildQueryAndBindingsFor({
+				fields,
+				entity: Person,
+				customFields: {},
+				pagination,
+			});
+
+			expect(result.querySQL).toContain('limit');
+			const leftJoinIdx = result.querySQL.indexOf('left outer join lateral');
+			const limitIdx = result.querySQL.indexOf('limit');
+			expect(limitIdx).toBeGreaterThan(-1);
+			if (leftJoinIdx > -1) {
+				expect(limitIdx).toBeLessThan(leftJoinIdx);
+			}
+		});
+
+		it('should push OFFSET into the inner subquery (before LEFT JOINs)', () => {
+			const fields = {
+				id: {},
+				name: {},
+				fellowship: {
+					fieldsByTypeName: {
+						Fellowship: { id: {}, name: {} },
+					},
+				},
+			};
+			const pagination = { limit: 10, offset: 20 };
+
+			const result = mapper.buildQueryAndBindingsFor({
+				fields,
+				entity: Person,
+				customFields: {},
+				pagination,
+			});
+
+			expect(result.querySQL).toContain('offset');
+			const leftJoinIdx = result.querySQL.indexOf('left outer join lateral');
+			const offsetIdx = result.querySQL.indexOf('offset');
+			expect(offsetIdx).toBeGreaterThan(-1);
+			if (leftJoinIdx > -1) {
+				expect(offsetIdx).toBeLessThan(leftJoinIdx);
+			}
+		});
+
+		it('should push ORDER BY and LIMIT into UNION ALL inner wrapper', () => {
+			const fields = { id: {}, name: {}, age: {} };
+			const filter = {
+				_or: [{ name: { _eq: 'Aragorn' } }, { name: { _eq: 'Legolas' } }],
+			};
+			const pagination = {
+				orderBy: [{ name: 'asc' as any }],
+				limit: 10,
+			};
+
+			const result = mapper.buildQueryAndBindingsFor({
+				fields,
+				entity: Person,
+				customFields: {},
+				filter: filter as any,
+				pagination,
+			});
+
+			expect(result.querySQL.toLowerCase()).toContain('union all');
+			expect(result.querySQL).toContain('limit');
+			expect(result.querySQL).toContain('order by');
+			const unionIdx = result.querySQL.toLowerCase().indexOf('union all');
+			const limitIdx = result.querySQL.indexOf('limit');
+			const leftJoinIdx = result.querySQL.indexOf('left outer join lateral');
+			expect(limitIdx).toBeGreaterThan(unionIdx);
+			if (leftJoinIdx > -1) {
+				expect(limitIdx).toBeLessThan(leftJoinIdx);
+			}
+		});
+
+		it('should produce ORDER BY at outer level for output stability', () => {
+			const fields = { id: {}, name: {} };
+			const pagination = {
+				orderBy: [{ name: 'asc' as any }],
+				limit: 10,
+			};
+
+			const result = mapper.buildQueryAndBindingsFor({
+				fields,
+				entity: Person,
+				customFields: {},
+				pagination,
+			});
+
+			const matches = result.querySQL.match(/order by/gi);
+			expect(matches).not.toBeNull();
+			expect(matches!.length).toBeGreaterThanOrEqual(2);
+		});
+
+		it('should not produce outer LIMIT (only inner)', () => {
+			const fields = { id: {}, name: {} };
+			const pagination = { limit: 10 };
+
+			const result = mapper.buildQueryAndBindingsFor({
+				fields,
+				entity: Person,
+				customFields: {},
+				pagination,
+			});
+
+			const withoutParams = result.querySQL.replace(/:\w+/g, 'PARAM');
+			const limitCount = (withoutParams.match(/\blimit\b/gi) || []).length;
+			expect(limitCount).toBe(1);
+		});
+	});
+
 	describe('field aliases', () => {
 		// When a GQL query uses an alias (e.g. `randomName: field1`), graphql-parse-resolve-info
 		// keys the FieldSelection by the alias and sets `name` to the actual schema field name.

@@ -336,15 +336,19 @@ function _resolveRelatedEntityNames<T>(
 		const hasRelatedEntityName = 'relatedEntityName' in (fieldOptions as object);
 
 		if (isArray && !hasRelatedEntityName) {
-			// Try to derive relatedEntityName from the type thunk
-			const derivedRelatedEntityName = () => {
-				const typeClass = (fieldOptions as any).type?.();
-				return (typeClass as any)?.relatedEntityName ?? typeClass?.name ?? '';
-			};
-			(resolved as any)[fieldName] = {
-				...fieldOptions,
-				relatedEntityName: derivedRelatedEntityName,
-			};
+			const typeClass = (fieldOptions as any).type?.();
+			const isGqlEntity = typeClass?.prototype instanceof GQLEntityBase || typeClass?._____name;
+			if (isGqlEntity) {
+				const derivedRelatedEntityName = () => {
+					return (typeClass as any)?.relatedEntityName ?? typeClass?.name ?? '';
+				};
+				(resolved as any)[fieldName] = {
+					...fieldOptions,
+					relatedEntityName: derivedRelatedEntityName,
+				};
+			} else {
+				(resolved as any)[fieldName] = fieldOptions;
+			}
 		} else {
 			(resolved as any)[fieldName] = fieldOptions;
 		}
@@ -1058,7 +1062,7 @@ export function createGQLEntityFilters<T, K>(
 		} as FieldParameter;
 		metadata.collectClassFieldMetadata(fieldFilter);
 
-		if ('array' in fieldOptions) {
+		if ('array' in fieldOptions && 'relatedEntityName' in fieldOptions) {
 			const relatedEntityName = getGQLEntityNameFor(fieldOptions.relatedEntityName());
 
 			metadata.collectHandlerParamMetadata({
