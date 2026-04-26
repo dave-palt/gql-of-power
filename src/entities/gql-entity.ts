@@ -153,6 +153,7 @@ export type GQLEntityStaticMembers = {
 	readonly FilterInput: new () => any;
 	readonly PaginationInput: new () => any;
 	readonly OrderBy: new () => any;
+	readonly Input: new () => any;
 	readonly FieldsResolver: new () => any;
 	readonly gqlEntityName: string;
 	readonly relatedEntityName: string;
@@ -174,6 +175,7 @@ export abstract class GQLEntityBase {
 	static FilterInput: new () => any;
 	static PaginationInput: new () => any;
 	static OrderBy: new () => any;
+	static Input: new () => any;
 	static FieldsResolver: new () => any;
 	static gqlEntityName: string;
 	static relatedEntityName: string;
@@ -306,6 +308,7 @@ export function GQLEntityClass<T extends Object, K>(
 			FilterInput: resolverDef.GQLEntityFilterInput,
 			PaginationInput: resolverDef.GQLEntityPaginationInputField,
 			OrderBy: resolverDef.GQLEntityOrderBy,
+			Input: resolverDef.GQLEntityInput,
 			FieldsResolver: resolverDef.FieldsResolver,
 			gqlEntityName,
 			relatedEntityName: ormClass.name,
@@ -474,6 +477,54 @@ export function createGQLEntity<T extends Object, K>(
 		relatedEntityName: classType.name,
 		buildResolvers,
 	};
+}
+
+// ─── Input type builder ──────────────────────────────────────────────────────
+
+type TypeGQLMetadataStorage = ReturnType<typeof getMetadataStorage>;
+type FieldParameter = Parameters<TypeGQLMetadataStorage['collectClassFieldMetadata']>[0];
+
+function _buildInputType<T>(
+	gqlEntityName: string,
+	fields: string[],
+	opts: Partial<FieldsSettings<T>>,
+	metadata: TypeGQLMetadataStorage,
+	customFields?: CustomFieldsSettings<T>
+): new () => any {
+	const inputTypeName = `${gqlEntityName}Input`;
+
+	class GQLEntityInput {}
+	Object.defineProperty(GQLEntityInput, 'name', { value: inputTypeName });
+
+	const customFieldNames = customFields ? new Set(Object.keys(customFields)) : new Set<string>();
+
+	for (const fieldName of fields) {
+		const fieldOpts = (opts as any)[fieldName];
+		if (!fieldOpts) continue;
+
+		const fieldNameToUse = fieldOpts.alias ?? fieldName;
+
+		if (customFieldNames.has(fieldName)) continue;
+		if (fieldOpts.excludeFromInput) continue;
+		if ('array' in fieldOpts && fieldOpts.array) continue;
+		if ('relatedEntityName' in fieldOpts && fieldOpts.relatedEntityName) continue;
+
+		metadata.collectClassFieldMetadata({
+			target: GQLEntityInput,
+			name: fieldNameToUse,
+			schemaName: fieldNameToUse,
+			getType: fieldOpts.type,
+			typeOptions: { nullable: true },
+			complexity: undefined,
+			description: fieldNameToUse,
+			deprecationReason: undefined,
+		} as FieldParameter);
+	}
+
+	InputType(inputTypeName)(GQLEntityInput);
+	TypeMap[inputTypeName] = GQLEntityInput;
+
+	return GQLEntityInput;
 }
 
 // ─── Shared resolver builder ─────────────────────────────────────────────────
@@ -850,11 +901,14 @@ function _buildResolversForEntity<T>(
 
 	InputType(gqlEntityName + 'FilterInput')(GQLEntityFilterInput);
 
+	const GQLEntityInput = _buildInputType(gqlEntityName, fields, opts, metadata, customFields);
+
 	return {
 		GQLEntityFilterInput: GQLEntityFilterInput as any as GQLEntityFilterInputFieldType<T>,
 		GQLEntityPaginationInputField:
 			GQLEntityPaginationInputField as any as GQLEntityPaginationInputType<T>,
 		GQLEntityOrderBy,
+		GQLEntityInput,
 		FieldsResolver,
 		bindFieldResolvers: (_c: any) => {},
 	};
@@ -884,9 +938,6 @@ export function createGQLTypes<T extends Object, K>(
 }
 
 // ─── Filter/sort metadata builder ───────────────────────────────────────────
-
-type TypeGQLMetadataStorage = ReturnType<typeof getMetadataStorage>;
-type FieldParameter = Parameters<TypeGQLMetadataStorage['collectClassFieldMetadata']>[0];
 
 /**
  * Creates filter and sorting metadata for a field. Called during buildResolvers().
