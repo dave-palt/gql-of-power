@@ -1187,6 +1187,66 @@ describe('GQLtoSQLMapper - Unit Tests', () => {
 				const innerSubquery = result.querySQL.substring(0, lateralIndex);
 				expect(innerSubquery).toContain('fellowship_id');
 			});
+			it('should generate json_agg (array) when array: true is set on mapping custom field', () => {
+				const fields = {
+					id: {},
+					name: {},
+					members: {
+						fieldsByTypeName: {
+							Person: { id: {}, name: {} },
+						},
+					},
+				};
+
+				const result = mapper.buildQueryAndBindingsFor({
+					fields,
+					entity: Fellowship,
+					customFields: {
+						members: {
+							type: () => [Person],
+							array: true,
+							mapping: {
+								refEntity: Person,
+								refFields: 'fellowshipId',
+								fields: 'id',
+							},
+						},
+					} as any,
+				});
+
+				expect(result.querySQL).toContain('left outer join lateral');
+				expect(result.querySQL).toContain('json_agg');
+				expect(result.querySQL).toContain('"members"');
+			});
+
+			it('should generate row_to_json (single object) when array is not set on mapping custom field', () => {
+				const fields = {
+					id: {},
+					fellowship: {
+						fieldsByTypeName: {
+							Fellowship: { id: {}, name: {} },
+						},
+					},
+				};
+
+				const result = mapper.buildQueryAndBindingsFor({
+					fields,
+					entity: Person,
+					customFields: {
+						fellowship: {
+							type: () => Fellowship,
+							mapping: {
+								refEntity: Fellowship,
+								refFields: 'id',
+								fields: 'fellowshipId',
+							},
+						},
+					} as any,
+				});
+
+				expect(result.querySQL).toContain('row_to_json');
+				expect(result.querySQL).not.toContain('json_agg');
+			});
 		});
 	});
 

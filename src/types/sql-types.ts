@@ -79,6 +79,17 @@ export type FieldBaseSettings = {
 	 * status: { type: () => Status, mapNumericEnum: true, generateFilter: true }
 	 */
 	mapNumericEnum?: boolean;
+	/**
+	 * When true, excludes this field from the auto-generated Input type.
+	 * Use this for server-managed fields (e.g. forgedDate, claimedAt) or
+	 * computed fields that should not be set by clients.
+	 *
+	 * Only applies to scalar fields — relation fields are always excluded.
+	 *
+	 * @example
+	 * forgedDate: { type: () => String, excludeFromInput: true }
+	 */
+	excludeFromInput?: boolean;
 } & (
 	| {}
 	| {
@@ -262,6 +273,11 @@ export type CustomFieldSettings<T> = Omit<RelatedFieldSettings<T>, 'resolve'> &
 				 * @see FieldMappingConfig
 				 */
 				mapping: FieldMappingConfig<T, any>;
+				/**
+				 * When true, the JOIN returns an array of related objects (one-to-many)
+				 * using `json_agg`. When false/absent, returns a single object via `row_to_json`.
+				 */
+				array?: boolean;
 				resolve?: never;
 				resolveDecorators?: never;
 		  }
