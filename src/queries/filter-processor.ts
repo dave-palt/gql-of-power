@@ -787,7 +787,10 @@ export class FilterProcessor extends ClassOperations {
 				.map((o, i) => `${parentAlias.toColumnName(o)} = ${countAlias.toColumnName(ons[i])}`)
 				.join(' and ');
 		} else if (fieldProps.reference === ReferenceType.MANY_TO_ONE) {
-			const ons = relatedMetadata.primaryKeys;
+			const ons =
+				fieldProps.referencedColumnNames.length > 0
+					? fieldProps.referencedColumnNames
+					: relatedMetadata.primaryKeys;
 			const entityOns = fieldProps.fieldNames;
 			joinCondition = entityOns
 				.map((o, i) => `${parentAlias.toColumnName(o)} = ${countAlias.toColumnName(ons[i])}`)
@@ -1480,7 +1483,10 @@ export class FilterProcessor extends ClassOperations {
 				fieldProps.mappedBy as keyof typeof referenceField.properties
 			] as EntityProperty;
 
-			const ons = referenceField.primaryKeys;
+			const ons =
+				fieldProps.referencedColumnNames.length > 0
+					? fieldProps.referencedColumnNames
+					: referenceField.primaryKeys;
 			const entityOns = fieldProps.fieldNames;
 
 			if (ons.length !== entityOns.length) {

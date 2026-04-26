@@ -453,7 +453,8 @@ export class GQLtoSQLMapper {
 				mapping.rawSelect.add(latestAlias.toColumnName(sqlCol));
 			});
 
-			// JSON aggregate — single object (not array), same pattern as RelationshipHandler.mapManyToOne
+			const isArray = !!(customFieldProps as any).array;
+
 			mapping.json.push(`${joinAlias.toColumnName('value')} as "${gqlFieldName}"`);
 
 			const selectFields = [
@@ -462,7 +463,7 @@ export class GQLtoSQLMapper {
 				),
 			];
 
-			const jsonSQL = SQLBuilder.generateJsonSelectStatement(joinAlias.toString()); // single object
+			const jsonSQL = SQLBuilder.generateJsonSelectStatement(joinAlias.toString(), isArray);
 
 			const subFromSQL = `(
 				select ${selectFields.join(', ')}
@@ -553,7 +554,10 @@ export class GQLtoSQLMapper {
 				.map((o, i) => `${parentAlias.toColumnName(o)} = ${countAlias.toColumnName(ons[i])}`)
 				.join(' and ');
 		} else if (fieldProps.reference === ReferenceType.MANY_TO_ONE) {
-			const ons = relatedMetadata.primaryKeys;
+			const ons =
+				fieldProps.referencedColumnNames.length > 0
+					? fieldProps.referencedColumnNames
+					: relatedMetadata.primaryKeys;
 			const entityOns = fieldProps.fieldNames;
 			joinCondition = entityOns
 				.map((o, i) => `${parentAlias.toColumnName(o)} = ${countAlias.toColumnName(ons[i])}`)

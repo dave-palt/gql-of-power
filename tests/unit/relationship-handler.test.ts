@@ -14,6 +14,30 @@ import { Fellowship, Person, Ring, Weapon, Artifact } from '../fixtures/middle-e
 import { createMockMetadataProvider } from '../fixtures/test-data';
 import '../setup';
 
+const createProperty = (
+	type: string,
+	name: string,
+	fieldNames: string[],
+	reference?: {
+		referenceType: ReferenceType;
+		joinColumns?: string[];
+		referencedColumnNames?: string[];
+		inverseJoinColumns?: string[];
+		pivotTable?: string;
+		mappedBy?: string;
+	}
+): EntityProperty => ({
+	type,
+	name,
+	fieldNames,
+	mappedBy: reference?.mappedBy || '',
+	joinColumns: reference?.joinColumns || [],
+	referencedColumnNames: reference?.referencedColumnNames || [],
+	inverseJoinColumns: reference?.inverseJoinColumns || [],
+	pivotTable: reference?.pivotTable || '',
+	reference: reference?.referenceType,
+});
+
 describe('RelationshipHandler', () => {
 	let relationshipHandler: RelationshipHandler;
 	let aliasManager: AliasManager;
@@ -307,6 +331,110 @@ describe('RelationshipHandler', () => {
 					[]
 				);
 			}).toThrow('Mismatch in lengths');
+		});
+
+		it('should use referencedColumnNames instead of primaryKeys when joining (non-PK FK)', () => {
+			// Scenario: a Ring is linked to a Forge not by forge.id but by forge.secret_code.
+			// The Ring has forge_secret_code column that matches Forge.secret_code column.
+			const forgeMetadata: EntityMetadata<any> = {
+				name: 'Forge',
+				tableName: 'forges',
+				primaryKeys: ['id'],
+				properties: {
+					id: createProperty('number', 'id', ['id']),
+					secretCode: createProperty('string', 'secretCode', ['secret_code']),
+				},
+			};
+
+			// Ring has a FK forge_secret_code that references Forge.secret_code (not Forge.id)
+			const fieldProps: EntityProperty = {
+				type: 'Forge',
+				name: 'forge',
+				reference: ReferenceType.MANY_TO_ONE,
+				fieldNames: ['forge_secret_code'],
+				mappedBy: '',
+				joinColumns: ['forge_secret_code'],
+				referencedColumnNames: ['secret_code'], // Non-PK column!
+				inverseJoinColumns: [],
+				pivotTable: '',
+			};
+
+			const parentAlias = aliasManager.start('r');
+			const alias = aliasManager.next(AliasType.field, 'f');
+			const mapping = QueriesUtils.newMappings();
+
+			const mockJson = ["'id'", 'f.id', "'secretCode'", 'f.secret_code'];
+			const mockSelect = new Set(['f.id', 'f.secret_code']);
+
+			relationshipHandler.mapManyToOne(
+				fieldProps,
+				forgeMetadata,
+				parentAlias,
+				alias,
+				mapping,
+				[],
+				{},
+				[],
+				undefined,
+				undefined,
+				'forge',
+				mockSelect,
+				mockJson,
+				[]
+			);
+
+			expect(mapping.json).toContain('f_f1.value as "forge"');
+			expect(mapping.outerJoin).toHaveLength(1);
+
+			const generatedJoin = mapping.outerJoin[0];
+			// Must join on secret_code, NOT on id
+			expect(generatedJoin).toContain('forge_secret_code');
+			expect(generatedJoin).toContain('secret_code');
+			// The where clause must use secret_code for the join, not id
+			expect(generatedJoin).toContain('e_r1.forge_secret_code = f_f1.secret_code');
+		});
+
+		it('should fall back to primaryKeys when referencedColumnNames is empty', () => {
+			// When referencedColumnNames is empty (default for standard FK→PK joins),
+			// it should use the reference entity's primaryKeys as before.
+			const personMetadata = mockProvider.getMetadata('Person') as EntityMetadata<Person>;
+			const fellowshipMetadata = mockProvider.getMetadata(
+				'Fellowship'
+			) as EntityMetadata<Fellowship>;
+
+			const fieldProps = personMetadata.properties.fellowship as EntityProperty;
+			// Verify the standard case: referencedColumnNames is ['id'] (same as PK)
+			expect(fieldProps.referencedColumnNames).toEqual(['id']);
+
+			const parentAlias = aliasManager.start('p');
+			const alias = aliasManager.next(AliasType.field, 'f');
+			const mapping = QueriesUtils.newMappings();
+
+			const mockJson = ["'id'", 'f.id', "'name'", 'f.fellowship_name'];
+			const mockSelect = new Set(['f.id', 'f.fellowship_name']);
+
+			relationshipHandler.mapManyToOne(
+				fieldProps,
+				fellowshipMetadata,
+				parentAlias,
+				alias,
+				mapping,
+				[],
+				{},
+				[],
+				undefined,
+				undefined,
+				'fellowship',
+				mockSelect,
+				mockJson,
+				[]
+			);
+
+			expect(mapping.outerJoin).toHaveLength(1);
+			const generatedJoin = mapping.outerJoin[0];
+			// Standard case: joins on PK (id)
+			expect(generatedJoin).toContain('fellowship_id');
+			expect(generatedJoin).toMatch(/\bf_f1\.\w*id\w*\b/);
 		});
 	});
 
