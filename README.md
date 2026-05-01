@@ -1,6 +1,6 @@
 # ⚔️ GQL of Power
 
-> **"One Query to Rule Them All"** — Master your data with the power of a single GraphQL query
+> **"One Query to Rule Them All"** — Master your data with the power of a single optimized SQL query
 
 ---
 
@@ -8,9 +8,9 @@
 
 In the age of microservices and data loaders, a shadow falls upon performance: _the N+1 query problem_. Weary developers traverse the lands of Middleware-earth, orchestrating countless queries to fetch interconnected data.
 
-But what if there was another way? What if, with the power of a single query, you could bind all your data together?
+But what if there was another way? What if, with the power of a single SQL query, you could bind all your data together?
 
-**GQL of Power** is a TypeScript library that harnesses ancient sorcery to generate perfectly optimized SQL queries from your GraphQL operations. It eliminates the need for data loaders entirely — one query to fetch your complete data structure, no matter how deeply nested your relationships run.
+**GQL of Power** is a TypeScript library that harnesses ancient sorcery to generate perfectly optimized SQL queries from your GraphQL operations. It eliminates the need for data loaders entirely — one SQL query to fetch your complete data structure, no matter how deeply nested your relationships run.
 
 Like the One Ring wielding dominion over all other Rings, GQL of Power commands your database with singular authority.
 
