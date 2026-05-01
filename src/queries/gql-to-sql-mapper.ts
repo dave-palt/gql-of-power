@@ -1,4 +1,9 @@
-import { getCountFieldsFor, getFieldByAlias, getGQLEntityNameFor } from '../entities';
+import {
+	getCountFieldsFor,
+	getFieldByAlias,
+	getGQLEntityNameFor,
+	getParseJsonFieldsFor,
+} from '../entities';
 import {
 	CountFieldMeta,
 	CustomFieldSettings,
@@ -14,6 +19,7 @@ import {
 	MetadataProviderType,
 	ReferenceType,
 	RelatedFieldSettings,
+	RequireRelationConfig,
 } from '../types';
 import { keys } from '../utils';
 import { logger } from '../variables';
@@ -219,7 +225,7 @@ export class GQLtoSQLMapper {
 		const definedFields = fields ?? {};
 		const fieldKeys = keys(definedFields);
 
-		console.warn(
+		logger.warn(
 			'[DIAG recursiveMap] entity:',
 			entityMetadata.name,
 			'property keys:',
@@ -242,6 +248,8 @@ export class GQLtoSQLMapper {
 							},
 				definedFields
 			) ?? definedFields;
+
+		const parseJsonFields = getParseJsonFieldsFor(getGQLEntityNameFor(entityMetadata.name ?? ''));
 
 		let res = keys(allFields).reduce(
 			({ mappings }, gqlFieldNameKey) => {
@@ -292,9 +300,7 @@ export class GQLtoSQLMapper {
 						? customFields[fieldName as keyof typeof customFields]
 						: undefined;
 
-				const fieldProps =
-					properties[fieldName as keyof EntityMetadata<T>['properties']] ??
-					properties[customFieldProps?.requires as keyof EntityMetadata<T>['properties']];
+				const fieldProps = properties[fieldName as keyof EntityMetadata<T>['properties']];
 
 				logger.warn(
 					'[DIAG]',
@@ -312,7 +318,7 @@ export class GQLtoSQLMapper {
 						: 'N/A'
 				);
 
-				const gqlFieldName = (customFieldProps?.requires as string) ?? fieldName;
+				const gqlFieldName = fieldName;
 				logger.log('recursiveMap fields | gqlFieldName', gqlFieldName, fieldsByTypeName);
 
 				if (!fieldProps) {
@@ -323,7 +329,8 @@ export class GQLtoSQLMapper {
 						gqlFieldName,
 						mappings,
 						fieldsByTypeName,
-						entityMetadata
+						entityMetadata,
+						args
 					);
 				} else {
 					this.mapField<T>(
@@ -333,7 +340,8 @@ export class GQLtoSQLMapper {
 						alias,
 						fieldsByTypeName,
 						gqlFieldName,
-						primaryKeys
+						primaryKeys,
+						parseJsonFields
 					);
 					// gqlFieldName === 'battles' &&
 					logger.log(
@@ -384,7 +392,8 @@ export class GQLtoSQLMapper {
 		gqlFieldName: string,
 		mappings: Map<string, MappingsType>,
 		fieldsByTypeName?: any,
-		ownerMetadata?: EntityMetadata<T>
+		ownerMetadata?: EntityMetadata<T>,
+		args?: any
 	) {
 		// mapping strategy: generate a SQL JOIN to the reference entity
 		if (customFieldProps && 'mapping' in customFieldProps && customFieldProps.mapping) {
@@ -484,13 +493,163 @@ export class GQLtoSQLMapper {
 			return { mappings, latestAlias };
 		}
 
+		if (customFieldProps?.requiresRelations) {
+			for (const [relationFieldName, rawConfig] of Object.entries(
+				customFieldProps.requiresRelations
+			)) {
+				const config = rawConfig as RequireRelationConfig;
+				const relFieldProps = ownerMetadata?.properties[
+					relationFieldName as keyof typeof ownerMetadata.properties
+				] as EntityProperty | undefined;
+				if (!relFieldProps?.reference) {
+					logger.warn(
+						'mapCustomField - requiresRelations: field not found or not a relationship',
+						relationFieldName
+					);
+					continue;
+				}
+
+				const relatedEntityName = relFieldProps.type;
+				if (!this.exists(relatedEntityName)) {
+					logger.warn(
+						'mapCustomField - requiresRelations: related entity not registered',
+						relatedEntityName
+					);
+					continue;
+				}
+
+				const refMetadata = this.getMetadata<any, EntityMetadata<any>>(relatedEntityName);
+				const childAlias = this.Alias.next(AliasType.field, 'rq');
+
+				let subFields: any;
+				if (config.useQueryFields) {
+					subFields =
+						fieldsByTypeName?.[getGQLEntityNameFor(relatedEntityName)] ??
+						fieldsByTypeName?.[relatedEntityName];
+				} else if (config.fields) {
+					subFields = config.fields;
+				} else {
+					subFields = {};
+					for (const [propName, propMeta] of Object.entries(refMetadata.properties)) {
+						if (
+							(propMeta as EntityProperty).fieldNames?.length > 0 &&
+							!(propMeta as EntityProperty).reference
+						) {
+							subFields[propName] = {};
+						}
+					}
+				}
+
+				let relationFilter = config.filter;
+				let relationPagination = config.pagination;
+				if (config.forwardArgs && args) {
+					relationFilter = { ...config.filter, ...args.filter };
+					relationPagination = { ...config.pagination, ...args.pagination };
+				}
+
+				const newMappings = this.recursiveMap({
+					entityMetadata: refMetadata,
+					fields: subFields,
+					parentAlias: latestAlias,
+					alias: childAlias,
+					gqlFilters: relationFilter ? [relationFilter] : undefined,
+				});
+
+				const newMapping = QueriesUtils.newMappings();
+				if (relationPagination?.limit) newMapping.limit = relationPagination.limit;
+				if (relationPagination?.offset) newMapping.offset = relationPagination.offset;
+				if (relationPagination?.orderBy) {
+					newMapping.orderBy = relationPagination.orderBy;
+				}
+
+				const {
+					select: refSelect,
+					json: refJson,
+					outerJoin: refOuterJoin,
+					where: whereWithValues,
+					values: refValues,
+					innerJoin: refInnerJoin,
+					limit,
+					offset,
+					orderBy,
+				} = QueriesUtils.mappingsReducer(newMappings, newMapping);
+
+				const primaryKeys = ownerMetadata?.primaryKeys ?? [];
+
+				if (
+					relFieldProps.reference === ReferenceType.ONE_TO_MANY ||
+					(relFieldProps.reference === ReferenceType.ONE_TO_ONE && relFieldProps.mappedBy)
+				) {
+					this.relationshipHandler.mapOneToX(
+						refMetadata,
+						relFieldProps,
+						mapping,
+						latestAlias,
+						childAlias,
+						whereWithValues,
+						refValues,
+						limit,
+						offset,
+						orderBy,
+						config.as,
+						refJson,
+						refSelect,
+						refInnerJoin,
+						refOuterJoin
+					);
+				} else if (
+					relFieldProps.reference === ReferenceType.MANY_TO_ONE ||
+					(relFieldProps.reference === ReferenceType.ONE_TO_ONE && !relFieldProps.mappedBy)
+				) {
+					this.relationshipHandler.mapManyToOne(
+						relFieldProps,
+						refMetadata,
+						latestAlias,
+						childAlias,
+						mapping,
+						whereWithValues,
+						refValues,
+						refInnerJoin,
+						limit,
+						offset,
+						config.as,
+						refSelect,
+						refJson,
+						refOuterJoin
+					);
+				} else if (relFieldProps.reference === ReferenceType.MANY_TO_MANY) {
+					this.relationshipHandler.mapManyToMany(
+						refMetadata,
+						primaryKeys,
+						relFieldProps,
+						latestAlias,
+						childAlias,
+						refSelect,
+						whereWithValues,
+						refOuterJoin,
+						refJson,
+						mapping,
+						config.as,
+						refValues,
+						limit,
+						offset,
+						orderBy
+					);
+				}
+			}
+		}
+
 		if (customFieldProps?.requires) {
 			const requires =
 				customFieldProps.requires instanceof Array
 					? customFieldProps.requires
 					: [customFieldProps.requires];
 			requires.forEach((req) => {
-				mapping.select.add(`${latestAlias.toString()}.${req} AS "${gqlFieldName}"`);
+				const reqProps = ownerMetadata?.properties[req as keyof typeof ownerMetadata.properties] as
+					| EntityProperty
+					| undefined;
+				if (reqProps?.reference) return;
+				mapping.select.add(`${latestAlias.toString()}.${req} AS "${req}"`);
 				mapping.rawSelect.add(`${latestAlias.toString()}.${req}`);
 			});
 		}
@@ -624,7 +783,8 @@ export class GQLtoSQLMapper {
 		alias: Alias,
 		fields: any,
 		gqlFieldName: string,
-		primaryKeys: string[]
+		primaryKeys: string[],
+		parseJsonFields: Set<string> = new Set()
 	) {
 		const referenceField =
 			this.exists(fieldProps.type) && this.getMetadata<any, EntityMetadata<any>>(fieldProps.type);
@@ -829,7 +989,13 @@ export class GQLtoSQLMapper {
 				{ parentGqlFieldNameKey, gqlFieldName },
 				mappingsTypeToString(mapping, true)
 			);
-			this.processFieldNames(alias, fieldProps.fieldNames, mapping, gqlFieldName);
+			this.processFieldNames(
+				alias,
+				fieldProps.fieldNames,
+				mapping,
+				gqlFieldName,
+				parseJsonFields.has(gqlFieldName)
+			);
 		} else {
 			logger.log('reference type', fieldProps.reference, 'not handled for field', gqlFieldName);
 		}
@@ -888,7 +1054,8 @@ export class GQLtoSQLMapper {
 		alias: Alias,
 		fieldNames: string[],
 		mapping: MappingsType,
-		gqlFieldName: string
+		gqlFieldName: string,
+		parseJson: boolean = false
 	) {
 		logger.info('GQLtoSQLMapper - processFieldNames', fieldNames, gqlFieldName);
 		if (fieldNames.length <= 0) {
@@ -904,11 +1071,17 @@ export class GQLtoSQLMapper {
 			logger.warn(gqlFieldName, 'has multiple fieldNames:', fieldNames, 'taking first only');
 
 		const fieldNameWithAlias = alias.toColumnName(fieldNames[0]);
-		// Use double-quoted alias to preserve casing for row_to_json
-		const aliasedField =
-			gqlFieldName !== fieldNames[0]
-				? `${fieldNameWithAlias} AS "${gqlFieldName}"`
-				: fieldNameWithAlias;
+
+		let aliasedField: string;
+		if (parseJson) {
+			const jsonExpr = `REPLACE(TRIM(BOTH '"' FROM ${fieldNameWithAlias}::text), '${'\\"'}','"')::jsonb`;
+			aliasedField = gqlFieldName !== fieldNames[0] ? `${jsonExpr} AS "${gqlFieldName}"` : jsonExpr;
+		} else {
+			aliasedField =
+				gqlFieldName !== fieldNames[0]
+					? `${fieldNameWithAlias} AS "${gqlFieldName}"`
+					: fieldNameWithAlias;
+		}
 
 		mapping.select.add(aliasedField);
 		mapping.rawSelect.add(fieldNameWithAlias);

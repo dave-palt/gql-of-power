@@ -80,6 +80,17 @@ export type FieldBaseSettings = {
 	 */
 	mapNumericEnum?: boolean;
 	/**
+	 * When true, the SQL query wraps this field's column with a JSON parsing
+	 * expression so the value is returned as a JSON object instead of a raw
+	 * string. Handles both proper jsonb columns and stringified JSON stored as
+	 * text. Uses PostgreSQL's TRIM + REPLACE to unescape stringified values
+	 * before casting to jsonb.
+	 *
+	 * @example
+	 * preferences: { type: () => GraphQLJSON, parseJson: true }
+	 */
+	parseJson?: boolean;
+	/**
 	 * When true, excludes this field from the auto-generated Input type.
 	 * Use this for server-managed fields (e.g. forgedDate, claimedAt) or
 	 * computed fields that should not be set by clients.
@@ -144,6 +155,41 @@ export type FieldSettings = FieldBaseSettings & {
 	alias?: string;
 };
 
+export type RequireRelationConfig = {
+	/**
+	 * SQL column alias. The resolve function accesses data via root[as].
+	 * Required because the same relationship can appear as both a regular field and a required relation,
+	 * producing two independent lateral JOINs that need distinct column names.
+	 */
+	as: string;
+	/**
+	 * Explicit sub-fields to fetch from the related entity.
+	 * Mutually exclusive with `useQueryFields`.
+	 */
+	fields?: FieldSelection<any>;
+	/**
+	 * Use the custom field's GQL query sub-fields as sub-fields for this relationship.
+	 * Mutually exclusive with `fields`.
+	 */
+	useQueryFields?: boolean;
+	/**
+	 * Static filter to apply to the relationship subquery.
+	 * When `forwardArgs` is true, this serves as a base that GQL args override/extend.
+	 */
+	filter?: Record<string, any>;
+	/**
+	 * Static pagination to apply to the relationship subquery.
+	 * When `forwardArgs` is true, this serves as a base that GQL args override/extend.
+	 */
+	pagination?: { limit?: number; offset?: number; orderBy?: any[] };
+	/**
+	 * Forward GQL filter/pagination args from the custom field to this relationship.
+	 * Static config serves as base; GQL args override/add.
+	 * Requires `useQueryFields: true`.
+	 */
+	forwardArgs?: boolean;
+};
+
 export type RelatedFieldSettings<T> = FieldBaseSettings & {
 	type: GetFieldResolverType;
 	options?: RelatedFieldOptions;
@@ -152,6 +198,27 @@ export type RelatedFieldSettings<T> = FieldBaseSettings & {
 	 * Example: the custom field is for Author and requires authorId set this to 'authorId' and it will be fetched from the entity even if authorId is not requested in the gql query.
 	 */
 	requires?: (string & keyof T) | Array<string & keyof T>;
+	/**
+	 * Required ORM relationship fields to resolve the custom field.
+	 * Generates independent lateral JOINs with their own sub-fields, filters, and pagination.
+	 *
+	 * @example
+	 * ```typescript
+	 * latestBook: {
+	 *   type: () => BookGQL,
+	 *   requiresRelations: {
+	 *     books: {
+	 *       as: '_latestBooks',
+	 *       useQueryFields: true,
+	 *       forwardArgs: true,
+	 *       pagination: { orderBy: [{ publishedAt: 'DESC' }] },
+	 *     }
+	 *   },
+	 *   resolve: (root) => root._latestBooks?.[0] ?? null,
+	 * }
+	 * ```
+	 */
+	requiresRelations?: Partial<Record<string & keyof T, RequireRelationConfig>>;
 	resolve?: (...any: any) => any;
 	alias?: string;
 };

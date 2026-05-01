@@ -19,6 +19,7 @@ import {
 	GQLEntityPaginationInputType,
 	OrderByOptions,
 	RelatedFieldSettings,
+	RequireRelationConfig,
 	Sort,
 } from '../types';
 import { AccessControlEntry, AccessControlList } from '../types/access-control';
@@ -32,6 +33,7 @@ const FieldsOptionsMap: Record<string, Record<string, string>> = {};
 const CustomFieldsMap: Record<string, CustomFieldsSettings<any>> = {};
 const CountFieldsMap: Record<string, Record<string, CountFieldMeta>> = {};
 const MapEnumFieldsMap: Record<string, Record<string, any>> = {};
+const ParseJsonFieldsMap: Record<string, Set<string>> = {};
 
 const aclMap: AccessControlList<any, any> = {};
 
@@ -97,6 +99,20 @@ export const getMapEnumFieldsFor = (name: string): Record<string, any> =>
 export const clearMapEnumFields = (): void => {
 	for (const key of Object.keys(MapEnumFieldsMap)) {
 		delete MapEnumFieldsMap[key];
+	}
+};
+
+export const getParseJsonFieldsFor = (name: string): Set<string> =>
+	ParseJsonFieldsMap[name] ?? new Set();
+
+export const registerParseJsonField = (gqlEntityName: string, fieldName: string): void => {
+	ParseJsonFieldsMap[gqlEntityName] = ParseJsonFieldsMap[gqlEntityName] || new Set();
+	ParseJsonFieldsMap[gqlEntityName].add(fieldName);
+};
+
+export const clearParseJsonFields = (): void => {
+	for (const key of Object.keys(ParseJsonFieldsMap)) {
+		delete ParseJsonFieldsMap[key];
 	}
 };
 
@@ -273,6 +289,11 @@ export function GQLEntityClass<T extends Object, K>(
 				}
 			}
 
+			if ((fieldOptions as any).parseJson) {
+				ParseJsonFieldsMap[gqlEntityName] = ParseJsonFieldsMap[gqlEntityName] || new Set();
+				ParseJsonFieldsMap[gqlEntityName].add(fieldNameToUse);
+			}
+
 			metadata.collectClassFieldMetadata({
 				target: GQLEntity,
 				name: fieldNameToUse,
@@ -439,6 +460,11 @@ export function createGQLEntity<T extends Object, K>(
 			} catch {
 				// type thunk may throw for forward refs — safe to skip
 			}
+		}
+
+		if ((fieldOptions as any).parseJson) {
+			ParseJsonFieldsMap[gqlEntityName] = ParseJsonFieldsMap[gqlEntityName] || new Set();
+			ParseJsonFieldsMap[gqlEntityName].add(fieldNameToUse);
 		}
 
 		const isArray = 'array' in fieldOptions && fieldOptions.array;
@@ -656,6 +682,10 @@ function _buildResolversForEntity<T>(
 				fieldOptions.resolveDecorators?.forEach((decorator, i) => {
 					decorator(FieldsResolver.prototype, fieldNameToUse, i);
 				});
+
+				if (!fieldOptions.resolveDecorators?.length) {
+					Root()(FieldsResolver.prototype, fieldNameToUse, 0);
+				}
 			} else if ('mapping' in fieldOptions && fieldOptions.mapping) {
 				// mapping strategy: SQL mapper generates the JOIN — no FieldResolver needed
 				if (fieldOptions.generateFilter) {
@@ -673,6 +703,53 @@ function _buildResolversForEntity<T>(
 						complexity: undefined,
 						description: `Filter by ${fieldNameToUse} fields`,
 						deprecationReason: undefined,
+					});
+				}
+			}
+
+			if ('requiresRelations' in fieldOptions && fieldOptions.requiresRelations) {
+				for (const [relFieldName, rawRelConfig] of Object.entries(
+					fieldOptions.requiresRelations as Record<string, any>
+				)) {
+					const relConfig = rawRelConfig as RequireRelationConfig;
+					if (!relConfig.forwardArgs) continue;
+
+					const relFieldOpts = (opts as any)?.[relFieldName];
+					if (!relFieldOpts?.relatedEntityName) {
+						continue;
+					}
+
+					const relatedGqlEntityName = getGQLEntityNameFor(relFieldOpts.relatedEntityName());
+					const baseParamIndex = fieldOptions.resolve
+						? (fieldOptions.resolveDecorators?.length ?? 0) + 1
+						: 0;
+
+					metadata.collectHandlerParamMetadata({
+						kind: 'arg',
+						name: 'filter',
+						description: undefined,
+						methodName: fieldNameToUse,
+						index: baseParamIndex,
+						getType: () => TypeMap[relatedGqlEntityName + 'FilterInput'],
+						target: GQLEntity,
+						typeOptions: { nullable: true },
+						deprecationReason: undefined,
+						validateFn: undefined,
+						validateSettings: undefined,
+					});
+
+					metadata.collectHandlerParamMetadata({
+						kind: 'arg',
+						name: 'pagination',
+						description: undefined,
+						methodName: fieldNameToUse,
+						index: baseParamIndex + 1,
+						getType: () => TypeMap[`${relatedGqlEntityName}PaginationInput`],
+						target: GQLEntity,
+						typeOptions: { nullable: true },
+						deprecationReason: undefined,
+						validateFn: undefined,
+						validateSettings: undefined,
 					});
 				}
 			}

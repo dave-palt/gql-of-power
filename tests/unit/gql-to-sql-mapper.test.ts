@@ -6,10 +6,19 @@
  */
 import { afterEach, beforeEach, describe, expect, it } from 'bun:test';
 import { EntityMetadata, setGlobalConfig } from '../../src';
+import { clearParseJsonFields, registerParseJsonField } from '../../src/entities/gql-entity';
 import { GQLtoSQLMapper } from '../../src/queries/gql-to-sql-mapper';
 import { SQLBuilder } from '../../src/queries/sql-builder';
 import { QueriesUtils } from '../../src/queries/utils';
-import { Fellowship, Person, Ring, Weapon, Artifact } from '../fixtures/middle-earth-schema';
+import {
+	Fellowship,
+	Person,
+	Ring,
+	Weapon,
+	Artifact,
+	Author,
+	Book,
+} from '../fixtures/middle-earth-schema';
 import { createMockMetadataProvider } from '../fixtures/test-data';
 import '../setup';
 
@@ -1532,6 +1541,263 @@ describe('GQLtoSQLMapper - Unit Tests', () => {
 			expect(result.querySQL).toContain('person_name');
 			expect(result.querySQL).not.toContain('null AS "myName"');
 			expect(result.querySQL).not.toContain('null AS "id"');
+		});
+	});
+
+	describe('requiresRelations', () => {
+		it('should generate lateral JOIN for requiresRelations with explicit fields on ONE_TO_MANY', () => {
+			const fields = {
+				id: {},
+				name: {},
+				latestBook: {},
+			};
+
+			const result = mapper.buildQueryAndBindingsFor({
+				fields,
+				entity: Author,
+				customFields: {
+					latestBook: {
+						type: () => Book,
+						requiresRelations: {
+							books: {
+								as: '_latestBooks',
+								fields: { id: {}, title: {} },
+							},
+						},
+						resolve: (root: any) => root._latestBooks?.[0] ?? null,
+					},
+				} as any,
+			});
+
+			expect(result.querySQL).toContain('authors');
+			expect(result.querySQL).toContain('left outer join lateral');
+			expect(result.querySQL).toContain('json_agg');
+			expect(result.querySQL).toContain('"_latestBooks"');
+			expect(result.querySQL).toContain('book_title');
+			expect(result.querySQL).toContain('null AS "latestBook"');
+		});
+
+		it('should generate lateral JOIN with useQueryFields from GQL sub-fields', () => {
+			const fields = {
+				id: {},
+				name: {},
+				latestBook: {
+					fieldsByTypeName: {
+						Book: { id: {}, title: {}, publishedYear: {} },
+					},
+				},
+			};
+
+			const result = mapper.buildQueryAndBindingsFor({
+				fields,
+				entity: Author,
+				customFields: {
+					latestBook: {
+						type: () => Book,
+						requiresRelations: {
+							books: {
+								as: '_latestBooks',
+								useQueryFields: true,
+							},
+						},
+						resolve: (root: any) => root._latestBooks?.[0] ?? null,
+					},
+				} as any,
+			});
+
+			expect(result.querySQL).toContain('"_latestBooks"');
+			expect(result.querySQL).toContain('book_title');
+			expect(result.querySQL).toContain('published_year');
+		});
+
+		it('should generate TWO independent lateral JOINs when both books and latestBook are queried', () => {
+			const fields = {
+				id: {},
+				name: {},
+				latestBook: {
+					fieldsByTypeName: {
+						Book: { id: {} },
+					},
+				},
+				books: {
+					fieldsByTypeName: {
+						Book: { id: {}, title: {} },
+					},
+				},
+			};
+
+			const result = mapper.buildQueryAndBindingsFor({
+				fields,
+				entity: Author,
+				customFields: {
+					latestBook: {
+						type: () => Book,
+						requiresRelations: {
+							books: {
+								as: '_latestBooks',
+								useQueryFields: true,
+								pagination: { limit: 1 },
+							},
+						},
+						resolve: (root: any) => root._latestBooks?.[0] ?? null,
+					},
+				} as any,
+			});
+
+			const sql = result.querySQL;
+			const lateralCount = (sql.match(/left outer join lateral/g) || []).length;
+			expect(lateralCount).toBe(2);
+			expect(sql).toContain('"_latestBooks"');
+			expect(sql).toContain('"books"');
+			expect(sql).toContain('null AS "latestBook"');
+		});
+
+		it('should apply static pagination to the required relationship subquery', () => {
+			const fields = {
+				id: {},
+				latestBook: {},
+			};
+
+			const result = mapper.buildQueryAndBindingsFor({
+				fields,
+				entity: Author,
+				customFields: {
+					latestBook: {
+						type: () => Book,
+						requiresRelations: {
+							books: {
+								as: '_latestBooks',
+								fields: { id: {}, publishedYear: {} },
+								pagination: { limit: 1, orderBy: [{ publishedYear: 'desc' } as any] },
+							},
+						},
+						resolve: (root: any) => root._latestBooks?.[0] ?? null,
+					},
+				} as any,
+			});
+
+			expect(result.querySQL).toContain('"_latestBooks"');
+			expect(result.querySQL).toContain('published_year');
+			expect(result.querySQL).toContain('limit 1');
+		});
+
+		it('should combine scalar requires with requiresRelations', () => {
+			const fields = {
+				id: {},
+				name: {},
+				latestBook: {},
+			};
+
+			const result = mapper.buildQueryAndBindingsFor({
+				fields,
+				entity: Author,
+				customFields: {
+					latestBook: {
+						type: () => Book,
+						requires: ['name'] as any,
+						requiresRelations: {
+							books: {
+								as: '_latestBooks',
+								fields: { id: {}, title: {} },
+							},
+						},
+						resolve: (root: any) => root._latestBooks?.[0] ?? null,
+					},
+				} as any,
+			});
+
+			expect(result.querySQL).toContain('"_latestBooks"');
+			expect(result.querySQL).toContain('author_name');
+			expect(result.querySQL).toContain('null AS "latestBook"');
+		});
+
+		it('should fall back to all scalar fields when neither fields nor useQueryFields is specified', () => {
+			const fields = {
+				id: {},
+				latestBook: {},
+			};
+
+			const result = mapper.buildQueryAndBindingsFor({
+				fields,
+				entity: Author,
+				customFields: {
+					latestBook: {
+						type: () => Book,
+						requiresRelations: {
+							books: {
+								as: '_latestBooks',
+							},
+						},
+						resolve: (root: any) => root._latestBooks?.[0] ?? null,
+					},
+				} as any,
+			});
+
+			expect(result.querySQL).toContain('"_latestBooks"');
+			expect(result.querySQL).toContain('book_title');
+			expect(result.querySQL).toContain('published_year');
+			expect(result.querySQL).toContain('page_count');
+		});
+	});
+
+	describe('parseJson', () => {
+		afterEach(() => {
+			clearParseJsonFields();
+		});
+
+		it('should wrap field with JSON parsing expression when parseJson is registered', () => {
+			registerParseJsonField('Person', 'home');
+
+			const fields = {
+				id: {},
+				home: {},
+			};
+
+			const result = mapper.buildQueryAndBindingsFor({
+				fields,
+				entity: Person,
+				customFields: {},
+			});
+
+			expect(result.querySQL).toContain('REPLACE(TRIM(BOTH');
+			expect(result.querySQL).toContain('home_location::text');
+			expect(result.querySQL).toContain(')::jsonb AS "home"');
+		});
+
+		it('should not wrap field when parseJson is not registered', () => {
+			const fields = {
+				id: {},
+				home: {},
+			};
+
+			const result = mapper.buildQueryAndBindingsFor({
+				fields,
+				entity: Person,
+				customFields: {},
+			});
+
+			expect(result.querySQL).not.toContain('REPLACE(TRIM(BOTH');
+			expect(result.querySQL).toContain('home_location AS "home"');
+		});
+
+		it('should only wrap fields registered as parseJson, not all fields', () => {
+			registerParseJsonField('Person', 'home');
+
+			const fields = {
+				id: {},
+				name: {},
+				home: {},
+			};
+
+			const result = mapper.buildQueryAndBindingsFor({
+				fields,
+				entity: Person,
+				customFields: {},
+			});
+
+			expect(result.querySQL).toContain('REPLACE(TRIM(BOTH');
+			expect(result.querySQL).toContain('person_name AS "name"');
+			expect(result.querySQL).toMatch(/e_a\d+\.id/);
 		});
 	});
 });
