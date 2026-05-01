@@ -15,6 +15,7 @@ import {
 	DatabaseDriver,
 	FieldSelection,
 	GQLEntityFilterInputFieldType,
+	GQLEntityOrderByInputType,
 	GQLEntityPaginationInputType,
 	MetadataProviderType,
 } from './types';
@@ -147,12 +148,12 @@ function convertFilterEnumValues(
 
 export class GQLQueryManager {
 	constructor(private opts?: { namedParameterPrefix?: string }) {}
-	async getQueryResultsForInfo<K extends { _____name: string }, T>(
+	async getQueryResultsForInfo<T, FilterT = T, K = any>(
 		provider: MetadataProviderType,
 		entity: new () => T,
 		info: GraphQLResolveInfo,
-		filter?: GQLEntityFilterInputFieldType<T>,
-		pagination?: Partial<GQLEntityPaginationInputType<T>>
+		filter?: GQLEntityFilterInputFieldType<FilterT>,
+		pagination?: Partial<GQLEntityPaginationInputType<FilterT>>
 	): Promise<K[]> {
 		if (!entity?.name) {
 			throw new Error(`Entity not provided`);
@@ -164,7 +165,7 @@ export class GQLQueryManager {
 			throw new Error(`Entity ${entityName} not found in metadata`);
 		}
 		const fields = getGQLFields(info) as FieldSelection<T>;
-		return this.getQueryResultsForFields<K, T>(
+		return this.getQueryResultsForFields<T, FilterT, K>(
 			provider,
 			entity,
 			fields,
@@ -174,12 +175,12 @@ export class GQLQueryManager {
 		);
 	}
 
-	async getQueryResultsForFields<K extends { _____name: string }, T>(
+	async getQueryResultsForFields<T, FilterT = T, K = any>(
 		provider: MetadataProviderType,
 		entity: new () => T,
 		fields: FieldSelection<T>,
-		filter?: GQLEntityFilterInputFieldType<T>,
-		pagination?: Partial<GQLEntityPaginationInputType<T>>,
+		filter?: GQLEntityFilterInputFieldType<FilterT>,
+		pagination?: Partial<GQLEntityPaginationInputType<FilterT>>,
 		entityNameOverride?: string
 	): Promise<K[]> {
 		if (!entity?.name) {
@@ -212,7 +213,7 @@ export class GQLQueryManager {
 				customFields,
 				entity: entityForMapper,
 				filter: convertedFilter,
-				pagination,
+				pagination: pagination as Partial<GQLEntityPaginationInputType<T>>,
 			});
 
 			logger.timeLog(logName, 'query built', querySQL, bindings);
@@ -223,6 +224,54 @@ export class GQLQueryManager {
 		} finally {
 			logger.timeEnd(logName); // eslint-disable-line
 		}
+	}
+
+	async getQueryResultForInfo<T, FilterT = T, K = any>(
+		provider: MetadataProviderType,
+		entity: new () => T,
+		info: GraphQLResolveInfo,
+		filter?: GQLEntityFilterInputFieldType<FilterT>,
+		orderBy?: GQLEntityOrderByInputType<T>[]
+	): Promise<K | null> {
+		if (!entity?.name) {
+			throw new Error(`Entity not provided`);
+		}
+		const entityName = (entity as any).relatedEntityName ?? entity.name;
+		if (!provider.exists(entityName)) {
+			throw new Error(`Entity ${entityName} not found in metadata`);
+		}
+		const fields = getGQLFields(info) as FieldSelection<T>;
+		return this.getQueryResultForFields<T, FilterT, K>(
+			provider,
+			entity,
+			fields,
+			filter,
+			orderBy,
+			entityName
+		);
+	}
+
+	async getQueryResultForFields<T, FilterT = T, K = any>(
+		provider: MetadataProviderType,
+		entity: new () => T,
+		fields: FieldSelection<T>,
+		filter?: GQLEntityFilterInputFieldType<FilterT>,
+		orderBy?: GQLEntityOrderByInputType<T>[],
+		entityNameOverride?: string
+	): Promise<K | null> {
+		const pagination: Partial<GQLEntityPaginationInputType<FilterT>> = {
+			limit: 1,
+			orderBy: orderBy as any,
+		};
+		const results = await this.getQueryResultsForFields<T, FilterT, K>(
+			provider,
+			entity,
+			fields,
+			filter,
+			pagination,
+			entityNameOverride
+		);
+		return results[0] ?? null;
 	}
 
 	protected bindSQLQuery(driver: DatabaseDriver, sql: string, bindings: any) {

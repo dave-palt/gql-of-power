@@ -170,6 +170,22 @@ export class QuestItemGQLResolver {
 			pagination
 		);
 	}
+
+	// Singular query — returns a single QuestItem or null, always LIMIT 1
+	@Query(() => QuestItemGQL, { nullable: true })
+	async questItemV2(
+		@Arg('filter', () => QuestItemGQL.FilterInput, { nullable: true }) filter: any,
+		@Arg('orderBy', () => QuestItemGQL.OrderBy, { nullable: true }) orderBy: any,
+		@Info() info: GraphQLResolveInfo
+	): Promise<any | null> {
+		return queryManager.getQueryResultForInfo(
+			mikroMetadataProvider,
+			QuestItemGQL,
+			info,
+			filter,
+			orderBy
+		);
+	}
 }
 ```
 

@@ -507,6 +507,34 @@ const results = await queryManager.getQueryResultsForFields(
 
 `BookGQL.relatedEntityName` (`'Book'`) is used automatically to look up ORM metadata — no need to pass the ORM class separately.
 
+### Singular Queries
+
+For fetching a single record, use the singular variants. These enforce `LIMIT 1` internally and return `K | null` instead of `K[]`:
+
+```typescript
+// From a GraphQL resolver
+const ring = await queryManager.getQueryResultForInfo(
+	metadataProvider,
+	RingGQL,
+	info,
+	{ forgedBy: 'Sauron' },
+	[{ forgedYear: 'desc' }] // optional orderBy — controls *which* record is returned
+);
+// ring: Ring | null
+
+// With explicit field selection
+const ring = await queryManager.getQueryResultForFields(
+	metadataProvider,
+	RingGQL,
+	{ id: {}, name: {} },
+	{ forgedBy: 'Sauron' },
+	[{ forgedYear: 'desc' }]
+);
+// ring: Ring | null
+```
+
+No `limit` or `offset` parameters are accepted — `LIMIT 1` is always applied.
+
 ---
 
 ## Architecture
