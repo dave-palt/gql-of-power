@@ -1075,7 +1075,7 @@ export class GQLtoSQLMapper {
 		let aliasedField: string;
 		if (parseJson) {
 			const jsonExpr = `REPLACE(TRIM(BOTH '"' FROM ${fieldNameWithAlias}::text), '${'\\"'}','"')::jsonb`;
-			aliasedField = gqlFieldName !== fieldNames[0] ? `${jsonExpr} AS "${gqlFieldName}"` : jsonExpr;
+			aliasedField = `${jsonExpr} AS "${gqlFieldName}"`;
 		} else {
 			aliasedField =
 				gqlFieldName !== fieldNames[0]

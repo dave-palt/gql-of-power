@@ -1192,9 +1192,10 @@ export class FilterProcessor extends ClassOperations {
 
 		if (fieldNameBeforeOperation) {
 			const fieldProps = properties[fieldNameBeforeOperation as keyof typeof properties];
-			const fieldMetadata = this.metadataProvider.exists(fieldProps?.type)
-				? this.metadataProvider.getMetadata(fieldProps!.type)
-				: null;
+			const fieldMetadata =
+				fieldProps?.reference !== undefined && this.metadataProvider.exists(fieldProps?.type)
+					? this.metadataProvider.getMetadata(fieldProps!.type)
+					: null;
 			logger.log(
 				'FilterProcessor - mapFieldOperation: fieldProps',
 				fieldProps,
