@@ -6,18 +6,22 @@
 
 ## Commands
 
-```bash
-bun install                  # install deps (uses bun, not npm/pnpm)
-bun run build                # tsc → dist/
-bun run test                 # all tests (D3GOP_LOG_TYPE="disabled" set automatically)
-bun run test:unit            # unit tests only
-bun run test:integration     # integration tests only (requires running PostgreSQL)
-bun run test:watch           # watch mode
-bun test tests/unit/filter-processor.test.ts   # single test file
-bun test --filter="relationship"               # tests matching a pattern
-```
+| Command                    | Description                                  |
+| -------------------------- | -------------------------------------------- |
+| `bun run build`            | Compile tsc → dist/                          |
+| `bun run typecheck`        | Type-check without emitting                  |
+| `bun run format`           | Format all files with Prettier               |
+| `bun run test`             | Run all tests                                |
+| `bun run test:unit`        | Unit tests only                              |
+| `bun run test:integration` | Integration tests only (requires PostgreSQL) |
+| `bun run test:watch`       | Watch mode                                   |
+| `bun run precommit`        | format → typecheck → test                    |
 
-There is no separate lint or typecheck command — `bun run build` (tsc) is the typecheck.
+### Agent commands
+
+| Command   | Description                                                            |
+| --------- | ---------------------------------------------------------------------- |
+| `/commit` | Run precommit checks, analyze changes, and commit with proper grouping |
 
 ## Architecture
 
@@ -49,25 +53,15 @@ src/
 - **CRUD Input types**: Each `@GQLEntityClass` entity auto-generates an `InputType` containing all scalar fields (all nullable). Accessible as `EntityGQL.Input` (same pattern as `.FilterInput`, `.PaginationInput`). Array relation fields, object relation fields (with `relatedEntityName`), and custom fields are excluded. Individual fields can be excluded via `excludeFromInput: true` in field settings. Designed for create/update/upsert mutations — a single type works for all operations. TypeScript type: `GQLEntityInputType<T>`.
 - **Singular queries**: `GQLQueryManager` provides `getQueryResultForInfo` and `getQueryResultForFields` (singular) that return a single `K | null` instead of `K[]`. These force `LIMIT 1` — no `limit`/`offset` params are exposed. An optional `orderBy` parameter lets the caller control which record is selected (e.g. `orderBy: [{ forgedYear: 'desc' }]` to get the most recently forged ring). Delegates to the plural methods internally with `pagination: { limit: 1, orderBy }`.
 
-## Testing
-
-- Test runner: **Bun built-in** (not Jest). `jest.config.js` is legacy and unused.
-- `bunfig.toml` configures test discovery; `tests/setup.ts` is preloaded (imports `reflect-metadata`, silences console timers).
-- Unit tests: `tests/unit/` — mocked dependencies, no database needed.
-- Integration tests: `tests/integration/` — require a running PostgreSQL instance.
-- Test fixtures in `tests/fixtures/` use a LotR/Middle-earth themed schema.
-- `D3GOP_LOG_TYPE="disabled"` is required for clean test output (already in npm scripts).
-
 ## Key Conventions
 
-- **Runtime**: Bun only. Package manager, test runner, and build tooling all use Bun.
-- **Module output**: CommonJS (`"module": "CommonJS"` in tsconfig).
-- **Decorators**: `experimentalDecorators: true` — required for TypeGraphQL `@GQLEntityClass`.
-- **Prettier**: tabs, single quotes, trailing comma es5, print width 100. Config is in `.prettierrc`.
-- **`reflect-metadata`** must be imported before any decorator usage (handled in `tests/setup.ts` for tests).
+- **Runtime**: Bun only (package manager, test runner, build tooling).
+- **Module output**: CommonJS. **Decorators**: `experimentalDecorators: true`.
+- **Prettier**: tabs, single quotes, trailing comma es5, print width 100.
+- **`reflect-metadata`** must be imported before any decorator usage.
 - **No separate lint step** — rely on `tsc --strict` and Prettier.
-- **Format before commit**: Always run `bunx prettier --write .` to format all files before committing. This ensures consistent style without relying on pre-commit hooks.
-- **Theming**: All code examples, JSDoc comments, test data, and fixtures use **Lord of the Rings / Middle-earth** references (Person, Ring, Fellowship, Battle, Book, Author, etc.). Never use real-world business entity names like Account, Customer, Order, Tenant, etc.
+- **Theming**: All code, comments, and fixtures use **Lord of the Rings / Middle-earth** references.
+- Test runner: Bun built-in (not Jest). `bunfig.toml` configures discovery; `tests/setup.ts` is preloaded.
 
 ## Gotchas
 

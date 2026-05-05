@@ -18,7 +18,11 @@
 		"test:unit": "D3GOP_LOG_TYPE=\"disabled\" bun test --filter='unit'",
 		"test:integration": "D3GOP_LOG_TYPE=\"disabled\" bun test --filter='integration'",
 		"test:watch": "D3GOP_LOG_TYPE=\"disabled\" bun test --watch",
-		"test:coverage": "D3GOP_LOG_TYPE=\"disabled\" bun test --coverage"
+		"test:coverage": "D3GOP_LOG_TYPE=\"disabled\" bun test --coverage",
+		"format": "bunx prettier --write .",
+		"format:check": "bunx prettier --check .",
+		"typecheck": "tsc --noEmit",
+		"precommit": "bun run format && bun run typecheck && bun run test"
 	},
 	"keywords": [],
 	"author": "",
