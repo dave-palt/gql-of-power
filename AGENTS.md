@@ -69,3 +69,4 @@ src/
 - `setGlobalConfig()` must be called **before** any `@GQLEntityClass` decorators run (before importing entity files).
 - The package has a workspace for `examples/*` (currently `examples/web-playground`).
 - **Git-flow versioning**: `develop` always carries a `-dev` suffix (e.g., `1.1.0-dev`), `main` has clean versions. Release workflows strip `-dev`, bump, publish, then merge back and set the next `-dev` version.
+- **Never change `version` in `package.json`** as part of a PR from develop to main. Version bumps are handled exclusively by the release GitHub Action. If the version on develop diverges from main, revert it to match main before creating the PR.
