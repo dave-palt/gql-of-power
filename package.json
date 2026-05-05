@@ -1,6 +1,6 @@
 {
 	"name": "@dav3/gql-of-power",
-	"version": "1.0.1",
+	"version": "1.3.0-dev",
 	"description": "Generate a single optimized SQL query from GraphQL operations — eliminate N+1 with recursive field-to-SQL mapping.",
 	"main": "dist/index.js",
 	"types": "dist/index.d.ts",
