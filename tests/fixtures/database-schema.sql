@@ -29,6 +29,10 @@ DROP TABLE IF EXISTS rings CASCADE;
 
 DROP TABLE IF EXISTS persons CASCADE;
 
+DROP TABLE IF EXISTS weapons CASCADE;
+
+DROP TABLE IF EXISTS artifacts CASCADE;
+
 DROP TABLE IF EXISTS fellowships CASCADE;
 
 DROP TABLE IF EXISTS quests CASCADE;
@@ -66,7 +70,24 @@ CREATE TABLE fellowships (
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
 
--- Persons (references fellowships - m:1)
+-- Weapons (independent table, referenced by persons)
+CREATE TABLE weapons (
+    id SERIAL PRIMARY KEY,
+    weapon_name VARCHAR(100) NOT NULL,
+    weapon_type VARCHAR(50),
+    power_level INTEGER,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+
+-- Artifacts (independent table, referenced by persons)
+CREATE TABLE artifacts (
+    id SERIAL PRIMARY KEY,
+    artifact_name VARCHAR(100) NOT NULL,
+    origin_realm VARCHAR(100),
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+
+-- Persons (references fellowships - m:1, weapons/artifacts - 1:1)
 CREATE TABLE persons (
     id SERIAL PRIMARY KEY,
     person_name VARCHAR(100) NOT NULL,
@@ -74,6 +95,8 @@ CREATE TABLE persons (
     race VARCHAR(50) NOT NULL,
     home_location VARCHAR(200),
     fellowship_id INTEGER REFERENCES fellowships(id),
+    signature_weapon_id INTEGER REFERENCES weapons(id),
+    signature_artifact_id INTEGER REFERENCES artifacts(id),
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
 

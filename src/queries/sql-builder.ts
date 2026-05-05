@@ -34,7 +34,10 @@ export class SQLBuilder {
 		globalInnerJoin: string[],
 		globalOuterJoin: string[],
 		globalWhereJoin: string[],
-		value?: { innerJoin: string } | { where: string }
+		value?: { innerJoin: string } | { where: string },
+		innerOrderBy?: string,
+		innerLimit?: string,
+		innerOffset?: string
 	): string {
 		return `select ${selectFields.join(', ')}
             from (
@@ -45,6 +48,9 @@ export class SQLBuilder {
 				where true 
 				${globalWhereJoin.length > 0 ? ` and ( ${globalWhereJoin.join(' and ')} )` : ''}
 				${value && 'where' in value ? `and ${value.where}` : ''}
+				${innerOrderBy ?? ''}
+				${innerLimit ?? ''}
+				${innerOffset ?? ''}
 			) as ${alias}
 			${globalOuterJoin.join(' \n')}`;
 	}

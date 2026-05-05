@@ -18,8 +18,14 @@ export class Person {
 	age?: number;
 	race!: string; // Hobbit, Elf, Dwarf, Human, Wizard, etc.
 	home?: string;
-	// 1:1 relationship
+	// 1:1 inverse side relationship (mappedBy: 'bearer' → Ring.bearer)
 	ring?: Ring;
+	// 1:1 owning side — FK signature_weapon_id on persons table, no mappedBy
+	signatureWeaponId?: number;
+	signatureWeapon?: Weapon;
+	// 1:1 owning side — FK signature_artifact_id on persons table, no mappedBy
+	signatureArtifactId?: number;
+	signatureArtifact?: Artifact;
 	// m:1 relationship
 	fellowshipId?: number;
 	fellowship?: Fellowship;
@@ -139,6 +145,23 @@ export class Genre {
 	books?: Book[];
 }
 
+export class Weapon {
+	id!: number;
+	name!: string;
+	type!: string;
+	power!: number;
+	// 1:1 inverse side
+	owner?: Person;
+}
+
+export class Artifact {
+	id!: number;
+	name!: string;
+	origin!: string;
+	// 1:1 inverse side (mappedBy on the owning side Person.signatureArtifact)
+	guardian?: Person;
+}
+
 // Helper function to create entity property
 const createProperty = (
 	type: string,
@@ -178,6 +201,18 @@ export const PersonMetadata: EntityMetadata<Person> = {
 		ring: createProperty('Ring', 'ring', [], {
 			referenceType: ReferenceType.ONE_TO_ONE,
 			mappedBy: 'bearer',
+		}),
+		signatureWeaponId: createProperty('number', 'signatureWeaponId', ['signature_weapon_id']),
+		signatureWeapon: createProperty('Weapon', 'signatureWeapon', ['signature_weapon_id'], {
+			referenceType: ReferenceType.ONE_TO_ONE,
+			joinColumns: ['signature_weapon_id'],
+			referencedColumnNames: ['id'],
+		}),
+		signatureArtifactId: createProperty('number', 'signatureArtifactId', ['signature_artifact_id']),
+		signatureArtifact: createProperty('Artifact', 'signatureArtifact', ['signature_artifact_id'], {
+			referenceType: ReferenceType.ONE_TO_ONE,
+			joinColumns: ['signature_artifact_id'],
+			referencedColumnNames: ['id'],
 		}),
 		fellowshipId: createProperty('number', 'fellowshipId', ['fellowship_id']),
 		fellowship: createProperty('Fellowship', 'fellowship', ['fellowship_id'], {
@@ -434,6 +469,37 @@ export const GenreMetadata: EntityMetadata<Genre> = {
 	},
 };
 
+export const WeaponMetadata: EntityMetadata<Weapon> = {
+	name: 'Weapon',
+	tableName: 'weapons',
+	primaryKeys: ['id'],
+	properties: {
+		id: createProperty('number', 'id', ['id']),
+		name: createProperty('string', 'name', ['weapon_name']),
+		type: createProperty('string', 'type', ['weapon_type']),
+		power: createProperty('number', 'power', ['power_level']),
+		owner: createProperty('Person', 'owner', [], {
+			referenceType: ReferenceType.ONE_TO_ONE,
+			mappedBy: 'signatureWeapon',
+		}),
+	},
+};
+
+export const ArtifactMetadata: EntityMetadata<Artifact> = {
+	name: 'Artifact',
+	tableName: 'artifacts',
+	primaryKeys: ['id'],
+	properties: {
+		id: createProperty('number', 'id', ['id']),
+		name: createProperty('string', 'name', ['artifact_name']),
+		origin: createProperty('string', 'origin', ['origin_realm']),
+		guardian: createProperty('Person', 'guardian', [], {
+			referenceType: ReferenceType.ONE_TO_ONE,
+			mappedBy: 'signatureArtifact',
+		}),
+	},
+};
+
 // Export all metadata in a convenient map
 export const AllEntityMetadata = {
 	Person: PersonMetadata,
@@ -447,6 +513,8 @@ export const AllEntityMetadata = {
 	Book: BookMetadata,
 	Author: AuthorMetadata,
 	Genre: GenreMetadata,
+	Weapon: WeaponMetadata,
+	Artifact: ArtifactMetadata,
 };
 
 // Export all entity classes
@@ -462,4 +530,6 @@ export const AllEntityClasses = {
 	Book,
 	Author,
 	Genre,
+	Weapon,
+	Artifact,
 };

@@ -6,10 +6,19 @@
  */
 import { afterEach, beforeEach, describe, expect, it } from 'bun:test';
 import { EntityMetadata, setGlobalConfig } from '../../src';
+import { clearParseJsonFields, registerParseJsonField } from '../../src/entities/gql-entity';
 import { GQLtoSQLMapper } from '../../src/queries/gql-to-sql-mapper';
 import { SQLBuilder } from '../../src/queries/sql-builder';
 import { QueriesUtils } from '../../src/queries/utils';
-import { Fellowship, Person, Ring } from '../fixtures/middle-earth-schema';
+import {
+	Fellowship,
+	Person,
+	Ring,
+	Weapon,
+	Artifact,
+	Author,
+	Book,
+} from '../fixtures/middle-earth-schema';
 import { createMockMetadataProvider } from '../fixtures/test-data';
 import '../setup';
 
@@ -404,6 +413,166 @@ describe('GQLtoSQLMapper - Unit Tests', () => {
 				result.querySQL.toLowerCase().includes('union') ||
 					result.querySQL.toLowerCase().includes('where')
 			).toBe(true);
+		});
+	});
+
+	describe('OneToOne owning-side routing', () => {
+		it('should handle owning-side OneToOne (Person.signatureWeapon) without crashing', () => {
+			const fields = {
+				id: {},
+				name: {},
+				signatureWeapon: {
+					fieldsByTypeName: {
+						Weapon: { id: {}, name: {}, type: {} },
+					},
+				},
+			};
+
+			const result = mapper.buildQueryAndBindingsFor({
+				fields,
+				entity: Person,
+				customFields: {},
+			});
+
+			expect(result.querySQL).toContain('persons');
+			expect(result.querySQL).toContain('weapons');
+			expect(result.querySQL).toContain('signature_weapon_id');
+			expect(result.querySQL).toContain('left outer join lateral');
+			expect(result.querySQL).toContain('row_to_json');
+			expect(result.querySQL).toContain('"signatureWeapon"');
+		});
+
+		it('should handle multiple owning-side OneToOne relationships in one query', () => {
+			const fields = {
+				id: {},
+				name: {},
+				signatureWeapon: {
+					fieldsByTypeName: {
+						Weapon: { id: {}, name: {} },
+					},
+				},
+				signatureArtifact: {
+					fieldsByTypeName: {
+						Artifact: { id: {}, name: {} },
+					},
+				},
+			};
+
+			const result = mapper.buildQueryAndBindingsFor({
+				fields,
+				entity: Person,
+				customFields: {},
+			});
+
+			expect(result.querySQL).toContain('weapons');
+			expect(result.querySQL).toContain('artifacts');
+			expect(result.querySQL).toContain('signature_weapon_id');
+			expect(result.querySQL).toContain('signature_artifact_id');
+			expect(result.querySQL).toContain('"signatureWeapon"');
+			expect(result.querySQL).toContain('"signatureArtifact"');
+		});
+
+		it('should still handle inverse-side OneToOne (Person.ring) correctly', () => {
+			const fields = {
+				id: {},
+				name: {},
+				ring: {
+					fieldsByTypeName: {
+						Ring: { id: {}, name: {}, power: {} },
+					},
+				},
+			};
+
+			const result = mapper.buildQueryAndBindingsFor({
+				fields,
+				entity: Person,
+				customFields: {},
+			});
+
+			expect(result.querySQL).toContain('persons');
+			expect(result.querySQL).toContain('rings');
+			expect(result.querySQL).toContain('left outer join lateral');
+			expect(result.querySQL).toContain('"ring"');
+		});
+
+		it('should handle owning-side OneToOne alongside inverse-side OneToOne', () => {
+			const fields = {
+				id: {},
+				name: {},
+				signatureWeapon: {
+					fieldsByTypeName: {
+						Weapon: { id: {}, name: {} },
+					},
+				},
+				ring: {
+					fieldsByTypeName: {
+						Ring: { id: {}, name: {} },
+					},
+				},
+			};
+
+			const result = mapper.buildQueryAndBindingsFor({
+				fields,
+				entity: Person,
+				customFields: {},
+			});
+
+			expect(result.querySQL).toContain('weapons');
+			expect(result.querySQL).toContain('rings');
+			expect(result.querySQL).toContain('signature_weapon_id');
+			expect(result.querySQL).toContain('"signatureWeapon"');
+			expect(result.querySQL).toContain('"ring"');
+		});
+
+		it('should handle owning-side OneToOne alongside ManyToOne and OneToMany', () => {
+			const fields = {
+				id: {},
+				name: {},
+				signatureWeapon: {
+					fieldsByTypeName: {
+						Weapon: { id: {}, name: {} },
+					},
+				},
+				fellowship: {
+					fieldsByTypeName: {
+						Fellowship: { id: {}, name: {} },
+					},
+				},
+			};
+
+			const result = mapper.buildQueryAndBindingsFor({
+				fields,
+				entity: Person,
+				customFields: {},
+			});
+
+			expect(result.querySQL).toContain('weapons');
+			expect(result.querySQL).toContain('fellowships');
+			expect(result.querySQL).toContain('"signatureWeapon"');
+			expect(result.querySQL).toContain('"fellowship"');
+		});
+
+		it('should handle inverse-side OneToOne from Weapon back to Person', () => {
+			const fields = {
+				id: {},
+				name: {},
+				owner: {
+					fieldsByTypeName: {
+						Person: { id: {}, name: {} },
+					},
+				},
+			};
+
+			const result = mapper.buildQueryAndBindingsFor({
+				fields,
+				entity: Weapon,
+				customFields: {},
+			});
+
+			expect(result.querySQL).toContain('weapons');
+			expect(result.querySQL).toContain('persons');
+			expect(result.querySQL).toContain('left outer join lateral');
+			expect(result.querySQL).toContain('"owner"');
 		});
 	});
 
@@ -1027,6 +1196,66 @@ describe('GQLtoSQLMapper - Unit Tests', () => {
 				const innerSubquery = result.querySQL.substring(0, lateralIndex);
 				expect(innerSubquery).toContain('fellowship_id');
 			});
+			it('should generate json_agg (array) when array: true is set on mapping custom field', () => {
+				const fields = {
+					id: {},
+					name: {},
+					members: {
+						fieldsByTypeName: {
+							Person: { id: {}, name: {} },
+						},
+					},
+				};
+
+				const result = mapper.buildQueryAndBindingsFor({
+					fields,
+					entity: Fellowship,
+					customFields: {
+						members: {
+							type: () => [Person],
+							array: true,
+							mapping: {
+								refEntity: Person,
+								refFields: 'fellowshipId',
+								fields: 'id',
+							},
+						},
+					} as any,
+				});
+
+				expect(result.querySQL).toContain('left outer join lateral');
+				expect(result.querySQL).toContain('json_agg');
+				expect(result.querySQL).toContain('"members"');
+			});
+
+			it('should generate row_to_json (single object) when array is not set on mapping custom field', () => {
+				const fields = {
+					id: {},
+					fellowship: {
+						fieldsByTypeName: {
+							Fellowship: { id: {}, name: {} },
+						},
+					},
+				};
+
+				const result = mapper.buildQueryAndBindingsFor({
+					fields,
+					entity: Person,
+					customFields: {
+						fellowship: {
+							type: () => Fellowship,
+							mapping: {
+								refEntity: Fellowship,
+								refFields: 'id',
+								fields: 'fellowshipId',
+							},
+						},
+					} as any,
+				});
+
+				expect(result.querySQL).toContain('row_to_json');
+				expect(result.querySQL).not.toContain('json_agg');
+			});
 		});
 	});
 
@@ -1087,6 +1316,159 @@ describe('GQLtoSQLMapper - Unit Tests', () => {
 			expect(result.bindings.offset).toBe(50000);
 			expect(result.querySQL).toContain('limit');
 			expect(result.querySQL).toContain('offset');
+		});
+	});
+
+	describe('inner subquery pushdown of ORDER BY, LIMIT, OFFSET', () => {
+		it('should push ORDER BY into the inner subquery (before LEFT JOINs)', () => {
+			const fields = {
+				id: {},
+				name: {},
+				fellowship: {
+					fieldsByTypeName: {
+						Fellowship: { id: {}, name: {} },
+					},
+				},
+			};
+			const pagination = {
+				orderBy: [{ name: 'asc' as any }],
+				limit: 10,
+			};
+
+			const result = mapper.buildQueryAndBindingsFor({
+				fields,
+				entity: Person,
+				customFields: {},
+				pagination,
+			});
+
+			expect(result.querySQL).toContain('order by');
+			const leftJoinIdx = result.querySQL.indexOf('left outer join lateral');
+			const firstOrderByIdx = result.querySQL.indexOf('order by');
+			expect(leftJoinIdx).toBeGreaterThan(-1);
+			expect(firstOrderByIdx).toBeGreaterThan(-1);
+			expect(firstOrderByIdx).toBeLessThan(leftJoinIdx);
+		});
+
+		it('should push LIMIT into the inner subquery (before LEFT JOINs)', () => {
+			const fields = {
+				id: {},
+				name: {},
+				fellowship: {
+					fieldsByTypeName: {
+						Fellowship: { id: {}, name: {} },
+					},
+				},
+			};
+			const pagination = { limit: 5 };
+
+			const result = mapper.buildQueryAndBindingsFor({
+				fields,
+				entity: Person,
+				customFields: {},
+				pagination,
+			});
+
+			expect(result.querySQL).toContain('limit');
+			const leftJoinIdx = result.querySQL.indexOf('left outer join lateral');
+			const limitIdx = result.querySQL.indexOf('limit');
+			expect(limitIdx).toBeGreaterThan(-1);
+			if (leftJoinIdx > -1) {
+				expect(limitIdx).toBeLessThan(leftJoinIdx);
+			}
+		});
+
+		it('should push OFFSET into the inner subquery (before LEFT JOINs)', () => {
+			const fields = {
+				id: {},
+				name: {},
+				fellowship: {
+					fieldsByTypeName: {
+						Fellowship: { id: {}, name: {} },
+					},
+				},
+			};
+			const pagination = { limit: 10, offset: 20 };
+
+			const result = mapper.buildQueryAndBindingsFor({
+				fields,
+				entity: Person,
+				customFields: {},
+				pagination,
+			});
+
+			expect(result.querySQL).toContain('offset');
+			const leftJoinIdx = result.querySQL.indexOf('left outer join lateral');
+			const offsetIdx = result.querySQL.indexOf('offset');
+			expect(offsetIdx).toBeGreaterThan(-1);
+			if (leftJoinIdx > -1) {
+				expect(offsetIdx).toBeLessThan(leftJoinIdx);
+			}
+		});
+
+		it('should push ORDER BY and LIMIT into UNION ALL inner wrapper', () => {
+			const fields = { id: {}, name: {}, age: {} };
+			const filter = {
+				_or: [{ name: { _eq: 'Aragorn' } }, { name: { _eq: 'Legolas' } }],
+			};
+			const pagination = {
+				orderBy: [{ name: 'asc' as any }],
+				limit: 10,
+			};
+
+			const result = mapper.buildQueryAndBindingsFor({
+				fields,
+				entity: Person,
+				customFields: {},
+				filter: filter as any,
+				pagination,
+			});
+
+			expect(result.querySQL.toLowerCase()).toContain('union all');
+			expect(result.querySQL).toContain('limit');
+			expect(result.querySQL).toContain('order by');
+			const unionIdx = result.querySQL.toLowerCase().indexOf('union all');
+			const limitIdx = result.querySQL.indexOf('limit');
+			const leftJoinIdx = result.querySQL.indexOf('left outer join lateral');
+			expect(limitIdx).toBeGreaterThan(unionIdx);
+			if (leftJoinIdx > -1) {
+				expect(limitIdx).toBeLessThan(leftJoinIdx);
+			}
+		});
+
+		it('should produce ORDER BY at outer level for output stability', () => {
+			const fields = { id: {}, name: {} };
+			const pagination = {
+				orderBy: [{ name: 'asc' as any }],
+				limit: 10,
+			};
+
+			const result = mapper.buildQueryAndBindingsFor({
+				fields,
+				entity: Person,
+				customFields: {},
+				pagination,
+			});
+
+			const matches = result.querySQL.match(/order by/gi);
+			expect(matches).not.toBeNull();
+			expect(matches!.length).toBeGreaterThanOrEqual(2);
+		});
+
+		it('should not produce outer LIMIT (only inner)', () => {
+			const fields = { id: {}, name: {} };
+			const pagination = { limit: 10 };
+
+			const result = mapper.buildQueryAndBindingsFor({
+				fields,
+				entity: Person,
+				customFields: {},
+				pagination,
+			});
+
+			const withoutParams = result.querySQL.replace(/:\w+/g, 'PARAM');
+			const limitCount = (withoutParams.match(/\blimit\b/gi) || []).length;
+			expect(limitCount).toBe(1);
 		});
 	});
 
@@ -1159,6 +1541,263 @@ describe('GQLtoSQLMapper - Unit Tests', () => {
 			expect(result.querySQL).toContain('person_name');
 			expect(result.querySQL).not.toContain('null AS "myName"');
 			expect(result.querySQL).not.toContain('null AS "id"');
+		});
+	});
+
+	describe('requiresRelations', () => {
+		it('should generate lateral JOIN for requiresRelations with explicit fields on ONE_TO_MANY', () => {
+			const fields = {
+				id: {},
+				name: {},
+				latestBook: {},
+			};
+
+			const result = mapper.buildQueryAndBindingsFor({
+				fields,
+				entity: Author,
+				customFields: {
+					latestBook: {
+						type: () => Book,
+						requiresRelations: {
+							books: {
+								as: '_latestBooks',
+								fields: { id: {}, title: {} },
+							},
+						},
+						resolve: (root: any) => root._latestBooks?.[0] ?? null,
+					},
+				} as any,
+			});
+
+			expect(result.querySQL).toContain('authors');
+			expect(result.querySQL).toContain('left outer join lateral');
+			expect(result.querySQL).toContain('json_agg');
+			expect(result.querySQL).toContain('"_latestBooks"');
+			expect(result.querySQL).toContain('book_title');
+			expect(result.querySQL).toContain('null AS "latestBook"');
+		});
+
+		it('should generate lateral JOIN with useQueryFields from GQL sub-fields', () => {
+			const fields = {
+				id: {},
+				name: {},
+				latestBook: {
+					fieldsByTypeName: {
+						Book: { id: {}, title: {}, publishedYear: {} },
+					},
+				},
+			};
+
+			const result = mapper.buildQueryAndBindingsFor({
+				fields,
+				entity: Author,
+				customFields: {
+					latestBook: {
+						type: () => Book,
+						requiresRelations: {
+							books: {
+								as: '_latestBooks',
+								useQueryFields: true,
+							},
+						},
+						resolve: (root: any) => root._latestBooks?.[0] ?? null,
+					},
+				} as any,
+			});
+
+			expect(result.querySQL).toContain('"_latestBooks"');
+			expect(result.querySQL).toContain('book_title');
+			expect(result.querySQL).toContain('published_year');
+		});
+
+		it('should generate TWO independent lateral JOINs when both books and latestBook are queried', () => {
+			const fields = {
+				id: {},
+				name: {},
+				latestBook: {
+					fieldsByTypeName: {
+						Book: { id: {} },
+					},
+				},
+				books: {
+					fieldsByTypeName: {
+						Book: { id: {}, title: {} },
+					},
+				},
+			};
+
+			const result = mapper.buildQueryAndBindingsFor({
+				fields,
+				entity: Author,
+				customFields: {
+					latestBook: {
+						type: () => Book,
+						requiresRelations: {
+							books: {
+								as: '_latestBooks',
+								useQueryFields: true,
+								pagination: { limit: 1 },
+							},
+						},
+						resolve: (root: any) => root._latestBooks?.[0] ?? null,
+					},
+				} as any,
+			});
+
+			const sql = result.querySQL;
+			const lateralCount = (sql.match(/left outer join lateral/g) || []).length;
+			expect(lateralCount).toBe(2);
+			expect(sql).toContain('"_latestBooks"');
+			expect(sql).toContain('"books"');
+			expect(sql).toContain('null AS "latestBook"');
+		});
+
+		it('should apply static pagination to the required relationship subquery', () => {
+			const fields = {
+				id: {},
+				latestBook: {},
+			};
+
+			const result = mapper.buildQueryAndBindingsFor({
+				fields,
+				entity: Author,
+				customFields: {
+					latestBook: {
+						type: () => Book,
+						requiresRelations: {
+							books: {
+								as: '_latestBooks',
+								fields: { id: {}, publishedYear: {} },
+								pagination: { limit: 1, orderBy: [{ publishedYear: 'desc' } as any] },
+							},
+						},
+						resolve: (root: any) => root._latestBooks?.[0] ?? null,
+					},
+				} as any,
+			});
+
+			expect(result.querySQL).toContain('"_latestBooks"');
+			expect(result.querySQL).toContain('published_year');
+			expect(result.querySQL).toContain('limit 1');
+		});
+
+		it('should combine scalar requires with requiresRelations', () => {
+			const fields = {
+				id: {},
+				name: {},
+				latestBook: {},
+			};
+
+			const result = mapper.buildQueryAndBindingsFor({
+				fields,
+				entity: Author,
+				customFields: {
+					latestBook: {
+						type: () => Book,
+						requires: ['name'] as any,
+						requiresRelations: {
+							books: {
+								as: '_latestBooks',
+								fields: { id: {}, title: {} },
+							},
+						},
+						resolve: (root: any) => root._latestBooks?.[0] ?? null,
+					},
+				} as any,
+			});
+
+			expect(result.querySQL).toContain('"_latestBooks"');
+			expect(result.querySQL).toContain('author_name');
+			expect(result.querySQL).toContain('null AS "latestBook"');
+		});
+
+		it('should fall back to all scalar fields when neither fields nor useQueryFields is specified', () => {
+			const fields = {
+				id: {},
+				latestBook: {},
+			};
+
+			const result = mapper.buildQueryAndBindingsFor({
+				fields,
+				entity: Author,
+				customFields: {
+					latestBook: {
+						type: () => Book,
+						requiresRelations: {
+							books: {
+								as: '_latestBooks',
+							},
+						},
+						resolve: (root: any) => root._latestBooks?.[0] ?? null,
+					},
+				} as any,
+			});
+
+			expect(result.querySQL).toContain('"_latestBooks"');
+			expect(result.querySQL).toContain('book_title');
+			expect(result.querySQL).toContain('published_year');
+			expect(result.querySQL).toContain('page_count');
+		});
+	});
+
+	describe('parseJson', () => {
+		afterEach(() => {
+			clearParseJsonFields();
+		});
+
+		it('should wrap field with JSON parsing expression when parseJson is registered', () => {
+			registerParseJsonField('Person', 'home');
+
+			const fields = {
+				id: {},
+				home: {},
+			};
+
+			const result = mapper.buildQueryAndBindingsFor({
+				fields,
+				entity: Person,
+				customFields: {},
+			});
+
+			expect(result.querySQL).toContain('REPLACE(TRIM(BOTH');
+			expect(result.querySQL).toContain('home_location::text');
+			expect(result.querySQL).toContain(')::jsonb AS "home"');
+		});
+
+		it('should not wrap field when parseJson is not registered', () => {
+			const fields = {
+				id: {},
+				home: {},
+			};
+
+			const result = mapper.buildQueryAndBindingsFor({
+				fields,
+				entity: Person,
+				customFields: {},
+			});
+
+			expect(result.querySQL).not.toContain('REPLACE(TRIM(BOTH');
+			expect(result.querySQL).toContain('home_location AS "home"');
+		});
+
+		it('should only wrap fields registered as parseJson, not all fields', () => {
+			registerParseJsonField('Person', 'home');
+
+			const fields = {
+				id: {},
+				name: {},
+				home: {},
+			};
+
+			const result = mapper.buildQueryAndBindingsFor({
+				fields,
+				entity: Person,
+				customFields: {},
+			});
+
+			expect(result.querySQL).toContain('REPLACE(TRIM(BOTH');
+			expect(result.querySQL).toContain('person_name AS "name"');
+			expect(result.querySQL).toMatch(/e_a\d+\.id/);
 		});
 	});
 });

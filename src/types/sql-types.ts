@@ -62,7 +62,46 @@ export type EnumData = Parameters<typeof registerEnumType>;
 type GetFieldType = NonNullable<Parameters<typeof Field>[0]>;
 type GetFieldResolverType = NonNullable<Parameters<typeof FieldResolver>[0]>;
 
-export type FieldBaseSettings = { generateFilter?: boolean; enum?: EnumData } & (
+export type FieldBaseSettings = {
+	generateFilter?: boolean;
+	/**
+	 * When true, generates a FieldResolver that converts numeric DB values to
+	 * the TypeScript enum's string keys for GraphQL serialization, and converts
+	 * filter values back to numeric values for SQL parameters.
+	 *
+	 * Use this for fields backed by TypeScript numeric enums where the database
+	 * stores the numeric value (e.g. 913710001) but GraphQL expects the string
+	 * key (e.g. "Active").
+	 *
+	 * @example
+	 * // Given: enum Status { Active = 913710001, Inactive = 913710002 }
+	 * // Field definition:
+	 * status: { type: () => Status, mapNumericEnum: true, generateFilter: true }
+	 */
+	mapNumericEnum?: boolean;
+	/**
+	 * When true, the SQL query wraps this field's column with a JSON parsing
+	 * expression so the value is returned as a JSON object instead of a raw
+	 * string. Handles both proper jsonb columns and stringified JSON stored as
+	 * text. Uses PostgreSQL's TRIM + REPLACE to unescape stringified values
+	 * before casting to jsonb.
+	 *
+	 * @example
+	 * preferences: { type: () => GraphQLJSON, parseJson: true }
+	 */
+	parseJson?: boolean;
+	/**
+	 * When true, excludes this field from the auto-generated Input type.
+	 * Use this for server-managed fields (e.g. forgedDate, claimedAt) or
+	 * computed fields that should not be set by clients.
+	 *
+	 * Only applies to scalar fields — relation fields are always excluded.
+	 *
+	 * @example
+	 * forgedDate: { type: () => String, excludeFromInput: true }
+	 */
+	excludeFromInput?: boolean;
+} & (
 	| {}
 	| {
 			array: true;
@@ -74,6 +113,36 @@ export type FieldBaseSettings = { generateFilter?: boolean; enum?: EnumData } & 
 			 */
 			getFilterType?: GetFieldResolverType;
 			alias?: string;
+			/**
+			 * When set, generates an additional Int field on the GQL entity that returns
+			 * the count of related entities. The value becomes the field name in the GQL schema.
+			 * A `filter` argument is automatically registered on the count field, allowing
+			 * clients to filter the related entities before counting.
+			 *
+			 * The generated SQL is a correlated subquery:
+			 * ```sql
+			 * (SELECT COUNT(*) FROM "books" AS e_w1 WHERE e_w1.author_id = a_1.id AND <filter>) AS "bookCount"
+			 * ```
+			 *
+			 * @example
+			 * // Author entity with book count
+			 * const fields = defineFields(Author, {
+			 *   books: {
+			 *     type: () => BookGQL,
+			 *     array: true,
+			 *     countFieldName: 'bookCount',
+			 *     relatedEntityName: () => 'Book',
+			 *   },
+			 * });
+			 *
+			 * // GQL query:
+			 * query {
+			 *   authors {
+			 *     bookCount(filter: { genre: 'Fantasy' })
+			 *   }
+			 * }
+			 */
+			countFieldName?: string;
 	  }
 );
 
@@ -86,6 +155,41 @@ export type FieldSettings = FieldBaseSettings & {
 	alias?: string;
 };
 
+export type RequireRelationConfig = {
+	/**
+	 * SQL column alias. The resolve function accesses data via root[as].
+	 * Required because the same relationship can appear as both a regular field and a required relation,
+	 * producing two independent lateral JOINs that need distinct column names.
+	 */
+	as: string;
+	/**
+	 * Explicit sub-fields to fetch from the related entity.
+	 * Mutually exclusive with `useQueryFields`.
+	 */
+	fields?: FieldSelection<any>;
+	/**
+	 * Use the custom field's GQL query sub-fields as sub-fields for this relationship.
+	 * Mutually exclusive with `fields`.
+	 */
+	useQueryFields?: boolean;
+	/**
+	 * Static filter to apply to the relationship subquery.
+	 * When `forwardArgs` is true, this serves as a base that GQL args override/extend.
+	 */
+	filter?: Record<string, any>;
+	/**
+	 * Static pagination to apply to the relationship subquery.
+	 * When `forwardArgs` is true, this serves as a base that GQL args override/extend.
+	 */
+	pagination?: { limit?: number; offset?: number; orderBy?: any[] };
+	/**
+	 * Forward GQL filter/pagination args from the custom field to this relationship.
+	 * Static config serves as base; GQL args override/add.
+	 * Requires `useQueryFields: true`.
+	 */
+	forwardArgs?: boolean;
+};
+
 export type RelatedFieldSettings<T> = FieldBaseSettings & {
 	type: GetFieldResolverType;
 	options?: RelatedFieldOptions;
@@ -94,6 +198,27 @@ export type RelatedFieldSettings<T> = FieldBaseSettings & {
 	 * Example: the custom field is for Author and requires authorId set this to 'authorId' and it will be fetched from the entity even if authorId is not requested in the gql query.
 	 */
 	requires?: (string & keyof T) | Array<string & keyof T>;
+	/**
+	 * Required ORM relationship fields to resolve the custom field.
+	 * Generates independent lateral JOINs with their own sub-fields, filters, and pagination.
+	 *
+	 * @example
+	 * ```typescript
+	 * latestBook: {
+	 *   type: () => BookGQL,
+	 *   requiresRelations: {
+	 *     books: {
+	 *       as: '_latestBooks',
+	 *       useQueryFields: true,
+	 *       forwardArgs: true,
+	 *       pagination: { orderBy: [{ publishedAt: 'DESC' }] },
+	 *     }
+	 *   },
+	 *   resolve: (root) => root._latestBooks?.[0] ?? null,
+	 * }
+	 * ```
+	 */
+	requiresRelations?: Partial<Record<string & keyof T, RequireRelationConfig>>;
 	resolve?: (...any: any) => any;
 	alias?: string;
 };
@@ -215,6 +340,11 @@ export type CustomFieldSettings<T> = Omit<RelatedFieldSettings<T>, 'resolve'> &
 				 * @see FieldMappingConfig
 				 */
 				mapping: FieldMappingConfig<T, any>;
+				/**
+				 * When true, the JOIN returns an array of related objects (one-to-many)
+				 * using `json_agg`. When false/absent, returns a single object via `row_to_json`.
+				 */
+				array?: boolean;
 				resolve?: never;
 				resolveDecorators?: never;
 		  }
@@ -225,6 +355,19 @@ export type FieldsSettings<T> = {
 };
 export type CustomFieldsSettings<T> = {
 	[key in Exclude<string, keyof T>]: CustomFieldSettings<T>;
+};
+
+/**
+ * Metadata for an auto-generated count field.
+ * Stored internally in CountFieldsMap when a relationship field has `countFieldName` set.
+ */
+export type CountFieldMeta = {
+	/** The GQL field name for the count (e.g. 'bookCount'). */
+	countFieldName: string;
+	/** The ORM relationship field name that this count derives from (e.g. 'books'). */
+	relationshipFieldName: string;
+	/** Resolves to the related entity's ORM class name (e.g. 'Book'). */
+	relatedEntityName: () => string;
 };
 
 export type GQLArgumentsFilterAndPagination<T> =

@@ -1029,4 +1029,131 @@ describe('GQLQueryManager - Unit Tests', () => {
 			expect(Array.isArray(result)).toBe(true);
 		});
 	});
+
+	describe('getQueryResultForFields - Singular Queries', () => {
+		it('should return a single object instead of an array', async () => {
+			const info = createMockFields({
+				id: {},
+				name: {},
+				race: {},
+			});
+
+			const result = await queryManager.getQueryResultForFields(mockProvider, Person, info);
+
+			expect(result).not.toBeNull();
+			expect(typeof result).toBe('object');
+			expect(Array.isArray(result)).toBe(false);
+		});
+
+		it('should return null when no results match', async () => {
+			const info = createMockFields({ id: {}, name: {} });
+
+			const emptyProvider = {
+				...mockProvider,
+				executeQuery: async () => [],
+			};
+
+			const result = await queryManager.getQueryResultForFields(emptyProvider, Person, info);
+
+			expect(result).toBeNull();
+		});
+
+		it('should return the first element from results', async () => {
+			const info = createMockFields({ id: {}, name: {} });
+
+			const firstResult = { id: 1, person_name: 'Frodo Baggins' };
+			const multiProvider = {
+				...mockProvider,
+				executeQuery: async () => [
+					firstResult,
+					{ id: 2, person_name: 'Gandalf' },
+					{ id: 3, person_name: 'Aragorn' },
+				],
+			};
+
+			const result = await queryManager.getQueryResultForFields(multiProvider, Person, info);
+
+			expect(result).toEqual(firstResult as any);
+		});
+
+		it('should accept orderBy to control which record is selected', async () => {
+			const info = createMockFields({ id: {}, name: {}, age: {} });
+
+			const orderBy = [{ age: 'desc' as const }];
+
+			const result = await queryManager.getQueryResultForFields(
+				mockProvider,
+				Person,
+				info,
+				undefined,
+				orderBy
+			);
+
+			expect(result).not.toBeNull();
+		});
+
+		it('should accept filter to narrow results', async () => {
+			const info = createMockFields({ id: {}, name: {}, race: {} });
+
+			const filter: GQLEntityFilterInputFieldType<Person> = {
+				race_eq: 'Hobbit',
+			};
+
+			const result = await queryManager.getQueryResultForFields(mockProvider, Person, info, filter);
+
+			expect(result).not.toBeNull();
+		});
+
+		it('should accept both filter and orderBy', async () => {
+			const info = createMockFields({ id: {}, name: {}, age: {} });
+
+			const filter = { race: 'Hobbit' };
+			const orderBy = [{ age: 'desc' as const }];
+
+			const result = await queryManager.getQueryResultForFields(
+				mockProvider,
+				Person,
+				info,
+				filter as any,
+				orderBy
+			);
+
+			expect(result).not.toBeNull();
+		});
+
+		it('should throw error for incompatible entity', async () => {
+			const info = createMockFields({ id: {}, name: {} });
+
+			await expect(
+				queryManager.getQueryResultForFields(mockProvider, null as any, info)
+			).rejects.toThrow('Entity not provided');
+		});
+
+		it('should throw error when entity not found in metadata', async () => {
+			const info = createMockFields({ id: {}, name: {} });
+
+			class UnknownEntity {
+				static entityName = 'UnknownEntity';
+			}
+
+			await expect(
+				queryManager.getQueryResultForFields(mockProvider, UnknownEntity as any, info)
+			).rejects.toThrow('Entity UnknownEntity not found in metadata');
+		});
+
+		it('should handle database execution errors gracefully', async () => {
+			const info = createMockFields({ id: {}, name: {} });
+
+			const errorProvider = {
+				...mockProvider,
+				executeQuery: async () => {
+					throw new Error('Database connection failed');
+				},
+			};
+
+			await expect(
+				queryManager.getQueryResultForFields(errorProvider, Person, info)
+			).rejects.toThrow('Database connection failed');
+		});
+	});
 });

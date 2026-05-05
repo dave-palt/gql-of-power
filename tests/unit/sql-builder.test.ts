@@ -93,6 +93,45 @@ describe('SQLBuilder', () => {
 
 			expect(result).toContain('and p.name = :name');
 		});
+
+		it('should include inner ORDER BY, LIMIT, and OFFSET in the subquery', () => {
+			const result = SQLBuilder.buildSubQuery(
+				['person.id'],
+				['person.id'],
+				'persons',
+				alias,
+				[],
+				[],
+				[],
+				undefined,
+				'order by e_p1.age desc',
+				'limit 10',
+				'offset 5'
+			);
+
+			expect(result).toContain('order by e_p1.age desc');
+			expect(result).toContain('limit 10');
+			expect(result).toContain('offset 5');
+			const orderByIdx = result.indexOf('order by');
+			const fromIdx = result.indexOf(') as');
+			expect(orderByIdx).toBeLessThan(fromIdx);
+		});
+
+		it('should work without inner ORDER BY, LIMIT, OFFSET (backward compatible)', () => {
+			const result = SQLBuilder.buildSubQuery(
+				['person.id'],
+				['person.id'],
+				'persons',
+				alias,
+				[],
+				[],
+				[]
+			);
+
+			expect(result).not.toContain('order by');
+			expect(result).not.toContain('limit');
+			expect(result).toContain('where true');
+		});
 	});
 
 	describe('buildUnionAll', () => {

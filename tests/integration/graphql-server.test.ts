@@ -326,6 +326,8 @@ query TestQuery {
 				{ table: 'regions', data: AllSampleData.regions || [] },
 				{ table: 'quests', data: AllSampleData.quests || [] },
 				{ table: 'fellowships', data: AllSampleData.fellowships || [] },
+				{ table: 'weapons', data: AllSampleData.weapons || [] },
+				{ table: 'artifacts', data: AllSampleData.artifacts || [] },
 				{ table: 'persons', data: AllSampleData.persons || [] },
 				{ table: 'rings', data: AllSampleData.rings || [] },
 				{ table: 'authors', data: AllSampleData.authors || [] },

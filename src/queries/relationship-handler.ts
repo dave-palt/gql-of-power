@@ -145,14 +145,19 @@ export class RelationshipHandler {
 		join: string[]
 	): void {
 		logger.log('RelationshipHandler - mapManyToOne');
-		if (fieldProps.fieldNames.length !== referenceField.primaryKeys.length) {
+		const refCols =
+			fieldProps.referencedColumnNames.length > 0
+				? fieldProps.referencedColumnNames
+				: referenceField.primaryKeys;
+
+		if (fieldProps.fieldNames.length !== refCols.length) {
 			throw new Error(
-				`Mismatch in lengths: fieldProps.fieldNames (${fieldProps.fieldNames.length}) and referenceField.primaryKeys (${referenceField.primaryKeys.length}) must have the same length.`
+				`Mismatch in lengths: fieldProps.fieldNames (${fieldProps.fieldNames.length}) and reference columns (${refCols.length}) must have the same length.`
 			);
 		}
 
 		if (fieldProps.fieldNames.length && referenceField.tableName) {
-			const ons = referenceField.primaryKeys;
+			const ons = refCols;
 			const entityOns = fieldProps.fieldNames;
 
 			const where = entityOns

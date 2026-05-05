@@ -322,6 +322,9 @@ describe('FilterProcessor', () => {
 			const parentAlias = aliasManager.start('p');
 			const alias = aliasManager.start('p');
 
+			const originalLogType = process.env.D3GOP_LOG_TYPE;
+			process.env.D3GOP_LOG_TYPE = 'FilterProcessor';
+
 			const originalWarn = console.warn;
 			let warnCallCount = 0;
 			let lastWarnMessage = '';
@@ -342,7 +345,9 @@ describe('FilterProcessor', () => {
 
 			expect(warnCallCount).toBe(1);
 			expect(lastWarnMessage).toBe('FilterProcessor - _not operation not yet implemented');
+
 			console.warn = originalWarn;
+			process.env.D3GOP_LOG_TYPE = originalLogType;
 		});
 	});
 

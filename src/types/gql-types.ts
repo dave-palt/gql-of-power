@@ -128,3 +128,15 @@ export type GQLEntityPaginationInputType<T> = {
 	offset?: number;
 	orderBy?: GQLEntityOrderByInputType<T>[];
 };
+
+/**
+ * Represents the auto-generated Input type for CRUD operations.
+ * All scalar fields from defineFields are included as optional,
+ * relation and custom fields are excluded.
+ *
+ * @example
+ * // Usage in a mutation:
+ * @Mutation(() => PersonGQL)
+ * async createPerson(@Arg('input') input: typeof PersonGQL.Input) { ... }
+ */
+export type GQLEntityInputType<T> = Partial<OmitArrays<DefinedType<T>>>;
