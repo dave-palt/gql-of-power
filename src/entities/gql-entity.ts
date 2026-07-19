@@ -36,8 +36,97 @@ const ParseJsonFieldsMap: Record<string, Set<string>> = {};
 
 const aclMap: AccessControlList<any, any> = {};
 
+/**
+ * Shared field-metadata registration used by both the @GQLEntityClass decorator
+ * and createGQLEntity(). For a single field it:
+ *   1. registers the alias (if any) in FieldsOptionsMap,
+ *   2. registers the enum mapping (mapNumericEnum) and JSON parsing (parseJson),
+ *   3. emits the type-graphql collectClassFieldMetadata call.
+ *
+ * Extracted to eliminate the field-iteration clone between the two entry points.
+ */
+function registerFieldMetadata(
+	fieldName: string,
+	fieldOptions: any,
+	gqlEntityName: string,
+	target: any,
+	metadata: ReturnType<typeof getMetadataStorage>
+): void {
+	const fieldNameOverride = fieldOptions.alias;
+	if (fieldNameOverride) {
+		FieldsOptionsMap[gqlEntityName] = FieldsOptionsMap[gqlEntityName] || {};
+		FieldsOptionsMap[gqlEntityName][fieldNameOverride] = fieldName;
+	}
+	const fieldNameToUse = fieldNameOverride ?? fieldName;
+
+	if (fieldOptions.mapNumericEnum) {
+		try {
+			const enumObj = fieldOptions.type();
+			MapEnumFieldsMap[gqlEntityName] = MapEnumFieldsMap[gqlEntityName] || {};
+			MapEnumFieldsMap[gqlEntityName][fieldNameToUse] = enumObj;
+		} catch {
+			// type thunk may throw for forward refs — safe to skip
+		}
+	}
+
+	if (fieldOptions.parseJson) {
+		ParseJsonFieldsMap[gqlEntityName] = ParseJsonFieldsMap[gqlEntityName] || new Set();
+		ParseJsonFieldsMap[gqlEntityName].add(fieldNameToUse);
+	}
+
+	const isArray = 'array' in fieldOptions && fieldOptions.array;
+	metadata.collectClassFieldMetadata({
+		target,
+		name: fieldNameToUse,
+		schemaName: fieldNameToUse,
+		getType: fieldOptions.type,
+		complexity: undefined,
+		description: fieldNameToUse,
+		deprecationReason: undefined,
+		typeOptions: {
+			...(isArray ? { array: true, arrayDepth: 1 } : {}),
+			...fieldOptions.options,
+		},
+	});
+}
+
 /** Auto-resolver registry: gqlEntityName → FieldsResolver class */
 const autoResolverRegistry = new Map<string, new () => any>();
+
+/**
+ * Builds a filter-input FieldParameter for a single filter operator option.
+ * Used twice per option in createGQLEntityFilters — once for the backwards-compat
+ * `fieldName + key` field and once for the nested `key` field — both share the
+ * exact same options/typeOptions/getType logic, differing only in target + name.
+ */
+function buildFilterFieldParameter(
+	target: any,
+	name: string,
+	option: { array?: boolean; appliesToArray?: boolean },
+	fieldOptions: any,
+	getType: any,
+	getFilterType: any
+): any {
+	const isArray = option.array || option.appliesToArray;
+	return {
+		target,
+		name,
+		schemaName: name,
+		getType: option.appliesToArray && getFilterType ? getFilterType : getType,
+		options: {
+			...fieldOptions.options,
+			...(isArray ? { array: true, arrayDepth: 1 } : {}),
+			nullable: true,
+		},
+		typeOptions: {
+			...(isArray ? { array: true, arrayDepth: 1 } : {}),
+			nullable: true,
+		},
+		complexity: undefined,
+		description: name,
+		deprecationReason: undefined,
+	};
+}
 
 // ─── Global config ───────────────────────────────────────────────────────────
 
@@ -270,42 +359,7 @@ export function GQLEntityClass<T extends Object, K>(
 			const fieldOptions = fieldName in fields ? fields[fieldName] : undefined;
 			if (!fieldOptions) continue;
 
-			const fieldNameOverride = (fieldOptions as any).alias;
-			if (fieldNameOverride) {
-				FieldsOptionsMap[gqlEntityName] = FieldsOptionsMap[gqlEntityName] || {};
-				FieldsOptionsMap[gqlEntityName][fieldNameOverride] = fieldName;
-			}
-			const fieldNameToUse = fieldNameOverride ?? fieldName;
-			const isArray = 'array' in fieldOptions && fieldOptions.array;
-
-			if ((fieldOptions as any).mapNumericEnum) {
-				try {
-					const enumObj = fieldOptions.type();
-					MapEnumFieldsMap[gqlEntityName] = MapEnumFieldsMap[gqlEntityName] || {};
-					MapEnumFieldsMap[gqlEntityName][fieldNameToUse] = enumObj;
-				} catch {
-					// type thunk may throw for forward refs — safe to skip
-				}
-			}
-
-			if ((fieldOptions as any).parseJson) {
-				ParseJsonFieldsMap[gqlEntityName] = ParseJsonFieldsMap[gqlEntityName] || new Set();
-				ParseJsonFieldsMap[gqlEntityName].add(fieldNameToUse);
-			}
-
-			metadata.collectClassFieldMetadata({
-				target: GQLEntity,
-				name: fieldNameToUse,
-				schemaName: fieldNameToUse,
-				getType: fieldOptions.type,
-				complexity: undefined,
-				description: fieldNameToUse,
-				deprecationReason: undefined,
-				typeOptions: {
-					...(isArray ? { array: true, arrayDepth: 1 } : {}),
-					...fieldOptions.options,
-				},
-			});
+			registerFieldMetadata(fieldName, fieldOptions, gqlEntityName, GQLEntity, metadata);
 		}
 
 		ObjectType(gqlEntityName)(GQLEntity);
@@ -444,42 +498,7 @@ export function createGQLEntity<T extends Object, K>(
 		if (!fieldOptions) {
 			continue;
 		}
-		const fieldNameOverride = fieldOptions.alias;
-		if (fieldNameOverride) {
-			FieldsOptionsMap[gqlEntityName] = FieldsOptionsMap[gqlEntityName] || {};
-			FieldsOptionsMap[gqlEntityName][fieldNameOverride] = fieldName;
-		}
-		const fieldNameToUse = fieldNameOverride ?? fieldName;
-
-		if ((fieldOptions as any).mapNumericEnum) {
-			try {
-				const enumObj = fieldOptions.type();
-				MapEnumFieldsMap[gqlEntityName] = MapEnumFieldsMap[gqlEntityName] || {};
-				MapEnumFieldsMap[gqlEntityName][fieldNameToUse] = enumObj;
-			} catch {
-				// type thunk may throw for forward refs — safe to skip
-			}
-		}
-
-		if ((fieldOptions as any).parseJson) {
-			ParseJsonFieldsMap[gqlEntityName] = ParseJsonFieldsMap[gqlEntityName] || new Set();
-			ParseJsonFieldsMap[gqlEntityName].add(fieldNameToUse);
-		}
-
-		const isArray = 'array' in fieldOptions && fieldOptions.array;
-		metadata.collectClassFieldMetadata({
-			target: GQLEntity,
-			name: fieldNameToUse,
-			schemaName: fieldNameToUse,
-			getType: fieldOptions.type,
-			complexity: undefined,
-			description: fieldNameToUse,
-			deprecationReason: undefined,
-			typeOptions: {
-				...(isArray ? { array: true, arrayDepth: 1 } : {}),
-				...fieldOptions.options,
-			},
-		});
+		registerFieldMetadata(fieldName, fieldOptions, gqlEntityName, GQLEntity, metadata);
 	}
 
 	ObjectType(gqlEntityName)(GQLEntity);
@@ -1112,45 +1131,26 @@ export function createGQLEntityFilters<T, K>(
 		if (canFilterForField && applicableOptions.length > 0) {
 			for (const option of applicableOptions) {
 				const optionGQLName = fieldName + option.key;
-				const backCompFieldFilterOpt = {
-					target: GQLEntityFilterInput,
-					name: optionGQLName,
-					schemaName: optionGQLName,
-					getType: option.appliesToArray && getFilterType ? getFilterType : getType,
-					options: {
-						...fieldOptions.options,
-						...(option.array || option.appliesToArray ? { array: true, arrayDepth: 1 } : {}),
-						nullable: true,
-					},
-					typeOptions: {
-						...(option.array || option.appliesToArray ? { array: true, arrayDepth: 1 } : {}),
-						nullable: true,
-					},
-					complexity: undefined,
-					description: optionGQLName,
-					deprecationReason: undefined,
-				} as FieldParameter;
-				metadata.collectClassFieldMetadata(backCompFieldFilterOpt);
-
-				const fieldFilterOpt = {
-					target: GQLEntityFilterInputField,
-					name: option.key,
-					schemaName: option.key,
-					getType: option.appliesToArray && getFilterType ? getFilterType : getType,
-					options: {
-						...fieldOptions.options,
-						...(option.array || option.appliesToArray ? { array: true, arrayDepth: 1 } : {}),
-						nullable: true,
-					},
-					typeOptions: {
-						...(option.array || option.appliesToArray ? { array: true, arrayDepth: 1 } : {}),
-						nullable: true,
-					},
-					complexity: undefined,
-					description: option.key,
-					deprecationReason: undefined,
-				} as FieldParameter;
-				metadata.collectClassFieldMetadata(fieldFilterOpt);
+				metadata.collectClassFieldMetadata(
+					buildFilterFieldParameter(
+						GQLEntityFilterInput,
+						optionGQLName,
+						option,
+						fieldOptions,
+						getType,
+						getFilterType
+					)
+				);
+				metadata.collectClassFieldMetadata(
+					buildFilterFieldParameter(
+						GQLEntityFilterInputField,
+						option.key,
+						option,
+						fieldOptions,
+						getType,
+						getFilterType
+					)
+				);
 			}
 		}
 		if (!('relatedEntityName' in fieldOptions)) {

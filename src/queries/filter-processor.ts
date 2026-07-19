@@ -1656,20 +1656,21 @@ export class FilterProcessor extends ClassOperations {
 		whereWithValues: string[],
 		value?: { innerJoin: string } | { where: string }
 	): string {
-		return `select 1
-					from "${tableName}" as ${alias}
-					${innerJoin.join(' \n')}
-					${value && 'innerJoin' in value ? value.innerJoin : ''}
-					${outerJoin.join(' \n')}
-				where ${whereSQL}
-				${whereWithValues.length > 0 ? ` and ( ${whereWithValues.join(' and ')} )` : ''}
-				${value && 'where' in value ? `and ${value.where}` : ''}
-				limit 1`.replaceAll(/[ \n\t]+/gi, ' ');
+		return buildExistsSubquerySQL(
+			alias,
+			tableName,
+			innerJoin,
+			outerJoin,
+			whereSQL,
+			whereWithValues,
+			value
+		);
 	}
 
 	/**
 	 * Builds the inner query for Many-to-One EXISTS filters.
-	 * Selects 1 since we only need existence, not the actual rows.
+	 * Identical shape to buildOneToXJoin — both delegate to buildExistsSubquerySQL.
+	 * Kept as a named method so call-sites read naturally at m:1 relationship sites.
 	 */
 	protected buildManyToOneJoin(
 		_fields: string[],
@@ -1681,15 +1682,15 @@ export class FilterProcessor extends ClassOperations {
 		whereWithValues: string[],
 		value?: { innerJoin: string } | { where: string }
 	): string {
-		return `select 1
-					from "${tableName}" as ${alias}
-					${innerJoin.join(' \n')}
-					${value && 'innerJoin' in value ? value.innerJoin : ''}
-					${outerJoin.join(' \n')}
-				where ${whereSQL}
-				${whereWithValues.length > 0 ? ` and ( ${whereWithValues.join(' and ')} )` : ''}
-				${value && 'where' in value ? `and ${value.where}` : ''}
-				limit 1`.replaceAll(/[ \n\t]+/gi, ' ');
+		return buildExistsSubquerySQL(
+			alias,
+			tableName,
+			innerJoin,
+			outerJoin,
+			whereSQL,
+			whereWithValues,
+			value
+		);
 	}
 
 	/**
@@ -1716,4 +1717,31 @@ export class FilterProcessor extends ClassOperations {
 				${value && 'where' in value ? `and ${value.where}` : ''}
 				limit 1`.replaceAll(/[ \n\t]+/gi, ' ');
 	}
+}
+
+/**
+ * Shared SQL template for the One-to-X and Many-to-One EXISTS inner queries.
+ * Both select `1` (we only need existence, not rows) and share the exact same
+ * FROM/JOIN/WHERE shape. Module-level so the FilterProcessor wrapper methods
+ * can delegate without `this`-binding concerns (they are passed as unbound
+ * callbacks to SQLBuilder.buildUnionAll).
+ */
+function buildExistsSubquerySQL(
+	alias: Alias,
+	tableName: string,
+	innerJoin: string[],
+	outerJoin: string[],
+	whereSQL: string,
+	whereWithValues: string[],
+	value?: { innerJoin: string } | { where: string }
+): string {
+	return `select 1
+					from "${tableName}" as ${alias}
+					${innerJoin.join(' \n')}
+					${value && 'innerJoin' in value ? value.innerJoin : ''}
+					${outerJoin.join(' \n')}
+				where ${whereSQL}
+					${whereWithValues.length > 0 ? ` and ( ${whereWithValues.join(' and ')} )` : ''}
+					${value && 'where' in value ? `and ${value.where}` : ''}
+					limit 1`.replaceAll(/[ \n\t]+/gi, ' ');
 }

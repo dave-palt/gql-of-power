@@ -32,87 +32,100 @@ export abstract class FieldOperationsClass<T> {
 	abstract _exists: T;
 }
 
+type Scalar = string | number | boolean | bigint | null;
+type FieldOperation = (
+	colRefs: string[],
+	valueRefs: Scalar[]
+) => { where: string; value: Record<string, Scalar> | undefined };
+
+/**
+ * Builds the three array-membership operators (_in / _nin / _contains) that
+ * share the same value-binding pattern: each value gets a `<rightRef>__<i>`
+ * placeholder, and a value map keyed by the stripped ref + index.
+ *
+ * `formatWhere` receives the left column ref and the joined placeholder list
+ * so each operator only differs in the SQL it emits.
+ */
+function buildArrayContainmentOperator(
+	formatWhere: (left: string, placeholders: string) => string
+): FieldOperation {
+	return ([l, r, ..._args]: string[], [_, ...values]: Scalar[]) => {
+		const placeholders = values.map((_, i) => `${r}__${i}`).join(', ');
+		const value = values.reduce(
+			(acc, v, i) => ({ ...acc, [r.slice(1) + '__' + i]: v }),
+			{} as Record<string, Scalar>
+		);
+		return { where: formatWhere(l, placeholders), value };
+	};
+}
+
 export const FieldOperations = {
-	_and: ([l]: string[], [_]: Array<string | number | boolean | bigint | null>) => ({
+	_and: ([l]: string[], [_]: Scalar[]) => ({
 		where: `and (${l})`,
 		value: undefined,
 	}),
 
-	_eq: ([l, r]: string[], [_, rv]: Array<string | number | boolean | bigint | null>) => ({
+	_eq: ([l, r]: string[], [_, rv]: Scalar[]) => ({
 		where: `${l} ${rv !== null && rv !== 'null' ? `= ${r}` : 'is null'}`,
 		value: undefined,
 	}),
-	_ne: ([l, r]: string[], [_, rv]: Array<string | number | boolean | bigint | null>) => ({
+
+	_ne: ([l, r]: string[], [_, rv]: Scalar[]) => ({
 		where: `${l} ${rv !== null && rv !== 'null' ? `!= ${r}` : 'is not null'}`,
 		value: undefined,
 	}),
-	_in: (
-		[l, r, ..._args]: string[],
-		[_, ...values]: Array<string | number | boolean | bigint | null>
-	) => ({
-		where: `${l} in (${values.map((_, i) => r + '__' + i).join(', ')})`,
-		value: values.reduce((acc, v, i) => ({ ...acc, [r.slice(1) + '__' + i]: v }), {}),
-	}),
-	_nin: (
-		[l, r, ..._args]: string[],
-		[_, ...values]: Array<string | number | boolean | bigint | null>
-	) => ({
-		where: `${l} not in (${values.map((_, i) => r + '__' + i).join(', ')})`,
-		value: values.reduce((acc, v, i) => ({ ...acc, [r.slice(1) + '__' + i]: v }), {}),
-	}),
-	_gt: ([l, r]: string[], []: Array<string | number | boolean | bigint | null>) => ({
+
+	_in: buildArrayContainmentOperator((l, placeholders) => `${l} in (${placeholders})`),
+	_nin: buildArrayContainmentOperator((l, placeholders) => `${l} not in (${placeholders})`),
+	_contains: buildArrayContainmentOperator(
+		(l, placeholders) => `ARRAY[${l}] @> ARRAY[${placeholders}]`
+	),
+
+	_gt: ([l, r]: string[], []: Scalar[]) => ({
 		where: `${l} > ${r}`,
 		value: undefined,
 	}),
-	_gte: ([l, r]: string[], []: Array<string | number | boolean | bigint | null>) => ({
+	_gte: ([l, r]: string[], []: Scalar[]) => ({
 		where: `${l} >= ${r}`,
 		value: undefined,
 	}),
-	_lt: ([l, r]: string[], []: Array<string | number | boolean | bigint | null>) => ({
+	_lt: ([l, r]: string[], []: Scalar[]) => ({
 		where: `${l} < ${r}`,
 		value: undefined,
 	}),
-	_lte: ([l, r]: string[], []: Array<string | number | boolean | bigint | null>) => ({
+	_lte: ([l, r]: string[], []: Scalar[]) => ({
 		where: `${l} <= ${r}`,
 		value: undefined,
 	}),
-	_like: ([l, r]: string[], []: Array<string | number | boolean | bigint | null>) => ({
+	_like: ([l, r]: string[], []: Scalar[]) => ({
 		where: `${l} like ${r}`,
 		value: undefined,
 	}),
-	_re: ([l, r]: string[], []: Array<string | number | boolean | bigint | null>) => ({
+	_re: ([l, r]: string[], []: Scalar[]) => ({
 		where: `${l} ~ ${r}`,
 		value: undefined,
 	}),
-	_ilike: ([l, r]: string[], []: Array<string | number | boolean | bigint | null>) => ({
+	_ilike: ([l, r]: string[], []: Scalar[]) => ({
 		where: `${l} ilike ${r}`,
 		value: undefined,
 	}),
-	_fulltext: ([l, r]: string[], []: Array<string | number | boolean | bigint | null>) => ({
+	_fulltext: ([l, r]: string[], []: Scalar[]) => ({
 		where: `${l}::tsvector @@ ${r}::tsquery`,
 		value: undefined,
 	}),
-	_overlap: ([l, r]: string[], []: Array<string | number | boolean | bigint | null>) => ({
+	_overlap: ([l, r]: string[], []: Scalar[]) => ({
 		where: `ARRAY[${l}] && ARRAY[${r}]`,
 		value: undefined,
 	}),
-	// this is possibly not implemented correctly
-	_contains: (
-		[l, r, ..._args]: string[],
-		[_, ...values]: Array<string | number | boolean | bigint | null>
-	) => ({
-		where: `ARRAY[${l}] @> ARRAY[${values.map((_, i) => r + '__' + i).join(', ')}]`,
-		value: values.reduce((acc, v, i) => ({ ...acc, [r.slice(1) + '__' + i]: v }), {}),
-	}),
-	_contained: ([l, r]: string[], []: Array<string | number | boolean | bigint | null>) => ({
+	_contained: ([l, r]: string[], []: Scalar[]) => ({
 		where: `${l} contained ${r}`,
 		value: undefined,
 	}),
-	_between: ([l, r1, r2]: string[], []: Array<string | number | boolean | bigint | null>) => ({
+	_between: ([l, r1, r2]: string[], []: Scalar[]) => ({
 		where: `${l} between ${r1} and ${r2}`,
 		value: undefined,
 	}),
-	_exists: ([l]: string[], []: Array<string | number | boolean | bigint | null>) => ({
+	_exists: ([l]: string[], []: Scalar[]) => ({
 		where: `exists ${l}`,
 		value: undefined,
 	}),
