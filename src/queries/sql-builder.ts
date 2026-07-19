@@ -1,6 +1,8 @@
-import { getFieldByAlias } from '../entities';
-import { EntityMetadata, GQLEntityOrderByInputType, MappingsType } from '../types';
-import { keys } from '../utils';
+import { getFieldByAlias } from '../entities/gql-entity';
+import { EntityMetadata } from '../types/sql-types';
+import { GQLEntityOrderByInputType } from '../types/gql-types';
+import { MappingsType } from '../types/gql-to-sql-types';
+import { keys } from '../utils/object';
 import { Alias } from './alias';
 
 export class SQLBuilder {
@@ -198,104 +200,5 @@ export class SQLBuilder {
 			from ${fromSQL}
 			${joins.join(' \n')}
 		) as ${alias} on true`.replaceAll(/[ \n\t]+/gi, ' ');
-	}
-
-	/**
-	 * Builds a many-to-many pivot table query
-	 * @param fieldNames Fields to select
-	 * @param alias Table alias
-	 * @param tableName Table name
-	 * @param innerJoin Filter join conditions
-	 * @param join Join conditions
-	 * @param whereSQL Where conditions
-	 * @param whereWithValues Where conditions with values
-	 * @param value Optional additional conditions
-	 * @returns Many-to-many pivot table SQL
-	 */
-	public static buildManyToManyPivotTable(
-		fieldNames: string[],
-		alias: Alias,
-		tableName: string,
-		innerJoin: string[],
-		join: string[],
-		whereSQL: string,
-		whereWithValues: string[],
-		value?: { innerJoin: string } | { where: string }
-	): string {
-		return `select ${fieldNames.join(', ')} 
-					from ${tableName} as ${alias.toString()}
-						${join.join(' \n')}
-						${value && 'innerJoin' in value ? value.innerJoin : ''}
-						${innerJoin.join(' \n')}
-				${whereSQL.length > 0 ? ` where ${whereSQL}` : ''}
-				${whereWithValues.length > 0 ? ` and ${whereWithValues.join(' and ')}` : ''}
-				${value && 'where' in value ? `and ${value.where}` : ''}`.replaceAll(/[ \n\t]+/gi, ' ');
-	}
-
-	/**
-	 * Builds a many-to-one join query
-	 * @param fields Fields to select
-	 * @param alias Table alias
-	 * @param tableName Table name
-	 * @param innerJoin Filter join conditions
-	 * @param join Join conditions
-	 * @param whereSQL Where conditions
-	 * @param whereWithValues Where conditions with values
-	 * @param value Optional additional conditions
-	 * @returns Many-to-one join SQL
-	 */
-	public static buildManyToOneJoin(
-		fields: string[],
-		alias: Alias,
-		tableName: string,
-		innerJoin: string[],
-		join: string[],
-		whereSQL: string,
-		whereWithValues: string[],
-		value?: { innerJoin: string } | { where: string }
-	): string {
-		return `select ${alias.toColumnName('*')} 
-					from "${tableName}" as ${alias}
-					${innerJoin.join(' \n')}
-					${join.join(' \n')}
-					${value && 'innerJoin' in value ? value.innerJoin : ''}
-				where ${whereSQL} 
-				${whereWithValues.length > 0 ? ' and ' : ''}
-				${whereWithValues.join(' and ')}
-				${value && 'where' in value ? `and ${value.where}` : ''}`.replaceAll(/[ \n\t]+/gi, ' ');
-	}
-
-	/**
-	 * Builds a one-to-many join query
-	 * @param fields Fields to select
-	 * @param alias Table alias
-	 * @param tableName Table name
-	 * @param innerJoin Filter join conditions
-	 * @param join Join conditions
-	 * @param whereSQL Where conditions
-	 * @param whereWithValues Where conditions with values
-	 * @param value Optional additional conditions
-	 * @returns One-to-many join SQL
-	 */
-	public static buildOneToXJoin(
-		fields: string[],
-		alias: Alias,
-		tableName: string,
-		innerJoin: string[],
-		join: string[],
-		whereSQL: string,
-		whereWithValues: string[],
-		value?: { innerJoin: string } | { where: string }
-	): string {
-		return `select ${alias.toColumnName('*')} 
-					from "${tableName}" as ${alias}
-					${innerJoin.join(' \n')}
-					${join.join(' \n')}
-					${value && 'innerJoin' in value ? value.innerJoin : ''}
-				where ${whereSQL} 
-				${whereWithValues.length > 0 ? ' and ' : ''}
-				${whereWithValues.join(' and ')}
-				${value && 'where' in value ? `and ${value.where}` : ''}
-				`.replaceAll(/[ \n\t]+/gi, ' ');
 	}
 }

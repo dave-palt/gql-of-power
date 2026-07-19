@@ -1,6 +1,6 @@
 const getLogTypes = () => (process.env.D3GOP_LOG_TYPE || 'all').split(',');
 
-export const shouldLog = (first: any) => {
+const shouldLog = (first: any) => {
 	const logTypes = getLogTypes();
 	return (
 		logTypes.length === 0 ||

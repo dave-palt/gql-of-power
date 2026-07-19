@@ -1,0 +1,17 @@
+{
+  "clone_groups": [
+    "src/entities/gql-entity.ts:279-294|src/entities/gql-entity.ts:452-467",
+    "src/entities/gql-entity.ts:296-311|src/entities/gql-entity.ts:470-485",
+    "src/entities/gql-entity.ts:443-452|src/entities/gql-entity.ts:637-648",
+    "src/entities/gql-entity.ts:1119-1130|src/entities/gql-entity.ts:1139-1150",
+    "src/field-operations.ts:100-106|src/field-operations.ts:49-55|src/field-operations.ts:56-62",
+    "src/queries/filter-processor.ts:476-491|src/queries/filter-processor.ts:516-531",
+    "src/queries/filter-processor.ts:776-805|src/queries/gql-to-sql-mapper.ts:696-727",
+    "src/queries/filter-processor.ts:1075-1080|src/queries/gql-to-sql-mapper.ts:398-410",
+    "src/queries/filter-processor.ts:1104-1109|src/queries/gql-to-sql-mapper.ts:424-429",
+    "src/queries/filter-processor.ts:1408-1422|src/queries/filter-processor.ts:1493-1507",
+    "src/queries/filter-processor.ts:1432-1444|src/queries/filter-processor.ts:1510-1525",
+    "src/queries/filter-processor.ts:1649-1667|src/queries/filter-processor.ts:1674-1692",
+    "src/query-manager.ts:156-166|src/query-manager.ts:234-242"
+  ]
+}

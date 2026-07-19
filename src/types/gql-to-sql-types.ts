@@ -1,5 +1,5 @@
-import { Alias } from '../queries';
-import { keys } from '../utils';
+import { Alias } from '../queries/alias';
+import { keys } from '../utils/object';
 import { GQLEntityOrderByInputType } from './gql-types';
 
 export type MappingsType = {

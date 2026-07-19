@@ -15,15 +15,14 @@ import {
 	CustomFieldsSettings,
 	FieldSettings,
 	FieldsSettings,
-	GQLEntityFilterInputFieldType,
-	GQLEntityPaginationInputType,
 	OrderByOptions,
 	RelatedFieldSettings,
 	RequireRelationConfig,
 	Sort,
-} from '../types';
+} from '../types/sql-types';
+import { GQLEntityFilterInputFieldType, GQLEntityPaginationInputType } from '../types/gql-types';
 import { AccessControlEntry, AccessControlList } from '../types/access-control';
-import { keys } from '../utils';
+import { keys } from '../utils/object';
 
 // ─── Internal registries ────────────────────────────────────────────────────
 

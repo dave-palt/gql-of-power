@@ -1,0 +1,13 @@
+# Build output
+dist/
+coverage/
+
+# Lockfiles (binary / auto-generated)
+bun.lockb
+pnpm-lock.yaml
+package-lock.json
+yarn.lock
+
+# fallow caches (auto-managed) + machine-generated baselines
+.fallow/
+fallow-baselines/

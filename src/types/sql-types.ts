@@ -1,6 +1,6 @@
 import { Knex } from 'knex';
 import { Field, FieldResolver, registerEnumType } from 'type-graphql';
-import { FieldOperations } from '../operations';
+import { FieldOperations } from '../field-operations';
 import { GQLEntityFilterInputFieldType, GQLEntityPaginationInputType } from './gql-types';
 import { ExtractArrayType } from './utils';
 
@@ -50,7 +50,9 @@ export type MetadataProvider = {
 export type MetadataProviderType = MetadataProvider & DatabaseDriver;
 
 export enum Sort {
+	// fallow-ignore-next-line unused-enum-member -- members are the values registered with GraphQL via registerEnumType(Sort) in gql-entity.ts
 	ASC = 'asc',
+	// fallow-ignore-next-line unused-enum-member -- members are the values registered with GraphQL via registerEnumType(Sort) in gql-entity.ts
 	DESC = 'desc',
 }
 export type OrderByOptions = {
@@ -408,9 +410,8 @@ export type Fields<
 	SingleRecordIdentifierFieldName extends string = 'getEntity',
 > = Partial<{
 	[key in string & keyof NonNullable<T>]: NonNullable<NonNullable<T>[key]> extends Array<infer E>
-		?
-				| Fields<NonNullable<E>, ArrayIdentifierFieldName, SingleRecordIdentifierFieldName>
-				| GQLArgumentsFilterAndPagination<NonNullable<E>>
+		? | Fields<NonNullable<E>, ArrayIdentifierFieldName, SingleRecordIdentifierFieldName>
+			| GQLArgumentsFilterAndPagination<NonNullable<E>>
 		: NonNullable<NonNullable<T>[key]> extends infer K
 			? K extends infer E
 				? ArrayIdentifierFieldName extends keyof NonNullable<E>

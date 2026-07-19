@@ -575,7 +575,10 @@ bun install        # Install dependencies
 bun run build      # Compile TypeScript → dist/
 bun run test       # Run all tests
 bun run test:watch # Watch mode
+bun run audit      # Codebase-intelligence gate (fallow): dead code, duplication, complexity
 ```
+
+`bun run audit` runs the changed-file gate against saved baselines in `.fallow/` and fails only on **new** findings it introduces. Use `bun run audit:full` for the complete report, or `bun run audit:dead-code` / `audit:dupes` / `audit:health` for individual analyses. See `AGENTS.md` for the full audit workflow.
 
 ---
 

@@ -23,5 +23,6 @@
 
 - [ ] Tests pass locally
 - [ ] Code follows project style guidelines
+- [ ] Audit clean (`bun run audit`) — no new fallow findings introduced
 - [ ] Documentation updated (if needed)
 - [ ] Release label added (if merging to main)

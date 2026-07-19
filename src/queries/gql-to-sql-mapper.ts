@@ -3,7 +3,7 @@ import {
 	getFieldByAlias,
 	getGQLEntityNameFor,
 	getParseJsonFieldsFor,
-} from '../entities';
+} from '../entities/gql-entity';
 import {
 	CountFieldMeta,
 	CustomFieldSettings,
@@ -12,16 +12,14 @@ import {
 	EntityProperty,
 	Fields,
 	FieldSelection,
-	GQLEntityFilterInputFieldType,
-	GQLEntityPaginationInputType,
-	MappingsType,
-	mappingsTypeToString,
 	MetadataProviderType,
 	ReferenceType,
 	RelatedFieldSettings,
 	RequireRelationConfig,
-} from '../types';
-import { keys } from '../utils';
+} from '../types/sql-types';
+import { GQLEntityFilterInputFieldType, GQLEntityPaginationInputType } from '../types/gql-types';
+import { MappingsType, mappingsTypeToString } from '../types/gql-to-sql-types';
+import { keys } from '../utils/object';
 import { logger } from '../variables';
 import { Alias, AliasManager, AliasType } from './alias';
 import { FilterProcessor } from './filter-processor';
@@ -646,8 +644,7 @@ export class GQLtoSQLMapper {
 					: [customFieldProps.requires];
 			requires.forEach((req) => {
 				const reqProps = ownerMetadata?.properties[req as keyof typeof ownerMetadata.properties] as
-					| EntityProperty
-					| undefined;
+					EntityProperty | undefined;
 				if (reqProps?.reference) return;
 				mapping.select.add(`${latestAlias.toString()}.${req} AS "${req}"`);
 				mapping.rawSelect.add(`${latestAlias.toString()}.${req}`);

@@ -1,4 +1,4 @@
-import { ClassOperationsClass, FieldOperationsClass } from '../operations';
+import { ClassOperationsClass, FieldOperationsClass } from '../field-operations';
 import {
 	ConcatConditionalArray,
 	DefinedType,
@@ -33,16 +33,17 @@ export type FieldOperationsType<T> = Partial<
 export type FieldValuesObjectOperationsType<T> =
 	DefinedType<T> extends Array<infer K>
 		? {
-				[k in string &
-					keyof Pick<
-						FieldOperationsClass<DefinedType<K>>,
-						'_in' | '_nin' | '_contains' | '_eq' | '_overlap'
-					>]?: FieldOperationsClass<DefinedType<K>>[k] | null;
+				[
+					k in string &
+						keyof Pick<
+							FieldOperationsClass<DefinedType<K>>,
+							'_in' | '_nin' | '_contains' | '_eq' | '_overlap'
+						>
+				]?: FieldOperationsClass<DefinedType<K>>[k] | null;
 			}
 		: {
 				[k in string & keyof FieldOperationsClass<DefinedType<T>>]?:
-					| FieldOperationsClass<DefinedType<T>>[k]
-					| null;
+					FieldOperationsClass<DefinedType<T>>[k] | null;
 			};
 
 /**
@@ -68,7 +69,8 @@ export type FieldValuesObjectType<T> =
  *  - \[field_eq\]: T\[field\]
  *  - \[field\]: { _eq: typeof T\[field\], ... }
  */
-export type FieldFilterType<T> = //FieldValuesType<T> &
+export type FieldFilterType<T> =
+	//FieldValuesType<T> &
 	Partial<FieldValuesObjectType<T>> & Partial<FieldOperationsType<T>>;
 
 /**

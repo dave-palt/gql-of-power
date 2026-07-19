@@ -1,4 +1,4 @@
-import { getCountFieldsFor, getGQLEntityNameFor } from '../entities';
+import { getCountFieldsFor, getGQLEntityNameFor } from '../entities/gql-entity';
 import {
 	ClassOperationInputType,
 	ClassOperations,
@@ -10,12 +10,12 @@ import {
 	CustomFieldsSettings,
 	EntityMetadata,
 	EntityProperty,
-	GQLEntityFilterInputFieldType,
-	MappingsType,
 	MetadataProviderType,
 	ReferenceType,
-} from '../types';
-import { keys } from '../utils';
+} from '../types/sql-types';
+import { GQLEntityFilterInputFieldType } from '../types/gql-types';
+import { MappingsType } from '../types/gql-to-sql-types';
+import { keys } from '../utils/object';
 import { logger } from '../variables';
 import { Alias, AliasManager, AliasType } from './alias';
 import { SQLBuilder } from './sql-builder';
@@ -472,6 +472,7 @@ export class FilterProcessor extends ClassOperations {
 	 * WHERE EXISTS (SELECT 1 FROM books WHERE ...) AND EXISTS (SELECT 1 FROM rings WHERE ...)
 	 * ```
 	 */
+	// fallow-ignore-next-line unused-class-member -- implements abstract ClassOperations._exists; dispatched dynamically via this[gqlFieldNameKey] in processFilter
 	public _exists<T>({
 		entityMetadata,
 		gqlFilters,
@@ -511,6 +512,7 @@ export class FilterProcessor extends ClassOperations {
 	 * WHERE NOT EXISTS (SELECT 1 FROM books WHERE ...)
 	 * ```
 	 */
+	// fallow-ignore-next-line unused-class-member -- implements abstract ClassOperations._not_exists; dispatched dynamically via this[gqlFieldNameKey] in processFilter
 	public _not_exists<T>({
 		entityMetadata,
 		gqlFilters,

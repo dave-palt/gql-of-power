@@ -1,12 +1,7 @@
-import {
-	EntityMetadata,
-	EntityProperty,
-	GQLEntityOrderByInputType,
-	MappingsType,
-	mappingsTypeToString,
-	ReferenceType,
-} from '../types';
-import { keys } from '../utils';
+import { EntityMetadata, EntityProperty, ReferenceType } from '../types/sql-types';
+import { GQLEntityOrderByInputType } from '../types/gql-types';
+import { MappingsType, mappingsTypeToString } from '../types/gql-to-sql-types';
+import { keys } from '../utils/object';
 import { logger } from '../variables';
 import { Alias } from './alias';
 import { SQLBuilder } from './sql-builder';

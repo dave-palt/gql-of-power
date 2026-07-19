@@ -11,14 +11,12 @@ import {
 	getMapEnumFieldsFor,
 } from './entities/gql-entity';
 import { GQLtoSQLMapper } from './queries/gql-to-sql-mapper';
+import { DatabaseDriver, FieldSelection, MetadataProviderType } from './types/sql-types';
 import {
-	DatabaseDriver,
-	FieldSelection,
 	GQLEntityFilterInputFieldType,
 	GQLEntityOrderByInputType,
 	GQLEntityPaginationInputType,
-	MetadataProviderType,
-} from './types';
+} from './types/gql-types';
 import { logger } from './variables';
 
 export const getGQLFields = (info: GraphQLResolveInfo) => {
