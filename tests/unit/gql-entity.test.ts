@@ -189,3 +189,38 @@ describe('_resolveRelatedEntityNames guard', () => {
 		expect(TestWarriorMixedGQL.FilterInput).toBeDefined();
 	});
 });
+
+describe('custom field with resolveDecorators', () => {
+	beforeEach(() => {
+		setGlobalConfig({ gqlTypesSuffix: '' });
+	});
+
+	it('should register a resolve-strategy custom field with parameter decorators', () => {
+		// Exercises the resolveDecorators?.forEach branch in _buildResolversForEntity
+		// (line ~700) — a non-empty resolveDecorators array must apply each decorator
+		// and skip the default Root() injection.
+		@GQLEntityClass(
+			TestWarrior,
+			{
+				id: { type: () => String, generateFilter: true },
+				name: { type: () => String, generateFilter: true },
+			},
+			{
+				customFields: {
+					battleCry: {
+						type: () => String,
+						options: { nullable: true },
+						resolve: () => 'For the Shire!',
+						// Non-empty decorators array → exercises the forEach path
+						resolveDecorators: [() => {}, () => {}],
+					},
+				},
+			}
+		)
+		class TestWarriorCryGQL extends GQLEntityBase {}
+
+		expect(TestWarriorCryGQL.gqlEntityName).toBe('TestWarrior');
+		expect(TestWarriorCryGQL.FieldsResolver).toBeDefined();
+		expect(TestWarriorCryGQL.FilterInput).toBeDefined();
+	});
+});
