@@ -526,7 +526,7 @@ export class GQLtoSQLMapper {
 
 		const leftOuterJoin =
 			`left outer join lateral ( select ${jsonSQL} as value from ${subFromSQL} ${refOuterJoin.join(' \n')} ) as ${joinAlias.toString()} on true`.replaceAll(
-				/[ \n	]+/gi,
+				/[ \n\t]+/gi,
 				' '
 			);
 
@@ -546,145 +546,201 @@ export class GQLtoSQLMapper {
 		for (const [relationFieldName, rawConfig] of Object.entries(
 			customFieldProps.requiresRelations!
 		)) {
-			const config = rawConfig as RequireRelationConfig;
-			const relFieldProps = ownerMetadata?.properties[
-				relationFieldName as keyof typeof ownerMetadata.properties
-			] as EntityProperty | undefined;
-			if (!relFieldProps?.reference) {
-				logger.warn(
-					'mapCustomField - requiresRelations: field not found or not a relationship',
-					relationFieldName
-				);
-				continue;
-			}
+			this._mapSingleRequiredRelation(
+				relationFieldName,
+				rawConfig as RequireRelationConfig,
+				mapping,
+				latestAlias,
+				fieldsByTypeName,
+				ownerMetadata,
+				args
+			);
+		}
+	}
 
-			const relatedEntityName = relFieldProps.type;
-			if (!this.exists(relatedEntityName)) {
-				logger.warn(
-					'mapCustomField - requiresRelations: related entity not registered',
-					relatedEntityName
-				);
-				continue;
-			}
+	private _mapSingleRequiredRelation<T>(
+		relationFieldName: string,
+		config: RequireRelationConfig,
+		mapping: MappingsType,
+		latestAlias: Alias,
+		fieldsByTypeName: any,
+		ownerMetadata: EntityMetadata<T> | undefined,
+		args: any
+	): void {
+		const relFieldProps = ownerMetadata?.properties[
+			relationFieldName as keyof typeof ownerMetadata.properties
+		] as EntityProperty | undefined;
+		if (!relFieldProps?.reference) {
+			logger.warn(
+				'mapCustomField - requiresRelations: field not found or not a relationship',
+				relationFieldName
+			);
+			return;
+		}
 
-			const refMetadata = this.getMetadata<any, EntityMetadata<any>>(relatedEntityName);
-			const childAlias = this.Alias.next(AliasType.field, 'rq');
+		const relatedEntityName = relFieldProps.type;
+		if (!this.exists(relatedEntityName)) {
+			logger.warn(
+				'mapCustomField - requiresRelations: related entity not registered',
+				relatedEntityName
+			);
+			return;
+		}
 
-			let subFields: any;
-			if (config.useQueryFields) {
-				subFields =
-					fieldsByTypeName?.[getGQLEntityNameFor(relatedEntityName)] ??
-					fieldsByTypeName?.[relatedEntityName];
-			} else if (config.fields) {
-				subFields = config.fields;
-			} else {
-				subFields = {};
-				for (const [propName, propMeta] of Object.entries(refMetadata.properties)) {
-					if (
-						(propMeta as EntityProperty).fieldNames?.length > 0 &&
-						!(propMeta as EntityProperty).reference
-					) {
-						subFields[propName] = {};
-					}
+		const refMetadata = this.getMetadata<any, EntityMetadata<any>>(relatedEntityName);
+		const childAlias = this.Alias.next(AliasType.field, 'rq');
+
+		let subFields: any;
+		if (config.useQueryFields) {
+			subFields =
+				fieldsByTypeName?.[getGQLEntityNameFor(relatedEntityName)] ??
+				fieldsByTypeName?.[relatedEntityName];
+		} else if (config.fields) {
+			subFields = config.fields;
+		} else {
+			subFields = {};
+			for (const [propName, propMeta] of Object.entries(refMetadata.properties)) {
+				if (
+					(propMeta as EntityProperty).fieldNames?.length > 0 &&
+					!(propMeta as EntityProperty).reference
+				) {
+					subFields[propName] = {};
 				}
 			}
+		}
 
-			let relationFilter = config.filter;
-			let relationPagination = config.pagination;
-			if (config.forwardArgs && args) {
-				relationFilter = { ...config.filter, ...args.filter };
-				relationPagination = { ...config.pagination, ...args.pagination };
-			}
+		let relationFilter = config.filter;
+		let relationPagination = config.pagination;
+		if (config.forwardArgs && args) {
+			relationFilter = { ...config.filter, ...args.filter };
+			relationPagination = { ...config.pagination, ...args.pagination };
+		}
 
-			const newMappings = this.recursiveMap({
-				entityMetadata: refMetadata,
-				fields: subFields,
-				parentAlias: latestAlias,
-				alias: childAlias,
-				gqlFilters: relationFilter ? [relationFilter] : undefined,
-			});
+		const newMappings = this.recursiveMap({
+			entityMetadata: refMetadata,
+			fields: subFields,
+			parentAlias: latestAlias,
+			alias: childAlias,
+			gqlFilters: relationFilter ? [relationFilter] : undefined,
+		});
 
-			const newMapping = QueriesUtils.newMappings();
-			if (relationPagination?.limit) newMapping.limit = relationPagination.limit;
-			if (relationPagination?.offset) newMapping.offset = relationPagination.offset;
-			if (relationPagination?.orderBy) {
-				newMapping.orderBy = relationPagination.orderBy;
-			}
+		const newMapping = QueriesUtils.newMappings();
+		if (relationPagination?.limit) newMapping.limit = relationPagination.limit;
+		if (relationPagination?.offset) newMapping.offset = relationPagination.offset;
+		if (relationPagination?.orderBy) {
+			newMapping.orderBy = relationPagination.orderBy;
+		}
 
-			const {
-				select: refSelect,
-				json: refJson,
-				outerJoin: refOuterJoin,
-				where: whereWithValues,
-				values: refValues,
-				innerJoin: refInnerJoin,
+		const {
+			select: refSelect,
+			json: refJson,
+			outerJoin: refOuterJoin,
+			where: whereWithValues,
+			values: refValues,
+			innerJoin: refInnerJoin,
+			limit,
+			offset,
+			orderBy,
+		} = QueriesUtils.mappingsReducer(newMappings, newMapping);
+
+		this._dispatchRequiredRelationMapping(
+			relFieldProps,
+			refMetadata,
+			mapping,
+			latestAlias,
+			childAlias,
+			whereWithValues,
+			refValues,
+			refInnerJoin,
+			refOuterJoin,
+			refSelect,
+			refJson,
+			limit,
+			offset,
+			orderBy,
+			config,
+			ownerMetadata
+		);
+	}
+
+	private _dispatchRequiredRelationMapping<T>(
+		relFieldProps: EntityProperty,
+		refMetadata: EntityMetadata<any>,
+		mapping: MappingsType,
+		latestAlias: Alias,
+		childAlias: Alias,
+		whereWithValues: any,
+		refValues: any,
+		refInnerJoin: any,
+		refOuterJoin: any,
+		refSelect: any,
+		refJson: any,
+		limit: any,
+		offset: any,
+		orderBy: any,
+		config: RequireRelationConfig,
+		ownerMetadata: EntityMetadata<T> | undefined
+	): void {
+		const primaryKeys = ownerMetadata?.primaryKeys ?? [];
+		if (
+			relFieldProps.reference === ReferenceType.ONE_TO_MANY ||
+			(relFieldProps.reference === ReferenceType.ONE_TO_ONE && relFieldProps.mappedBy)
+		) {
+			this.relationshipHandler.mapOneToX(
+				refMetadata,
+				relFieldProps,
+				mapping,
+				latestAlias,
+				childAlias,
+				whereWithValues,
+				refValues,
 				limit,
 				offset,
 				orderBy,
-			} = QueriesUtils.mappingsReducer(newMappings, newMapping);
-
-			const primaryKeys = ownerMetadata?.primaryKeys ?? [];
-
-			if (
-				relFieldProps.reference === ReferenceType.ONE_TO_MANY ||
-				(relFieldProps.reference === ReferenceType.ONE_TO_ONE && relFieldProps.mappedBy)
-			) {
-				this.relationshipHandler.mapOneToX(
-					refMetadata,
-					relFieldProps,
-					mapping,
-					latestAlias,
-					childAlias,
-					whereWithValues,
-					refValues,
-					limit,
-					offset,
-					orderBy,
-					config.as,
-					refJson,
-					refSelect,
-					refInnerJoin,
-					refOuterJoin
-				);
-			} else if (
-				relFieldProps.reference === ReferenceType.MANY_TO_ONE ||
-				(relFieldProps.reference === ReferenceType.ONE_TO_ONE && !relFieldProps.mappedBy)
-			) {
-				this.relationshipHandler.mapManyToOne(
-					relFieldProps,
-					refMetadata,
-					latestAlias,
-					childAlias,
-					mapping,
-					whereWithValues,
-					refValues,
-					refInnerJoin,
-					limit,
-					offset,
-					config.as,
-					refSelect,
-					refJson,
-					refOuterJoin
-				);
-			} else if (relFieldProps.reference === ReferenceType.MANY_TO_MANY) {
-				this.relationshipHandler.mapManyToMany(
-					refMetadata,
-					primaryKeys,
-					relFieldProps,
-					latestAlias,
-					childAlias,
-					refSelect,
-					whereWithValues,
-					refOuterJoin,
-					refJson,
-					mapping,
-					config.as,
-					refValues,
-					limit,
-					offset,
-					orderBy
-				);
-			}
+				config.as,
+				refJson,
+				refSelect,
+				refInnerJoin,
+				refOuterJoin
+			);
+		} else if (
+			relFieldProps.reference === ReferenceType.MANY_TO_ONE ||
+			(relFieldProps.reference === ReferenceType.ONE_TO_ONE && !relFieldProps.mappedBy)
+		) {
+			this.relationshipHandler.mapManyToOne(
+				relFieldProps,
+				refMetadata,
+				latestAlias,
+				childAlias,
+				mapping,
+				whereWithValues,
+				refValues,
+				refInnerJoin,
+				limit,
+				offset,
+				config.as,
+				refSelect,
+				refJson,
+				refOuterJoin
+			);
+		} else if (relFieldProps.reference === ReferenceType.MANY_TO_MANY) {
+			this.relationshipHandler.mapManyToMany(
+				refMetadata,
+				primaryKeys,
+				relFieldProps,
+				latestAlias,
+				childAlias,
+				refSelect,
+				whereWithValues,
+				refOuterJoin,
+				refJson,
+				mapping,
+				config.as,
+				refValues,
+				limit,
+				offset,
+				orderBy
+			);
 		}
 	}
 
@@ -948,7 +1004,7 @@ export class GQLtoSQLMapper {
 				mapping.orderBy,
 				'reference',
 				fieldProps.reference,
-				fields
+				'fields'
 			);
 			if (
 				fieldProps.reference === ReferenceType.ONE_TO_MANY ||
