@@ -27,24 +27,14 @@ import { FieldSettings, RelatedFieldSettings } from '../../src/types';
 import { DatabaseMetadataProvider } from '../fixtures/database-metadata-provider';
 import { Battle, Fellowship, Person, Ring } from '../fixtures/middle-earth-schema';
 import { AllSampleData } from '../fixtures/test-data';
+import { getTestDBConfig } from '../fixtures/test-db-config';
 
 // Test server configuration
 const TEST_PORT = 4455;
 const TEST_URL = `http://localhost:${TEST_PORT}/graphql`;
 
-// Database configuration
-const DB_CONFIG = {
-	host: process.env.DB_HOST || 'localhost',
-	port: parseInt(process.env.DB_PORT || '5432'),
-	database: 'gql_of_power_test',
-	username: process.env.DB_USER || 'postgres',
-	password: process.env.DB_PASSWORD || '',
-	url: () =>
-		process.env.DATABASE_URL ||
-		`postgresql://${DB_CONFIG.username || 'postgres'}:${DB_CONFIG.password || ''}@${
-			DB_CONFIG.host || 'localhost'
-		}:${DB_CONFIG.port || '5432'}/${DB_CONFIG.database || 'gql_of_power_test'}`,
-};
+// Database configuration (resolves DATABASE_URL / POSTGRES_* / DB_* env vars)
+const DB_CONFIG = getTestDBConfig();
 
 // GraphQL Server Setup
 let server: any;
@@ -221,20 +211,25 @@ describe('GraphQL Server Integration Tests', () => {
 			console.log('📊 Database config:', { ...DB_CONFIG, password: '***' });
 
 			try {
-				// Create SQL connection
-				sql = new SQL(DB_CONFIG.url());
+				// Ensure the test database exists. CI's service container pre-creates
+				// it (POSTGRES_DB); CREATE only succeeds locally. Connect to the
+				// maintenance DB ('postgres') to CREATE, then to the target.
+				try {
+					const adminSql = new SQL(DB_CONFIG.maintenanceUrl);
+					const safeDbName = DB_CONFIG.database.replace(/[^a-zA-Z0-9_]/g, '');
+					await adminSql.query(`CREATE DATABASE ${safeDbName};`);
+					console.log(`✅ Database ${DB_CONFIG.database} created`);
+					await adminSql.close();
+				} catch (e) {
+					console.log('📝 Test database already exists or creation failed - continuing...');
+				}
+
+				// Create SQL connection to the test database
+				sql = new SQL(DB_CONFIG.url);
 
 				await sql`select 1`;
 				console.log('✅ Database connection established');
 
-				// Try to create test database if it doesn't exist
-				try {
-					await sql`CREATE DATABASE gql_of_power_test;`;
-					console.log('✅ Test database created');
-				} catch (e) {
-					// Database might already exist, which is fine
-					console.log('📝 Test database already exists or creation failed - continuing...');
-				}
 				try {
 					// Load and execute schema
 					await sql.file(schemaPath);
