@@ -172,6 +172,68 @@ const scenarios: Scenario[] = [
 		entity: Person,
 		filter: { ring: { name: 'The One Ring' } } as any,
 	},
+	// 1:m relationship filter — filter Fellowship by a field on its Members (Person)
+	{
+		name: 'filter-rel-fellowship-members-race',
+		fields: { id: {}, name: {} },
+		entity: Fellowship,
+		filter: { members: { race: 'Elf' } } as any,
+	},
+	// m:m relationship filter — filter Person by a field on their Battles
+	{
+		name: 'filter-rel-person-battles-outcome',
+		fields: { id: {}, name: {} },
+		entity: Person,
+		filter: { battles: { outcome: 'Victory' } } as any,
+	},
+	// Compound _and containing a relationship sub-filter
+	{
+		name: 'filter-and-with-rel',
+		fields: { id: {}, name: {} },
+		entity: Person,
+		filter: {
+			_and: [{ fellowship: { name: 'Fellowship of the Ring' } }, { age_gt: 30 }],
+		} as any,
+	},
+	// Compound _or containing a relationship sub-filter
+	{
+		name: 'filter-or-with-rel',
+		fields: { id: {}, name: {} },
+		entity: Person,
+		filter: {
+			_or: [{ fellowship: { name: 'Fellowship of the Ring' } }, { ring: { name: 'The One Ring' } }],
+		} as any,
+	},
+
+	// ── Advanced filter operators ─────────────────────────────────────────
+	// _between operator — { age_between: [low, high] }
+	{
+		name: 'filter-between-age',
+		fields: { id: {}, name: {} },
+		entity: Person,
+		filter: { age_between: [30, 200] } as any,
+	},
+	// _fulltext operator — Postgres tsvector full-text search
+	{
+		name: 'filter-fulltext-name',
+		fields: { id: {}, name: {} },
+		entity: Person,
+		filter: { name_fulltext: 'hobbit' } as any,
+	},
+	// _overlap — array overlap operator (ARRAY && ARRAY)
+	{
+		name: 'filter-overlap-race',
+		fields: { id: {}, name: {} },
+		entity: Person,
+		filter: { race_overlap: ['Elf', 'Hobbit'] } as any,
+	},
+	// _contains — array containment operator (ARRAY @> ARRAY)
+	{
+		name: 'filter-contains-race',
+		fields: { id: {}, name: {} },
+		entity: Person,
+		filter: { race_contains: 'Elf' } as any,
+	},
 
 	// ── Exists filters ────────────────────────────────────────────────────
 	{

@@ -60,6 +60,30 @@ const goldenSQL: Record<string, string> = {
 		'select e_a1.id, e_a1.person_name AS "name" from ( select e_a1.id, e_a1.person_name from persons as e_a1 where true and ( exists (select 1 from "fellowships" as e_w1 where e_a1.fellowship_id = e_w1.id and ( e_w1.fellowship_name = :e_fellowship_name1_fellowship_name ) limit 1) ) ) as e_a1',
 	'filter-rel-ring-name':
 		'select e_a1.id, e_a1.person_name AS "name" from ( select e_a1.id, e_a1.person_name from persons as e_a1 where true and ( exists (select 1 from "rings" as e_w2 where e_a1.id = e_w2.bearer_id and ( e_w2.ring_name = :e_ring_name1_ring_name ) limit 1) ) ) as e_a1',
+	// 1:m relationship filter — Fellowship filtered by a field on its Members (Person)
+	'filter-rel-fellowship-members-race':
+		'select e_a1.id, e_a1.fellowship_name AS "name" from ( select e_a1.id, e_a1.fellowship_name from fellowships as e_a1 where true and ( exists (select 1 from "persons" as e_w3 where e_a1.id = e_w3.fellowship_id and ( e_w3.race = :e_race5_race ) limit 1) ) ) as e_a1',
+	// m:m relationship filter — Person filtered by a field on their Battles
+	'filter-rel-person-battles-outcome':
+		'select e_a1.id, e_a1.person_name AS "name" from ( select e_a1.id, e_a1.person_name from persons as e_a1 where true and ( exists (select 1 from "battles" as e_w4 where (id) in (select battle_id from person_battles where e_a1.id = person_battles.person_id) and ( e_w4.outcome = :e_outcome1_outcome ) limit 1) ) ) as e_a1',
+	// Compound _and containing a relationship sub-filter
+	'filter-and-with-rel':
+		'select e_a1.id, e_a1.person_name AS "name" from ( select distinct * from ((select e_a1.id, e_a1.person_name from persons as e_a1 where true and ( exists (select 1 from "fellowships" as e_w5 where e_a1.fellowship_id = e_w5.id and ( e_w5.fellowship_name = :e_fellowship_name2_fellowship_name ) limit 1) and e_a1.age > :v_age_gt4_1 ))) as e_a1_u ) as e_a1',
+	// Compound _or containing a relationship sub-filter
+	'filter-or-with-rel':
+		'select e_a1.id, e_a1.person_name AS "name" from ( select distinct * from ((select e_a1.id, e_a1.person_name from persons as e_a1 where true and ( exists (select 1 from "fellowships" as e_w6 where e_a1.fellowship_id = e_w6.id and ( e_w6.fellowship_name = :e_fellowship_name3_fellowship_name ) limit 1) )) union all (select e_a1.id, e_a1.person_name from persons as e_a1 where true and ( exists (select 1 from "rings" as e_w7 where e_a1.id = e_w7.bearer_id and ( e_w7.ring_name = :e_ring_name2_ring_name ) limit 1) ))) as e_a1_u ) as e_a1',
+	// _between filter operator — { age_between: [low, high] }
+	'filter-between-age':
+		'select e_a1.id, e_a1.person_name AS "name" from ( select e_a1.id, e_a1.person_name from persons as e_a1 where true and ( e_a1.age between :v_age1_0 and :v_age2_1 ) ) as e_a1',
+	// _fulltext filter — Postgres tsvector @@ tsquery
+	'filter-fulltext-name':
+		'select e_a1.id, e_a1.person_name AS "name" from ( select e_a1.id, e_a1.person_name from persons as e_a1 where true and ( e_a1.person_name::tsvector @@ :v_name_fulltext1_1::tsquery ) ) as e_a1',
+	// _overlap filter — ARRAY && ARRAY
+	'filter-overlap-race':
+		'select e_a1.id, e_a1.person_name AS "name" from ( select e_a1.id, e_a1.person_name from persons as e_a1 where true and ( ARRAY[e_a1.race] && ARRAY[:v_race1_0] ) ) as e_a1',
+	// _contains filter — ARRAY @> ARRAY
+	'filter-contains-race':
+		'select e_a1.id, e_a1.person_name AS "name" from ( select e_a1.id, e_a1.person_name from persons as e_a1 where true and ( ARRAY[e_a1.race] @> ARRAY[:v_race_contains1_1__0] ) ) as e_a1',
 	'filter-exists-ring':
 		'select e_a1.id, e_a1.person_name AS "name" from ( select e_a1.id, e_a1.person_name from persons as e_a1 where true ) as e_a1',
 	'filter-not-exists-battle':
@@ -225,6 +249,68 @@ const scenarios: Scenario[] = [
 		fields: { id: {}, name: {} },
 		entity: Person,
 		filter: { ring: { name: 'The One Ring' } } as any,
+	},
+	// 1:m relationship filter — filter Fellowship by a field on its Members (Person)
+	{
+		name: 'filter-rel-fellowship-members-race',
+		fields: { id: {}, name: {} },
+		entity: Fellowship,
+		filter: { members: { race: 'Elf' } } as any,
+	},
+	// m:m relationship filter — filter Person by a field on their Battles
+	{
+		name: 'filter-rel-person-battles-outcome',
+		fields: { id: {}, name: {} },
+		entity: Person,
+		filter: { battles: { outcome: 'Victory' } } as any,
+	},
+	// Compound _and containing a relationship sub-filter
+	{
+		name: 'filter-and-with-rel',
+		fields: { id: {}, name: {} },
+		entity: Person,
+		filter: {
+			_and: [{ fellowship: { name: 'Fellowship of the Ring' } }, { age_gt: 30 }],
+		} as any,
+	},
+	// Compound _or containing a relationship sub-filter
+	{
+		name: 'filter-or-with-rel',
+		fields: { id: {}, name: {} },
+		entity: Person,
+		filter: {
+			_or: [{ fellowship: { name: 'Fellowship of the Ring' } }, { ring: { name: 'The One Ring' } }],
+		} as any,
+	},
+
+	// ── Advanced filter operators ─────────────────────────────────────────
+	// _between operator — { age_between: [low, high] }
+	{
+		name: 'filter-between-age',
+		fields: { id: {}, name: {} },
+		entity: Person,
+		filter: { age_between: [30, 200] } as any,
+	},
+	// _fulltext operator — Postgres tsvector full-text search
+	{
+		name: 'filter-fulltext-name',
+		fields: { id: {}, name: {} },
+		entity: Person,
+		filter: { name_fulltext: 'hobbit' } as any,
+	},
+	// _overlap — array overlap operator (ARRAY && ARRAY)
+	{
+		name: 'filter-overlap-race',
+		fields: { id: {}, name: {} },
+		entity: Person,
+		filter: { race_overlap: ['Elf', 'Hobbit'] } as any,
+	},
+	// _contains — array containment operator (ARRAY @> ARRAY)
+	{
+		name: 'filter-contains-race',
+		fields: { id: {}, name: {} },
+		entity: Person,
+		filter: { race_contains: 'Elf' } as any,
 	},
 
 	// ── Exists filters ────────────────────────────────────────────────────
