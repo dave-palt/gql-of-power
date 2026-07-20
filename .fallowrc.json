@@ -7,7 +7,7 @@
 		"tests/regression/generate-sql-snapshots.ts"
 	],
 	"ignorePatterns": ["dist/**", "coverage/**", "tests/fixtures/**", "examples/**"],
-	"ignoreDependencies": ["pg"],
+	"ignoreDependencies": [],
 	"ignoreExports": [
 		{
 			"file": "src/types/gql-types.ts",
