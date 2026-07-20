@@ -573,71 +573,103 @@ function _buildInputType<T>(
 
 // ─── Shared resolver builder ─────────────────────────────────────────────────
 
-function _buildResolversForEntity<T>(
-	GQLEntity: new () => any,
-	gqlEntityName: string,
-	fields: string[],
-	opts: Partial<FieldsSettings<T>>,
-	metadata: ReturnType<typeof getMetadataStorage>,
-	customFields?: CustomFieldsSettings<T>,
-	rawFields?: Partial<FieldsSettings<T>>
+/** Phase 2: attach @FieldResolver methods for fields with `mapNumericEnum` (reverse-maps DB number → enum string). */
+function _registerMapNumericEnumResolvers<T>(
+	rawFields: Partial<FieldsSettings<T>>,
+	FieldsResolver: any
 ) {
-	class GQLEntityFilterInput {
-		@Field(() => [GQLEntityFilterInput], { nullable: true })
-		_and?: GQLEntityFilterInput[];
+	for (const fieldName of Object.keys(rawFields)) {
+		const fieldOpts = (rawFields as any)[fieldName];
+		if (!fieldOpts?.mapNumericEnum) continue;
 
-		@Field(() => [GQLEntityFilterInput], { nullable: true })
-		_or?: GQLEntityFilterInput[];
+		const fieldNameToUse = fieldOpts.alias ?? fieldName;
+		const enumTypeThunk = fieldOpts.type;
 
-		@Field(() => [GQLEntityFilterInput], { nullable: true })
-		_not?: GQLEntityFilterInput[];
-	}
-	Object.defineProperty(GQLEntityFilterInput, 'name', {
-		value: gqlEntityName + 'FilterInput',
-	});
-	TypeMap[gqlEntityName + 'FilterInput'] = GQLEntityFilterInput;
-
-	class GQLEntityOrderBy {}
-	Object.defineProperty(GQLEntityOrderBy, 'name', {
-		value: gqlEntityName + 'OrderBy',
-	});
-	TypeMap[gqlEntityName + 'OrderBy'] = GQLEntityOrderBy;
-
-	@Resolver(() => GQLEntity)
-	class FieldsResolver {}
-
-	if (rawFields) {
-		for (const fieldName of Object.keys(rawFields)) {
-			const fieldOpts = (rawFields as any)[fieldName];
-			if (!fieldOpts?.mapNumericEnum) continue;
-
-			const fieldNameToUse = fieldOpts.alias ?? fieldName;
-			const enumTypeThunk = fieldOpts.type;
-
-			const resolveFn = (root: any) => {
-				const value = root[fieldNameToUse];
-				if (value === null || value === undefined) return null;
-				try {
-					const enumObj = enumTypeThunk();
-					const key = enumObj[value];
-					if (typeof key === 'string') return key;
-					for (const enumKey of Object.keys(enumObj)) {
-						if (enumObj[enumKey] === value) return enumKey;
-					}
-					return value;
-				} catch {
-					return value;
+		const resolveFn = (root: any) => {
+			const value = root[fieldNameToUse];
+			if (value === null || value === undefined) return null;
+			try {
+				const enumObj = enumTypeThunk();
+				const key = enumObj[value];
+				if (typeof key === 'string') return key;
+				for (const enumKey of Object.keys(enumObj)) {
+					if (enumObj[enumKey] === value) return enumKey;
 				}
-			};
+				return value;
+			} catch {
+				return value;
+			}
+		};
 
+		Object.defineProperty(FieldsResolver.prototype, fieldNameToUse, {
+			value: resolveFn,
+			writable: true,
+			configurable: true,
+		});
+
+		FieldResolver(enumTypeThunk, {
+			...fieldOpts.options,
+			name: fieldNameToUse,
+		})(
+			FieldsResolver.prototype,
+			fieldNameToUse,
+			Object.getOwnPropertyDescriptor(FieldsResolver.prototype, fieldNameToUse)!
+		);
+
+		Root()(FieldsResolver.prototype, fieldNameToUse, 0);
+	}
+}
+
+/** Phase 3: process custom fields — alias registration, metadata, resolve/mapping/requiresRelations strategies. */
+function _processCustomFields<T>(
+	customFields: CustomFieldsSettings<T>,
+	gqlEntityName: string,
+	GQLEntity: new () => any,
+	GQLEntityFilterInput: any,
+	FieldsResolver: any,
+	opts: Partial<FieldsSettings<T>>,
+	metadata: ReturnType<typeof getMetadataStorage>
+) {
+	CustomFieldsMap[gqlEntityName] = customFields;
+
+	for (const fieldName of keys(customFields)) {
+		const fieldOptions = fieldName in customFields ? customFields[fieldName] : undefined;
+
+		if (!fieldOptions) {
+			continue;
+		}
+		const fieldNameOverride = fieldOptions.alias;
+		if (fieldNameOverride) {
+			FieldsOptionsMap[gqlEntityName] = FieldsOptionsMap[gqlEntityName] || {};
+			FieldsOptionsMap[gqlEntityName][fieldNameOverride] = fieldName;
+		}
+
+		const fieldNameToUse = fieldNameOverride ?? fieldName;
+
+		metadata.collectClassFieldMetadata({
+			target: GQLEntity,
+			name: fieldNameToUse,
+			schemaName: fieldNameToUse,
+			getType: fieldOptions.type,
+			typeOptions: {
+				...('array' in fieldOptions && fieldOptions.array ? { array: true, arrayDepth: 1 } : {}),
+				...fieldOptions.options,
+			},
+			complexity: undefined,
+			description: fieldNameToUse,
+			deprecationReason: undefined,
+		});
+		if (fieldOptions.resolve) {
+			// resolve strategy: attach @FieldResolver + parameter decorators
 			Object.defineProperty(FieldsResolver.prototype, fieldNameToUse, {
-				value: resolveFn,
+				value: fieldOptions.resolve,
 				writable: true,
 				configurable: true,
 			});
 
-			FieldResolver(enumTypeThunk, {
-				...fieldOpts.options,
+			FieldResolver(fieldOptions.type, {
+				...('array' in fieldOptions && fieldOptions.array ? { array: true, arrayDepth: 1 } : {}),
+				...fieldOptions.options,
 				name: fieldNameToUse,
 			})(
 				FieldsResolver.prototype,
@@ -645,135 +677,93 @@ function _buildResolversForEntity<T>(
 				Object.getOwnPropertyDescriptor(FieldsResolver.prototype, fieldNameToUse)!
 			);
 
-			Root()(FieldsResolver.prototype, fieldNameToUse, 0);
-		}
-	}
-
-	if (customFields) {
-		CustomFieldsMap[gqlEntityName] = customFields;
-
-		for (const fieldName of keys(customFields)) {
-			const fieldOptions = fieldName in customFields ? customFields[fieldName] : undefined;
-
-			if (!fieldOptions) {
-				continue;
-			}
-			const fieldNameOverride = fieldOptions.alias;
-			if (fieldNameOverride) {
-				FieldsOptionsMap[gqlEntityName] = FieldsOptionsMap[gqlEntityName] || {};
-				FieldsOptionsMap[gqlEntityName][fieldNameOverride] = fieldName;
-			}
-
-			const fieldNameToUse = fieldNameOverride ?? fieldName;
-
-			metadata.collectClassFieldMetadata({
-				target: GQLEntity,
-				name: fieldNameToUse,
-				schemaName: fieldNameToUse,
-				getType: fieldOptions.type,
-				typeOptions: {
-					...('array' in fieldOptions && fieldOptions.array ? { array: true, arrayDepth: 1 } : {}),
-					...fieldOptions.options,
-				},
-				complexity: undefined,
-				description: fieldNameToUse,
-				deprecationReason: undefined,
+			fieldOptions.resolveDecorators?.forEach((decorator, i) => {
+				decorator(FieldsResolver.prototype, fieldNameToUse, i);
 			});
-			if (fieldOptions.resolve) {
-				// resolve strategy: attach @FieldResolver + parameter decorators
-				Object.defineProperty(FieldsResolver.prototype, fieldNameToUse, {
-					value: fieldOptions.resolve,
-					writable: true,
-					configurable: true,
-				});
 
-				FieldResolver(fieldOptions.type, {
-					...('array' in fieldOptions && fieldOptions.array ? { array: true, arrayDepth: 1 } : {}),
-					...fieldOptions.options,
-					name: fieldNameToUse,
-				})(
-					FieldsResolver.prototype,
-					fieldNameToUse,
-					Object.getOwnPropertyDescriptor(FieldsResolver.prototype, fieldNameToUse)!
-				);
-
-				fieldOptions.resolveDecorators?.forEach((decorator, i) => {
-					decorator(FieldsResolver.prototype, fieldNameToUse, i);
-				});
-
-				if (!fieldOptions.resolveDecorators?.length) {
-					Root()(FieldsResolver.prototype, fieldNameToUse, 0);
-				}
-			} else if ('mapping' in fieldOptions && fieldOptions.mapping) {
-				// mapping strategy: SQL mapper generates the JOIN — no FieldResolver needed
-				if (fieldOptions.generateFilter) {
-					const UppercasedFieldName = fieldNameToUse[0].toUpperCase() + fieldNameToUse.slice(1);
-					const refEntityName = fieldOptions.mapping.refEntity.name;
-					const refGqlEntityName = getGQLEntityNameFor(refEntityName);
-					const refFilterTypeName = refGqlEntityName + 'FilterInput';
-
-					metadata.collectClassFieldMetadata({
-						target: GQLEntityFilterInput,
-						name: UppercasedFieldName,
-						schemaName: UppercasedFieldName,
-						getType: () => TypeMap[refFilterTypeName] ?? GQLEntityFilterInput,
-						typeOptions: { nullable: true },
-						complexity: undefined,
-						description: `Filter by ${fieldNameToUse} fields`,
-						deprecationReason: undefined,
-					});
-				}
+			if (!fieldOptions.resolveDecorators?.length) {
+				Root()(FieldsResolver.prototype, fieldNameToUse, 0);
 			}
+		} else if ('mapping' in fieldOptions && fieldOptions.mapping) {
+			// mapping strategy: SQL mapper generates the JOIN — no FieldResolver needed
+			if (fieldOptions.generateFilter) {
+				const UppercasedFieldName = fieldNameToUse[0].toUpperCase() + fieldNameToUse.slice(1);
+				const refEntityName = fieldOptions.mapping.refEntity.name;
+				const refGqlEntityName = getGQLEntityNameFor(refEntityName);
+				const refFilterTypeName = refGqlEntityName + 'FilterInput';
 
-			if ('requiresRelations' in fieldOptions && fieldOptions.requiresRelations) {
-				for (const [relFieldName, rawRelConfig] of Object.entries(
-					fieldOptions.requiresRelations as Record<string, any>
-				)) {
-					const relConfig = rawRelConfig as RequireRelationConfig;
-					if (!relConfig.forwardArgs) continue;
+				metadata.collectClassFieldMetadata({
+					target: GQLEntityFilterInput,
+					name: UppercasedFieldName,
+					schemaName: UppercasedFieldName,
+					getType: () => TypeMap[refFilterTypeName] ?? GQLEntityFilterInput,
+					typeOptions: { nullable: true },
+					complexity: undefined,
+					description: `Filter by ${fieldNameToUse} fields`,
+					deprecationReason: undefined,
+				});
+			}
+		}
 
-					const relFieldOpts = (opts as any)?.[relFieldName];
-					if (!relFieldOpts?.relatedEntityName) {
-						continue;
-					}
+		if ('requiresRelations' in fieldOptions && fieldOptions.requiresRelations) {
+			for (const [relFieldName, rawRelConfig] of Object.entries(
+				fieldOptions.requiresRelations as Record<string, any>
+			)) {
+				const relConfig = rawRelConfig as RequireRelationConfig;
+				if (!relConfig.forwardArgs) continue;
 
-					const relatedGqlEntityName = getGQLEntityNameFor(relFieldOpts.relatedEntityName());
-					const baseParamIndex = fieldOptions.resolve
-						? (fieldOptions.resolveDecorators?.length ?? 0) + 1
-						: 0;
-
-					metadata.collectHandlerParamMetadata({
-						kind: 'arg',
-						name: 'filter',
-						description: undefined,
-						methodName: fieldNameToUse,
-						index: baseParamIndex,
-						getType: () => TypeMap[relatedGqlEntityName + 'FilterInput'],
-						target: GQLEntity,
-						typeOptions: { nullable: true },
-						deprecationReason: undefined,
-						validateFn: undefined,
-						validateSettings: undefined,
-					});
-
-					metadata.collectHandlerParamMetadata({
-						kind: 'arg',
-						name: 'pagination',
-						description: undefined,
-						methodName: fieldNameToUse,
-						index: baseParamIndex + 1,
-						getType: () => TypeMap[`${relatedGqlEntityName}PaginationInput`],
-						target: GQLEntity,
-						typeOptions: { nullable: true },
-						deprecationReason: undefined,
-						validateFn: undefined,
-						validateSettings: undefined,
-					});
+				const relFieldOpts = (opts as any)?.[relFieldName];
+				if (!relFieldOpts?.relatedEntityName) {
+					continue;
 				}
+
+				const relatedGqlEntityName = getGQLEntityNameFor(relFieldOpts.relatedEntityName());
+				const baseParamIndex = fieldOptions.resolve
+					? (fieldOptions.resolveDecorators?.length ?? 0) + 1
+					: 0;
+
+				metadata.collectHandlerParamMetadata({
+					kind: 'arg',
+					name: 'filter',
+					description: undefined,
+					methodName: fieldNameToUse,
+					index: baseParamIndex,
+					getType: () => TypeMap[relatedGqlEntityName + 'FilterInput'],
+					target: GQLEntity,
+					typeOptions: { nullable: true },
+					deprecationReason: undefined,
+					validateFn: undefined,
+					validateSettings: undefined,
+				});
+
+				metadata.collectHandlerParamMetadata({
+					kind: 'arg',
+					name: 'pagination',
+					description: undefined,
+					methodName: fieldNameToUse,
+					index: baseParamIndex + 1,
+					getType: () => TypeMap[`${relatedGqlEntityName}PaginationInput`],
+					target: GQLEntity,
+					typeOptions: { nullable: true },
+					deprecationReason: undefined,
+					validateFn: undefined,
+					validateSettings: undefined,
+				});
 			}
 		}
 	}
+}
 
+/** Phase 4: InputType-decorate OrderBy, declare PaginationInput, and run createGQLEntityFilters per field. */
+function _registerFiltersAndPagination<T>(
+	gqlEntityName: string,
+	fields: string[],
+	opts: Partial<FieldsSettings<T>>,
+	metadata: ReturnType<typeof getMetadataStorage>,
+	GQLEntity: new () => any,
+	GQLEntityOrderBy: any,
+	GQLEntityFilterInput: any
+): any {
 	InputType(gqlEntityName + 'OrderBy')(GQLEntityOrderBy);
 
 	const paginationTypeName = `${gqlEntityName}PaginationInput`;
@@ -815,6 +805,27 @@ function _buildResolversForEntity<T>(
 			gqlEntityName,
 			GQLEntityFilterInput
 		);
+	}
+
+	return GQLEntityPaginationInputField;
+}
+
+/** Phase 5: register count fields (Int field, filter arg, 6 operators, implicit-eq, nested CountFieldFilterInput). */
+function _registerCountFields<T>(
+	gqlEntityName: string,
+	fields: string[],
+	opts: Partial<FieldsSettings<T>>,
+	metadata: ReturnType<typeof getMetadataStorage>,
+	GQLEntity: new () => any,
+	GQLEntityFilterInput: any
+) {
+	for (const fieldName of fields) {
+		const fieldOptions = fieldName in opts ? (opts as any)[fieldName] : undefined;
+		if (!fieldOptions) {
+			continue;
+		}
+		const fieldNameOverride = fieldOptions.alias;
+		const fieldNameToUse = fieldNameOverride ?? fieldName;
 
 		// Register count fields derived from relationship fields with countFieldName
 		if (fieldOptions.countFieldName) {
@@ -933,7 +944,16 @@ function _buildResolversForEntity<T>(
 			});
 		}
 	}
+}
 
+/** Phase 6: declare ExistsFilterInput (one field per relationship) + register _exists/_not_exists on FilterInput. */
+function _registerExistsFilters<T>(
+	gqlEntityName: string,
+	fields: string[],
+	opts: Partial<FieldsSettings<T>>,
+	metadata: ReturnType<typeof getMetadataStorage>,
+	GQLEntityFilterInput: any
+) {
 	// Generate ExistsFilterInput with a field for each relationship
 	const relationshipFields = fields.filter((f) => {
 		const opts2 = (opts as any)[f];
@@ -993,6 +1013,72 @@ function _buildResolversForEntity<T>(
 			deprecationReason: undefined,
 		});
 	}
+}
+
+function _buildResolversForEntity<T>(
+	GQLEntity: new () => any,
+	gqlEntityName: string,
+	fields: string[],
+	opts: Partial<FieldsSettings<T>>,
+	metadata: ReturnType<typeof getMetadataStorage>,
+	customFields?: CustomFieldsSettings<T>,
+	rawFields?: Partial<FieldsSettings<T>>
+) {
+	// ─── Phase 1: define base input types + resolver shell ──────────────────
+	class GQLEntityFilterInput {
+		@Field(() => [GQLEntityFilterInput], { nullable: true })
+		_and?: GQLEntityFilterInput[];
+
+		@Field(() => [GQLEntityFilterInput], { nullable: true })
+		_or?: GQLEntityFilterInput[];
+
+		@Field(() => [GQLEntityFilterInput], { nullable: true })
+		_not?: GQLEntityFilterInput[];
+	}
+	Object.defineProperty(GQLEntityFilterInput, 'name', {
+		value: gqlEntityName + 'FilterInput',
+	});
+	TypeMap[gqlEntityName + 'FilterInput'] = GQLEntityFilterInput;
+
+	class GQLEntityOrderBy {}
+	Object.defineProperty(GQLEntityOrderBy, 'name', {
+		value: gqlEntityName + 'OrderBy',
+	});
+	TypeMap[gqlEntityName + 'OrderBy'] = GQLEntityOrderBy;
+
+	@Resolver(() => GQLEntity)
+	class FieldsResolver {}
+
+	// ─── Phases 2-6: delegate to focused helpers ────────────────────────────
+	if (rawFields) {
+		_registerMapNumericEnumResolvers(rawFields, FieldsResolver);
+	}
+
+	if (customFields) {
+		_processCustomFields(
+			customFields,
+			gqlEntityName,
+			GQLEntity,
+			GQLEntityFilterInput,
+			FieldsResolver,
+			opts,
+			metadata
+		);
+	}
+
+	const GQLEntityPaginationInputField = _registerFiltersAndPagination(
+		gqlEntityName,
+		fields,
+		opts,
+		metadata,
+		GQLEntity,
+		GQLEntityOrderBy,
+		GQLEntityFilterInput
+	);
+
+	_registerCountFields(gqlEntityName, fields, opts, metadata, GQLEntity, GQLEntityFilterInput);
+
+	_registerExistsFilters(gqlEntityName, fields, opts, metadata, GQLEntityFilterInput);
 
 	InputType(gqlEntityName + 'FilterInput')(GQLEntityFilterInput);
 
