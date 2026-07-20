@@ -1,0 +1,136 @@
+// gql-of-power entity skeleton — copy, rename, and adapt.
+// Middle-earth themed example: a "Weapon" entity with a m:1 to its Bearer.
+//
+// This file is a template, not importable code. Place your real files in:
+//   schema/entities.ts   (ORM class + EntityMetadata)
+//   schema/fields.ts     (FieldsSettings)
+//   graphql/entities.ts  (createGQLTypes calls)
+//   graphql/resolvers.ts (@Resolver + @Query classes)
+
+import 'reflect-metadata';
+import { GraphQLResolveInfo } from 'graphql';
+import {
+	createGQLTypes,
+	GQLEntityFilterInputFieldType,
+	FieldsSettings,
+} from '@dav3/gql-of-power';
+import { EntityMetadata, EntityProperty, ReferenceType } from '@dav3/gql-of-power';
+import { Arg, Info, Int, Query, Resolver } from 'type-graphql';
+import { queryManager, provider } from './your-app-setup'; // <-- your wiring
+
+// ─────────────────────────────────────────────────────────────────────────────
+// 1. ORM ENTITY CLASS  (schema/entities.ts)
+//    Plain TS class. Property names = JS names. Relationship fields optional.
+// ─────────────────────────────────────────────────────────────────────────────
+
+export class Weapon {
+	id!: number;
+	name!: string;
+	damage!: number;
+	// m:1 relationship — Weapon holds bearerId
+	bearerId?: number;
+	bearer?: Person;
+}
+
+export class Person {
+	id!: number;
+	name!: string;
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// 2. ENTITY METADATA  (schema/entities.ts)
+//    SQL reality: table, PKs, column names, relationship join columns.
+// ─────────────────────────────────────────────────────────────────────────────
+
+const prop = (
+	type: string,
+	name: string,
+	fieldNames: string[],
+	reference?: {
+		referenceType: ReferenceType;
+		joinColumns?: string[];
+		referencedColumnNames?: string[];
+		mappedBy?: string;
+	}
+): EntityProperty => ({
+	type,
+	name,
+	fieldNames,
+	mappedBy: reference?.mappedBy || '',
+	joinColumns: reference?.joinColumns || [],
+	referencedColumnNames: reference?.referencedColumnNames || [],
+	inverseJoinColumns: [],
+	pivotTable: '',
+	reference: reference?.referenceType,
+});
+
+export const WeaponMetadata: EntityMetadata<Weapon> = {
+	name: 'Weapon',
+	tableName: 'weapons',
+	primaryKeys: ['id'],
+	properties: {
+		id: prop('number', 'id', ['id']),
+		name: prop('string', 'name', ['weapon_name']),
+		damage: prop('number', 'damage', ['damage']),
+		bearerId: prop('number', 'bearerId', ['bearer_id']),
+		bearer: prop('Person', 'bearer', ['bearer_id'], {
+			referenceType: ReferenceType.MANY_TO_ONE,
+			joinColumns: ['bearer_id'],
+			referencedColumnNames: ['id'],
+		}),
+	},
+};
+
+export const PersonMetadata: EntityMetadata<Person> = {
+	name: 'Person',
+	tableName: 'persons',
+	primaryKeys: ['id'],
+	properties: {
+		id: prop('number', 'id', ['id']),
+		name: prop('string', 'name', ['person_name']),
+	},
+};
+
+// ─────────────────────────────────────────────────────────────────────────────
+// 3. FIELDS SETTINGS  (schema/fields.ts)
+//    How each field maps to GraphQL. Pass to createGQLTypes.
+// ─────────────────────────────────────────────────────────────────────────────
+
+// Create PersonGQL first (Weapon references it)
+export const PersonGQL = createGQLTypes(Person, {
+	id: { type: () => Number, generateFilter: true },
+	name: { type: () => String, generateFilter: true },
+});
+
+export const WeaponFields: Partial<FieldsSettings<Weapon>> = {
+	id: { type: () => Number, generateFilter: true },
+	name: { type: () => String, generateFilter: true },
+	damage: { type: () => Int, generateFilter: true },
+	bearer: {
+		type: () => PersonGQL.GQLEntity,
+		options: { nullable: true },
+		generateFilter: true,
+		relatedEntityName: () => Person.name,
+		getFilterType: () => Int,
+	},
+};
+
+// ─────────────────────────────────────────────────────────────────────────────
+// 4. WIRE + RESOLVE  (graphql/entities.ts, graphql/resolvers.ts)
+// ─────────────────────────────────────────────────────────────────────────────
+
+export const WeaponGQL = createGQLTypes(Weapon, WeaponFields);
+
+@Resolver(() => WeaponGQL.GQLEntity || Object)
+export class WeaponResolver extends WeaponGQL.FieldsResolver {
+	@Query(() => [WeaponGQL.GQLEntity])
+	async weapons(
+		@Info() info: GraphQLResolveInfo,
+		@Arg('filter', () => WeaponGQL.GQLEntityFilterInput || Object, { nullable: true })
+		filter?: GQLEntityFilterInputFieldType<Weapon>
+	) {
+		// Relationship-field filters need `as any` (the type doesn't surface them):
+		//   { bearer: { name: 'Aragorn' } } as any
+		return await queryManager.getQueryResultsForInfo(provider, Weapon, info, filter);
+	}
+}
