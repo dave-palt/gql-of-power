@@ -247,9 +247,19 @@ export class BookResolver extends BookFieldsResolver {
 		@Arg('filter', () => BookGQL.GQLEntityFilterInput || Object, {
 			nullable: true,
 		})
-		filter?: GQLEntityFilterInputFieldType<Book>
+		filter?: GQLEntityFilterInputFieldType<Book>,
+		@Arg('pagination', () => BookGQL.GQLEntityPaginationInputField || Object, {
+			nullable: true,
+		})
+		pagination?: any // supports orderBy with related m:1 columns, e.g. [{ 'author.name': 'asc' }]
 	) {
-		return await queryManager.getQueryResultsForInfo(metadataProvider, Book, info, filter);
+		return await queryManager.getQueryResultsForInfo(
+			metadataProvider,
+			Book,
+			info,
+			filter,
+			pagination
+		);
 	}
 }
 

@@ -98,6 +98,13 @@ const goldenSQL: Record<string, string> = {
 		'select e_a1.id, e_a1.book_title AS "title", null AS "[object Object]" from ( select e_a1.id, e_a1.book_title from books as e_a1 where true ) as e_a1',
 	'rel-m1-book-to-author':
 		'select e_a1.id, e_a1.book_title AS "title", null AS "[object Object]" from ( select e_a1.id, e_a1.book_title from books as e_a1 where true ) as e_a1',
+	// ── ORDER BY related m:1 columns (correlated subquery) ────────────────
+	'orderby-related-author-name':
+		'select e_a1.id, e_a1.book_title AS "title" from ( select e_a1.id, e_a1.book_title from books as e_a1 where true order by (select e_o.author_name from "authors" as e_o where e_a1.author_id = e_o.id) asc limit :limit ) as e_a1 order by (select e_o.author_name from "authors" as e_o where e_a1.author_id = e_o.id) asc',
+	'orderby-related-fellowship-name':
+		'select e_a1.id, e_a1.person_name AS "name" from ( select e_a1.id, e_a1.person_name from persons as e_a1 where true order by (select e_o.fellowship_name from "fellowships" as e_o where e_a1.fellowship_id = e_o.id) desc limit :limit ) as e_a1 order by (select e_o.fellowship_name from "fellowships" as e_o where e_a1.fellowship_id = e_o.id) desc',
+	'orderby-related-mixed':
+		'select e_a1.book_title, e_a1.id, e_a1.book_title AS "title" from ( select e_a1.id, e_a1.book_title from books as e_a1 where true order by (select e_o.author_name from "authors" as e_o where e_a1.author_id = e_o.id) asc, e_a1.book_title desc limit :limit ) as e_a1 order by (select e_o.author_name from "authors" as e_o where e_a1.author_id = e_o.id) asc, e_a1.book_title desc',
 };
 
 type Scenario = {
@@ -361,6 +368,25 @@ const scenarios: Scenario[] = [
 		name: 'rel-m1-book-to-author',
 		fields: { id: {}, title: {}, author: { id: {}, name: {} } },
 		entity: Book,
+	},
+	// ── ORDER BY related m:1 columns ──────────────────────────────────────
+	{
+		name: 'orderby-related-author-name',
+		fields: { id: {}, title: {} },
+		entity: Book,
+		pagination: { limit: 10, orderBy: [{ 'author.name': 'asc' }] },
+	},
+	{
+		name: 'orderby-related-fellowship-name',
+		fields: { id: {}, name: {} },
+		entity: Person,
+		pagination: { limit: 10, orderBy: [{ 'fellowship.name': 'desc' }] },
+	},
+	{
+		name: 'orderby-related-mixed',
+		fields: { id: {}, title: {} },
+		entity: Book,
+		pagination: { limit: 10, orderBy: [{ 'author.name': 'asc' }, { title: 'desc' }] },
 	},
 ];
 
