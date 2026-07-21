@@ -10,7 +10,7 @@
 	},
 	"dependencies": {
 		"@dav3/gql-of-power": "file:../../",
-		"better-sqlite3": "^9.0.0",
+		"better-sqlite3": "^12.11.1",
 		"dataloader": "^2.2.3",
 		"graphql": "^16.11.0",
 		"graphql-type-json": "^0.3.2",
