@@ -1,51 +1,148 @@
 /**
  * GraphQL Playground configuration
- * Default queries and UI setup for the interactive playground
+ * Default queries and UI setup for the interactive playground.
+ *
+ * The default query pack exercises nearly every feature exposed by the library:
+ *  - count fields            (memberCount, bookCount, battleCount)
+ *  - _exists / _not_exists   (persons who bear a Ring / have not fought a Battle)
+ *  - mapNumericEnum          (rings filtered by the RingStatus enum)
+ *  - mapping custom field    (persons filtered by their home Region)
+ *  - nested relationships    (Author → Book → Genre, Quest → Fellowship → Person…)
+ *  - excludeFromInput        (forgedDate is readable but not in the Input type)
+ *  - parseJson               (Ring.metadata returned as a JSON object)
  */
 export const GRAPHQL_PLAYGROUND_CONFIG = {
 	title: 'GQL-of-Power Playground',
-	defaultQuery: `# Welcome to GQL-of-Power Playground!
-# Try these queries to explore Middle-earth data:
+	defaultQuery: `# Welcome to the GQL-of-Power Playground!
+# This default query set demonstrates the breadth of features the library
+# generates from a single FieldsSettings definition. Uncomment any block to run it.
 
-query GetAllPersons {
-  persons {
+# ─────────────────────────────────────────────────────────────────────────────
+# 1. Relationships + count fields
+#    Fellowship has a 1:m \`members\` relation with countFieldName: 'memberCount',
+#    so the schema exposes an Int \`memberCount\` field plus filter operators.
+# ─────────────────────────────────────────────────────────────────────────────
+query FellowshipsWithMemberCount {
+  fellowships {
     id
     name
-    race
-    home
-    ring {
+    purpose
+    memberCount
+    members {
+      id
       name
-      power
+      race
     }
-    fellowship {
+    quest {
       name
-      purpose
+      description
     }
   }
 }
 
-query GetPersonWithBattles {
-  persons(filter: { name: { _like: "Aragorn" } }) {
+# ─────────────────────────────────────────────────────────────────────────────
+# 2. count field with a filter argument + count filter on the parent
+#    Author.books also has countFieldName: 'bookCount'. The count field accepts
+#    a \`filter\` argument, and the Author filter exposes bookCount_gt/_lt/_eq.
+# ─────────────────────────────────────────────────────────────────────────────
+query ProlificAuthors {
+  authors(filter: { bookCount_gt: 1 }) {
     id
     name
-    race
-    battles {
-      name
-      outcome
-      casualties
+    bookCount
+    books {
+      title
+      publishedYear
+      genres {
+        name
+      }
     }
   }
 }
 
-query GetRingsOfPower {
-  rings {
+# ─────────────────────────────────────────────────────────────────────────────
+# 3. _exists / _not_exists filters
+#    Class-level operators generated automatically for every entity that has an
+#    array relationship. \`persons\` has \`battles\` and \`books\` as m:m, so both
+#    keys are available inside _exists.
+# ─────────────────────────────────────────────────────────────────────────────
+query ExistsFilters {
+  ringBearers: persons(filter: { _exists: { ring: { name: "The One Ring" } } }) {
+    id
+    name
+    race
+  }
+  nonCombatants: persons(filter: { _not_exists: { battles: {} } }) {
+    id
+    name
+  }
+}
+
+# ─────────────────────────────────────────────────────────────────────────────
+# 4. mapNumericEnum + excludeFromInput + parseJson
+#    Ring.status is stored in the DB as 100/200/300 but exposed as the
+#    RingStatus enum. forgedDate is excluded from the Input type but readable
+#    here. metadata is a jsonb column returned as a JSON object via parseJson.
+# ─────────────────────────────────────────────────────────────────────────────
+query RingsOfPower {
+  rings(filter: { status: Destroyed }) {
     id
     name
     power
-    forgedBy
+    status
+    forgedDate
+    metadata
     bearer {
       name
       race
+    }
+  }
+}
+
+# ─────────────────────────────────────────────────────────────────────────────
+# 5. Mapping-strategy custom field (filter + selection)
+#    Person.homeRegion is a custom field backed by a generated SQL JOIN onto
+#    Region via the home_region_id column. generateFilter exposes a nested
+#    \`HomeRegion\` filter, and the field itself can be selected like any relation.
+# ─────────────────────────────────────────────────────────────────────────────
+query PersonsByHomeRegion {
+  persons(filter: { HomeRegion: { name_eq: "The Shire" } }) {
+    id
+    name
+    race
+    homeRegion {
+      id
+      name
+      ruler
+    }
+  }
+}
+
+# ─────────────────────────────────────────────────────────────────────────────
+# 6. Deeply nested relationships across the full graph
+#    Region → Location → Battle → Army / Warrior, and Quest → Fellowship →
+#    Members → Ring. The mapper builds the JOINs recursively.
+# ─────────────────────────────────────────────────────────────────────────────
+query MiddleEarthGraph {
+  regions {
+    name
+    ruler
+    locationCount
+    locations {
+      name
+      type
+      battles {
+        name
+        outcome
+        armies {
+          name
+          allegiance
+        }
+        warriors {
+          name
+          race
+        }
+      }
     }
   }
 }`,

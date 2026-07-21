@@ -1,0 +1,23 @@
+{
+	"$schema": "./node_modules/fallow/schema.json",
+	"entry": [
+		"src/index.{ts,tsx,js,jsx}",
+		"scripts/update-version.ts",
+		"tests/run-sample-tests.ts",
+		"tests/regression/generate-sql-snapshots.ts"
+	],
+	"ignorePatterns": ["dist/**", "coverage/**", "tests/fixtures/**", "examples/**"],
+	"ignoreDependencies": [],
+	"ignoreExports": [
+		{
+			"file": "src/types/gql-types.ts",
+			"exports": ["*"],
+			"reason": "Generated filter/pagination input type shapes consumed via type-graphql decorators, not direct imports."
+		}
+	],
+	"audit": {
+		"deadCodeBaseline": "fallow-baselines/dead-code.json",
+		"healthBaseline": "fallow-baselines/health.json",
+		"dupesBaseline": "fallow-baselines/dupes.json"
+	}
+}

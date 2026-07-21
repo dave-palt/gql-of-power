@@ -1,4 +1,5 @@
-import { GQLEntityOrderByInputType, MappingsType } from '../types';
+import { GQLEntityOrderByInputType } from '../types/gql-types';
+import { MappingsType } from '../types/gql-to-sql-types';
 
 export class QueriesUtils {
 	public static newMappings = (): MappingsType => ({
@@ -83,13 +84,3 @@ export class QueriesUtils {
 			startMapping
 		);
 }
-
-export const isPrimitive = (
-	filterValue: any
-): filterValue is string | number | boolean | bigint | null =>
-	typeof filterValue === 'bigint' ||
-	typeof filterValue === 'boolean' ||
-	typeof filterValue === 'number' ||
-	typeof filterValue === 'string' ||
-	typeof filterValue === 'symbol' ||
-	filterValue === null;

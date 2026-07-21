@@ -137,3 +137,8 @@ dist
 
 
 **/.DS_Store
+
+# Non-bun lockfiles (project uses bun exclusively)
+pnpm-lock.yaml
+package-lock.json
+yarn.lock

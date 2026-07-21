@@ -568,6 +568,27 @@ No `limit` or `offset` parameters are accepted — `LIMIT 1` is always applied.
 
 ---
 
+## Agent Integration
+
+This library ships an **agent skill** (`agents/`) that teaches AI coding assistants (Claude Code, Cursor, Hermes, or any agent reading `AGENTS.md`) how to scaffold gql-of-power entities, relationships, and advanced features correctly — using copy-paste templates, annotated relationship examples, and a decision tree for picking the right relationship type.
+
+To install it in a consumer project (one-time setup):
+
+```bash
+# Claude Code
+mkdir -p .claude/skills && cp -R node_modules/@dav3/gql-of-power/agents/ .claude/skills/gql-of-power/
+
+# Cursor
+mkdir -p .cursor/rules && cp node_modules/@dav3/gql-of-power/agents/SKILL.md .cursor/rules/gql-of-power.mdc
+
+# Hermes
+ln -s node_modules/@dav3/gql-of-power/agents ~/.hermes/skills/gql-of-power
+```
+
+See [`agents/install.md`](./agents/install.md) for full instructions (including a symlink option that tracks gql-of-power updates, slash-command setup, and a generic `AGENTS.md` snippet). Once installed, ask your agent to "add a gql-of-power entity" and it will follow the library's intended patterns.
+
+---
+
 ## Development
 
 ```bash
@@ -575,7 +596,10 @@ bun install        # Install dependencies
 bun run build      # Compile TypeScript → dist/
 bun run test       # Run all tests
 bun run test:watch # Watch mode
+bun run audit      # Codebase-intelligence gate (fallow): dead code, duplication, complexity
 ```
+
+`bun run audit` runs the changed-file gate against saved baselines in `.fallow/` and fails only on **new** findings it introduces. Use `bun run audit:full` for the complete report, or `bun run audit:dead-code` / `audit:dupes` / `audit:health` for individual analyses. See `AGENTS.md` for the full audit workflow.
 
 ---
 

@@ -11,14 +11,12 @@ import {
 	getMapEnumFieldsFor,
 } from './entities/gql-entity';
 import { GQLtoSQLMapper } from './queries/gql-to-sql-mapper';
+import { DatabaseDriver, FieldSelection, MetadataProviderType } from './types/sql-types';
 import {
-	DatabaseDriver,
-	FieldSelection,
 	GQLEntityFilterInputFieldType,
 	GQLEntityOrderByInputType,
 	GQLEntityPaginationInputType,
-	MetadataProviderType,
-} from './types';
+} from './types/gql-types';
 import { logger } from './variables';
 
 export const getGQLFields = (info: GraphQLResolveInfo) => {
@@ -62,6 +60,11 @@ const ENUM_OPERATORS = [
 	'_between',
 ] as const;
 
+/** Keys whose (array) value should be recursively enum-converted element-by-element. */
+const LOGICAL_KEYS = new Set(['_and', '_or', '_not']);
+/** Keys that are always passed through verbatim (existence subquery shapes). */
+const PASSTHROUGH_KEYS = new Set(['_exists', '_not_exists']);
+
 function toDbValue(value: any, enumObj: any, isArray: boolean): any {
 	if (value === null || value === undefined) return value;
 	if (isArray && Array.isArray(value)) {
@@ -87,7 +90,36 @@ function findEnumFieldName(key: string, enumFields: Record<string, any>): string
 	return null;
 }
 
-function convertFilterEnumValues(
+/** Convert an operator-keyed object (e.g. { _eq: 'X', _in: [...] }) whose target is an enum field. */
+function convertOperatorObject(
+	operatorObject: Record<string, any>,
+	enumObj: any
+): Record<string, any> {
+	const converted: Record<string, any> = {};
+	for (const [op, opVal] of Object.entries(operatorObject)) {
+		const isArr = op === '_in' || op === '_nin';
+		converted[op] = toDbValue(opVal, enumObj, isArr);
+	}
+	return converted;
+}
+
+/** Recurse into a mapped custom-field nested filter using the referenced entity's enums. */
+function convertMappedCustomField(
+	key: string,
+	value: any,
+	mappedCustomFields: Record<string, { mapping: { refEntity: new () => any } }>
+): any {
+	const lowercased = key.charAt(0).toLowerCase() + key.slice(1);
+	const mappedField =
+		mappedCustomFields[key as keyof typeof mappedCustomFields] ??
+		mappedCustomFields[lowercased as keyof typeof mappedCustomFields];
+	if (!mappedField) return value;
+	const refGqlEntityName = getGQLEntityNameFor(mappedField.mapping.refEntity.name);
+	const refEnumFields = getMapEnumFieldsFor(refGqlEntityName);
+	return convertFilterEnumValues(value, refEnumFields);
+}
+
+export function convertFilterEnumValues(
 	filter: any,
 	enumFields: Record<string, any>,
 	mappedCustomFields?: Record<string, { mapping: { refEntity: new () => any } }>
@@ -97,53 +129,39 @@ function convertFilterEnumValues(
 
 	const result: any = {};
 	for (const [key, value] of Object.entries(filter)) {
-		if (key === '_and' || key === '_or' || key === '_not') {
-			result[key] = Array.isArray(value)
-				? value.map((v: any) => convertFilterEnumValues(v, enumFields, mappedCustomFields))
-				: value;
-			continue;
-		}
-		if (key === '_exists' || key === '_not_exists') {
-			result[key] = value;
-			continue;
-		}
-
-		const enumFieldName = findEnumFieldName(key, enumFields);
-		if (enumFieldName) {
-			const enumObj = enumFields[enumFieldName];
-			if (typeof value === 'object' && value !== null && !Array.isArray(value)) {
-				const converted: any = {};
-				for (const [op, opVal] of Object.entries(value as Record<string, any>)) {
-					const isArr = op === '_in' || op === '_nin';
-					converted[op] = toDbValue(opVal, enumObj, isArr);
-				}
-				result[key] = converted;
-			} else {
-				const isArr = key.endsWith('_in') || key.endsWith('_nin');
-				result[key] = toDbValue(value, enumObj, isArr);
-			}
-		} else if (
-			typeof value === 'object' &&
-			value !== null &&
-			!Array.isArray(value) &&
-			mappedCustomFields
-		) {
-			const lowercased = key.charAt(0).toLowerCase() + key.slice(1);
-			const mappedField =
-				mappedCustomFields[key as keyof typeof mappedCustomFields] ??
-				mappedCustomFields[lowercased as keyof typeof mappedCustomFields];
-			if (mappedField) {
-				const refGqlEntityName = getGQLEntityNameFor(mappedField.mapping.refEntity.name);
-				const refEnumFields = getMapEnumFieldsFor(refGqlEntityName);
-				result[key] = convertFilterEnumValues(value, refEnumFields);
-			} else {
-				result[key] = value;
-			}
-		} else {
-			result[key] = value;
-		}
+		result[key] = convertFilterEntry(key, value, enumFields, mappedCustomFields);
 	}
 	return result;
+}
+
+/** Resolve a single filter key/value to its enum-converted form. */
+function convertFilterEntry(
+	key: string,
+	value: any,
+	enumFields: Record<string, any>,
+	mappedCustomFields?: Record<string, { mapping: { refEntity: new () => any } }>
+): any {
+	if (LOGICAL_KEYS.has(key)) {
+		return Array.isArray(value)
+			? value.map((v: any) => convertFilterEnumValues(v, enumFields, mappedCustomFields))
+			: value;
+	}
+	if (PASSTHROUGH_KEYS.has(key)) return value;
+
+	const enumFieldName = findEnumFieldName(key, enumFields);
+	if (enumFieldName) {
+		const enumObj = enumFields[enumFieldName];
+		if (typeof value === 'object' && value !== null && !Array.isArray(value)) {
+			return convertOperatorObject(value as Record<string, any>, enumObj);
+		}
+		const isArr = key.endsWith('_in') || key.endsWith('_nin');
+		return toDbValue(value, enumObj, isArr);
+	}
+
+	if (typeof value === 'object' && value !== null && !Array.isArray(value) && mappedCustomFields) {
+		return convertMappedCustomField(key, value, mappedCustomFields);
+	}
+	return value;
 }
 
 export class GQLQueryManager {
@@ -155,6 +173,27 @@ export class GQLQueryManager {
 		filter?: GQLEntityFilterInputFieldType<FilterT>,
 		pagination?: Partial<GQLEntityPaginationInputType<FilterT>>
 	): Promise<K[]> {
+		const { fields, entityName } = this.resolveInfoFields<T>(provider, entity, info);
+		return this.getQueryResultsForFields<T, FilterT, K>(
+			provider,
+			entity,
+			fields,
+			filter,
+			pagination,
+			entityName
+		);
+	}
+
+	/**
+	 * Shared prelude for the two `*ForInfo` methods: validate the entity, resolve
+	 * its metadata name (preferring relatedEntityName for @GQLEntityClass classes),
+	 * and parse the GraphQL resolve info into a field selection.
+	 */
+	private resolveInfoFields<T>(
+		provider: MetadataProviderType,
+		entity: new () => T,
+		info: GraphQLResolveInfo
+	): { fields: FieldSelection<T>; entityName: string } {
 		if (!entity?.name) {
 			throw new Error(`Entity not provided`);
 		}
@@ -165,14 +204,7 @@ export class GQLQueryManager {
 			throw new Error(`Entity ${entityName} not found in metadata`);
 		}
 		const fields = getGQLFields(info) as FieldSelection<T>;
-		return this.getQueryResultsForFields<T, FilterT, K>(
-			provider,
-			entity,
-			fields,
-			filter,
-			pagination,
-			entityName
-		);
+		return { fields, entityName };
 	}
 
 	async getQueryResultsForFields<T, FilterT = T, K = any>(
@@ -233,14 +265,7 @@ export class GQLQueryManager {
 		filter?: GQLEntityFilterInputFieldType<FilterT>,
 		orderBy?: GQLEntityOrderByInputType<T>[]
 	): Promise<K | null> {
-		if (!entity?.name) {
-			throw new Error(`Entity not provided`);
-		}
-		const entityName = (entity as any).relatedEntityName ?? entity.name;
-		if (!provider.exists(entityName)) {
-			throw new Error(`Entity ${entityName} not found in metadata`);
-		}
-		const fields = getGQLFields(info) as FieldSelection<T>;
+		const { fields, entityName } = this.resolveInfoFields<T>(provider, entity, info);
 		return this.getQueryResultForFields<T, FilterT, K>(
 			provider,
 			entity,

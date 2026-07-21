@@ -1,3 +1,4 @@
+// fallow-ignore-file unused-export, unused-type -- staged ACL feature (pending async refactoring, see README Known Limitations); these types are intentional public API surface for the in-progress access-control work and will gain consumers when ACL lands.
 import { GQLEntityFilterInputFieldType } from './gql-types';
 
 export enum AccessType {
