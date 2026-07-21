@@ -1,0 +1,103 @@
+{
+  "finding_counts": {
+    "": {
+      "critical": 4,
+      "high": 4,
+      "moderate": 15
+    }
+  },
+  "runtime_coverage_findings": [],
+  "target_keys": [
+    {
+      "path": "src/variables.ts",
+      "priority": 16.6,
+      "efficiency": 8.3,
+      "recommendation": "Split high-impact file (86 LOC), 5 dependents amplify every change",
+      "category": "split_high_impact",
+      "effort": "medium",
+      "confidence": "medium",
+      "factors": [
+        {
+          "metric": "complexity_density",
+          "value": 0.36,
+          "threshold": 0.3,
+          "detail": "density 0.36 exceeds 0.3"
+        },
+        {
+          "metric": "fan_in",
+          "value": 5.0,
+          "threshold": 5.0,
+          "detail": "5 files depend on this"
+        }
+      ],
+      "evidence": {
+        "direct_callers": [
+          {
+            "path": "src/queries/alias.ts",
+            "symbols": [
+              {
+                "imported": "logger",
+                "local": "logger",
+                "type_only": false
+              }
+            ]
+          },
+          {
+            "path": "src/queries/filter-processor.ts",
+            "symbols": [
+              {
+                "imported": "logger",
+                "local": "logger",
+                "type_only": false
+              }
+            ]
+          },
+          {
+            "path": "src/queries/gql-to-sql-mapper.ts",
+            "symbols": [
+              {
+                "imported": "logger",
+                "local": "logger",
+                "type_only": false
+              }
+            ]
+          },
+          {
+            "path": "src/queries/relationship-handler.ts",
+            "symbols": [
+              {
+                "imported": "logger",
+                "local": "logger",
+                "type_only": false
+              }
+            ]
+          },
+          {
+            "path": "src/query-manager.ts",
+            "symbols": [
+              {
+                "imported": "logger",
+                "local": "logger",
+                "type_only": false
+              }
+            ]
+          }
+        ]
+      },
+      "actions": [
+        {
+          "type": "apply-refactoring",
+          "auto_fixable": false,
+          "description": "Split high-impact file (86 LOC), 5 dependents amplify every change",
+          "category": "split_high_impact"
+        },
+        {
+          "type": "suppress-line",
+          "auto_fixable": false,
+          "description": "Suppress the underlying complexity finding",
+          "comment": "// fallow-ignore-next-line complexity"
+        }
+      ]
+    }
+  ]
+}

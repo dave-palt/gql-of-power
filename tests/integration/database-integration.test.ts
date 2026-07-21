@@ -5,13 +5,10 @@
  * It sets up test data in a transaction, runs comprehensive GraphQL-to-SQL scenarios covering
  * all relationship types, and rolls back the transaction to ensure no data persistence.
  *
- * Environment Variables:
- * - DATABASE_URL: PostgreSQL connection string (default: postgresql://localhost:5432/gql_of_power_test)
- * - DB_HOST: Database host (default: localhost)
- * - DB_PORT: Database port (default: 5432)
- * - DB_NAME: Database name (default: gql_of_power_test)
- * - DB_USER: Database user (default: postgres)
- * - DB_PASSWORD: Database password (default: empty)
+ * Environment Variables (resolved via tests/fixtures/test-db-config.ts):
+ * - DATABASE_URL: PostgreSQL connection string (highest priority; set by CI)
+ * - POSTGRES_HOST/PORT/USER/PASSWORD/DB: CI service container vars
+ * - DB_HOST/PORT/NAME/USER/PASSWORD: local dev fallbacks
  */
 import { SQL } from 'bun';
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, mock } from 'bun:test';
@@ -24,21 +21,11 @@ import { getGQLFields, GQLQueryManager } from '../../src/query-manager';
 import { DatabaseMetadataProvider } from '../fixtures/database-metadata-provider';
 import { Battle, Fellowship, Person, Ring } from '../fixtures/middle-earth-schema';
 import { AllSampleData } from '../fixtures/test-data';
+import { getTestDBConfig } from '../fixtures/test-db-config';
 import '../setup';
 
-// Database configuration
-const DB_CONFIG = {
-	host: process.env.DB_HOST || 'localhost',
-	port: parseInt(process.env.DB_PORT || '5432'),
-	database: 'gql_of_power_test',
-	username: process.env.DB_USER || 'postgres',
-	password: process.env.DB_PASSWORD || '',
-	url:
-		process.env.DATABASE_URL ||
-		`postgresql://${process.env.DB_USER || 'postgres'}:${process.env.DB_PASSWORD || ''}@${
-			process.env.DB_HOST || 'localhost'
-		}:${process.env.DB_PORT || '5432'}/gql_of_power_test`,
-};
+// Database configuration (resolves DATABASE_URL / POSTGRES_* / DB_* env vars)
+const DB_CONFIG = getTestDBConfig();
 
 // Test timeout for database operations
 const TEST_TIMEOUT = 30000; // 30 seconds
@@ -64,11 +51,21 @@ describe('GQL-of-Power Database Integration Tests', () => {
 			console.log('🚀 Setting up database integration tests...');
 			console.log('📊 Database config:', { ...DB_CONFIG, password: '***' });
 			try {
-				sql = new SQL(DB_CONFIG.url);
+				// Ensure the test database exists. CI's service container pre-creates
+				// it (POSTGRES_DB), so CREATE only succeeds locally. Connect to the
+				// maintenance DB ('postgres') to CREATE, then connect to the target.
 				try {
-					await sql`CREATE DATABASE gql_of_power_test;`;
-					console.log('✅ Database created');
-				} catch (e) {}
+					const adminSql = new SQL(DB_CONFIG.maintenanceUrl);
+					// DB name is a config value (not user input); validate to defang
+					// any injection since CREATE DATABASE takes a raw identifier.
+					const safeDbName = DB_CONFIG.database.replace(/[^a-zA-Z0-9_]/g, '');
+					await adminSql.query(`CREATE DATABASE ${safeDbName};`);
+					console.log(`✅ Database ${DB_CONFIG.database} created`);
+					await adminSql.close();
+				} catch (e) {
+					// Database already exists (CI) — expected, ignore.
+				}
+				sql = new SQL(DB_CONFIG.url);
 				await sql.file(filePath);
 				console.log('✅ Database schema created');
 

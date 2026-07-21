@@ -34,7 +34,7 @@ jobs:
             HEAD_SHA="${{ github.event.pull_request.head.sha }}"
           else
             BASE_SHA="${{ github.event.before }}"
-            HEAD_SHA="${{ github.sha }}"
+            HEAD_SHA="${{ github.event.sha }}"
           fi
 
           # Check for changes in code files (excluding documentation)

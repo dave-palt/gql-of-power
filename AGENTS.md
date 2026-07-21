@@ -6,16 +6,27 @@
 
 ## Commands
 
-| Command                    | Description                                  |
-| -------------------------- | -------------------------------------------- |
-| `bun run build`            | Compile tsc → dist/                          |
-| `bun run typecheck`        | Type-check without emitting                  |
-| `bun run format`           | Format all files with Prettier               |
-| `bun run test`             | Run all tests                                |
-| `bun run test:unit`        | Unit tests only                              |
-| `bun run test:integration` | Integration tests only (requires PostgreSQL) |
-| `bun run test:watch`       | Watch mode                                   |
-| `bun run precommit`        | format → typecheck → test                    |
+| Command                    | Description                                                |
+| -------------------------- | ---------------------------------------------------------- |
+| `bun run build`            | Compile tsc → dist/                                        |
+| `bun run typecheck`        | Type-check without emitting                                |
+| `bun run format`           | Format all files with Prettier                             |
+| `bun run format:check`     | Check formatting without writing (CI uses this implicitly) |
+| `bun run test`             | Run all tests                                              |
+| `bun run test:unit`        | Unit tests only (`--filter='unit'` matches the dir)        |
+| `bun run test:integration` | Integration tests only (requires PostgreSQL)               |
+| `bun run test:coverage`    | Tests + coverage report                                    |
+| `bun run test:watch`       | Watch mode                                                 |
+| `bun run precommit`        | format → typecheck → test (run before commit)              |
+
+### Running a focused test
+
+```bash
+bun test tests/unit/filter-processor.test.ts   # one file
+bun test --filter '<regex>'                    # by test name / file path
+```
+
+All `test*` scripts auto-set `D3GOP_LOG_TYPE="disabled"` — logs are silenced without manual env.
 
 ### Agent commands
 
@@ -65,8 +76,13 @@ src/
 
 ## Gotchas
 
-- Integration tests need PostgreSQL. CI uses a `postgres:16-alpine` service container with env vars `DATABASE_URL`, `POSTGRES_HOST`, etc.
-- `setGlobalConfig()` must be called **before** any `@GQLEntityClass` decorators run (before importing entity files).
+- Integration tests need a running PostgreSQL at `DATABASE_URL` locally (CI uses a `postgres:16-alpine` service container with env vars `DATABASE_URL`, `POSTGRES_HOST`, etc.). Unit tests (`bun run test:unit`) run without it.
+- `setGlobalConfig()` must be called **before** any `@GQLEntityClass` decorators run (before importing entity files). The same suffixes are also read from `D3GOP_TYPES_SUFFIX` / `D3GOP_SORT_SUFFIX` env vars at decoration time, so env-only config needs no `setGlobalConfig()` call.
+- **CI Bun version is pinned to `1.3.10`** (`oven-sh/setup-bun@v2` in `.github/workflows/*`). Build/test failures that pass locally may be a local-Bun-version mismatch.
+- **CI skips build+test on docs-only PRs** — the `build-and-test` workflow only triggers on changes to `.ts/.tsx/.js/.jsx/.json/.yml/.yaml` files (everything else, including `.md`, is considered docs).
 - The package has a workspace for `examples/*` (currently `examples/web-playground`).
+- **Published package scope** (`.npmignore`): excludes `tests/`, `examples/`, `.github/`, `tsconfig.json`, `bun.lockb`, and all `*.md` except `README.md`. Only `dist/` + `package.json` ship to npm.
 - **Git-flow versioning**: `develop` always carries a `-dev` suffix (e.g., `1.1.0-dev`), `main` has clean versions. Release workflows strip `-dev`, bump, publish, then merge back and set the next `-dev` version.
-- **Never change `version` in `package.json`** as part of a PR from develop to main. Version bumps are handled exclusively by the release GitHub Action. If the version on develop diverges from main, revert it to match main before creating the PR.
+- **Never change `version` in `package.json`** as part of a PR from develop to main. Version bumps are handled exclusively by the release GitHub Action (use `scripts/update-version.ts`, not manual edits).
+- **Releases are label-triggered**: a PR merged to `main` with a `release:patch|minor|major` label triggers automated npm publish (npm **trusted publishers / OIDC** — no `NPM_TOKEN`). Full flow: `.github/RELEASE_PROCESS.md`.
+- **Keep examples in sync**: the `examples/` workspace (`examples/*`, currently `examples/web-playground`) is the reference consumer of this library. **Any change to public API, exported types, field-settings shapes, or decorator behaviour MUST be reflected in the examples** — add new scenarios there so they keep exercising as many features as possible (all relationship types, count fields, exists filters, mapNumericEnum, parseJson, mapping custom fields, excludeFromInput, enum types, etc.). The examples should typecheck clean and boot against a fresh `bun run build` of the library. Never leave them broken or stale after a refactor.

@@ -8,7 +8,20 @@ import { EntityMetadata, EntityProperty, ReferenceType } from '@dav3/gql-of-powe
  * - 1:m relationships (Fellowship -> Members, Region -> Locations)
  * - m:1 relationships (Books -> Author, Members -> Fellowship)
  * - m:m relationships (Battles <-> Warriors, Books <-> Genres)
+ *
+ * The schema also exercises the scalar-field features of the library:
+ * - Numeric enum column (Ring.status) paired with `mapNumericEnum`
+ * - JSON column (Ring.metadata) paired with `parseJson`
+ * - Server-managed field (Ring.forgedDate) paired with `excludeFromInput`
  */
+
+// ─── Enums ─────────────────────────────────────────────────────────────────
+// The DB stores the numeric code; GraphQL exposes the string key (see mapNumericEnum).
+export enum RingStatus {
+	Forged = 100,
+	Lost = 200,
+	Destroyed = 300,
+}
 
 // Entity Classes
 export class Person {
@@ -17,6 +30,8 @@ export class Person {
 	age?: number;
 	race!: string; // Hobbit, Elf, Dwarf, Human, Wizard, etc.
 	home?: string;
+	// FK used only by the mapping-strategy custom field `homeRegion` (no ORM relation).
+	homeRegionId?: number;
 	// 1:1 relationship
 	ring?: Ring;
 	// m:1 relationship
@@ -32,6 +47,12 @@ export class Ring {
 	name!: string;
 	power!: string;
 	forgedBy?: string;
+	// Server-managed timestamp (excludeFromInput demo)
+	forgedDate?: Date;
+	// Numeric enum column — DB stores 100/200/300 (mapNumericEnum demo)
+	status?: RingStatus;
+	// jsonb column surfaced as a JSON object (parseJson demo)
+	metadata?: Record<string, any>;
 	// 1:1 relationship
 	bearerId?: number;
 	bearer?: Person;
@@ -174,6 +195,8 @@ export const PersonMetadata: EntityMetadata<Person> = {
 		age: createProperty('number', 'age', ['age']),
 		race: createProperty('string', 'race', ['race']),
 		home: createProperty('string', 'home', ['home_location']),
+		// FK column backing the mapping-strategy custom field `homeRegion`.
+		homeRegionId: createProperty('number', 'homeRegionId', ['home_region_id']),
 		ring: createProperty('Ring', 'ring', [], {
 			referenceType: ReferenceType.ONE_TO_ONE,
 			mappedBy: 'bearer',
@@ -210,6 +233,12 @@ export const RingMetadata: EntityMetadata<Ring> = {
 		name: createProperty('string', 'name', ['ring_name']),
 		power: createProperty('string', 'power', ['power_description']),
 		forgedBy: createProperty('string', 'forgedBy', ['forged_by']),
+		// Server-managed timestamp column (kept out of Input via excludeFromInput)
+		forgedDate: createProperty('Date', 'forgedDate', ['forged_date']),
+		// Numeric enum column: stored as an int, surfaced as a string key
+		status: createProperty('number', 'status', ['status']),
+		// jsonb column surfaced as a parsed JSON object
+		metadata: createProperty('Object', 'metadata', ['metadata']),
 		bearerId: createProperty('number', 'bearerId', ['bearer_id']),
 		bearer: createProperty('Person', 'bearer', ['bearer_id'], {
 			referenceType: ReferenceType.MANY_TO_ONE,
@@ -253,7 +282,7 @@ export const QuestMetadata: EntityMetadata<Quest> = {
 		startDate: createProperty('Date', 'startDate', ['start_date']),
 		endDate: createProperty('Date', 'endDate', ['end_date']),
 		success: createProperty('boolean', 'success', ['success']),
-		fellowship: createProperty('Fellowship', 'fellowships', [], {
+		fellowships: createProperty('Fellowship', 'fellowships', [], {
 			referenceType: ReferenceType.ONE_TO_MANY,
 			mappedBy: 'quest',
 		}),
