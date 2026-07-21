@@ -84,6 +84,20 @@ const goldenSQL: Record<string, string> = {
 	// _contains filter — ARRAY @> ARRAY
 	'filter-contains-race':
 		'select e_a1.id, e_a1.person_name AS "name" from ( select e_a1.id, e_a1.person_name from persons as e_a1 where true and ( ARRAY[e_a1.race] @> ARRAY[:v_race_contains1_1__0] ) ) as e_a1',
+	// New string operators — _startsWith, _endsWith, _nlike, _nre
+	'filter-startsWith':
+		'select e_a1.id, e_a1.person_name AS "name" from ( select e_a1.id, e_a1.person_name from persons as e_a1 where true and ( e_a1.person_name like :v_name_startsWith1_1 || \'%\' ) ) as e_a1',
+	'filter-endsWith':
+		'select e_a1.id, e_a1.person_name AS "name" from ( select e_a1.id, e_a1.person_name from persons as e_a1 where true and ( e_a1.person_name like \'%\' || :v_name_endsWith1_1 ) ) as e_a1',
+	'filter-nlike':
+		'select e_a1.id, e_a1.person_name AS "name" from ( select e_a1.id, e_a1.person_name from persons as e_a1 where true and ( e_a1.person_name not like :v_name_nlike1_1 ) ) as e_a1',
+	'filter-nre':
+		'select e_a1.id, e_a1.person_name AS "name" from ( select e_a1.id, e_a1.person_name from persons as e_a1 where true and ( e_a1.person_name !~ :v_name_nre1_1 ) ) as e_a1',
+	// New range/null operators — _nbetween, _is_null
+	'filter-nbetween':
+		'select e_a1.id, e_a1.person_name AS "name" from ( select e_a1.id, e_a1.person_name from persons as e_a1 where true and ( e_a1.age not between :v_age3_0 and :v_age4_1 ) ) as e_a1',
+	'filter-is-null':
+		'select e_a1.id, e_a1.person_name AS "name" from ( select e_a1.id, e_a1.person_name from persons as e_a1 where true and ( e_a1.age is null ) ) as e_a1',
 	// _not class operation — negates a conjunction of conditions
 	'filter-not-simple':
 		'select e_a1.id, e_a1.person_name AS "name" from ( select e_a1.id, e_a1.person_name from persons as e_a1 where true and ( not (e_a1.person_name = :e_person_name2_person_name) ) ) as e_a1',
@@ -318,6 +332,45 @@ const scenarios: Scenario[] = [
 		fields: { id: {}, name: {} },
 		entity: Person,
 		filter: { race_contains: 'Elf' } as any,
+	},
+
+	// ── New string operators ──────────────────────────────────────────────
+	{
+		name: 'filter-startsWith',
+		fields: { id: {}, name: {} },
+		entity: Person,
+		filter: { name_startsWith: 'Saur' } as any,
+	},
+	{
+		name: 'filter-endsWith',
+		fields: { id: {}, name: {} },
+		entity: Person,
+		filter: { name_endsWith: 'don' } as any,
+	},
+	{
+		name: 'filter-nlike',
+		fields: { id: {}, name: {} },
+		entity: Person,
+		filter: { name_nlike: '%Baggins%' } as any,
+	},
+	{
+		name: 'filter-nre',
+		fields: { id: {}, name: {} },
+		entity: Person,
+		filter: { name_nre: '^Sauron$' } as any,
+	},
+	// New range/null operators
+	{
+		name: 'filter-nbetween',
+		fields: { id: {}, name: {} },
+		entity: Person,
+		filter: { age_nbetween: [30, 200] } as any,
+	},
+	{
+		name: 'filter-is-null',
+		fields: { id: {}, name: {} },
+		entity: Person,
+		filter: { age_is_null: true } as any,
 	},
 
 	// ── _not class operation ──────────────────────────────────────────────

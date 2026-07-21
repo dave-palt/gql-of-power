@@ -324,9 +324,21 @@ filter: {
 | `_ne`          | Not equal                                               |
 | `_in`          | In array                                                |
 | `_nin`         | Not in array                                            |
-| `_like`        | ILIKE (case-insensitive contains)                       |
+| `_like`        | LIKE (case-sensitive contains)                          |
+| `_nlike`       | NOT LIKE                                                |
+| `_ilike`       | ILIKE (case-insensitive contains)                       |
+| `_nilike`      | NOT ILIKE                                               |
+| `_startsWith`  | LIKE prefix (case-sensitive)                            |
+| `_istartsWith` | ILIKE prefix (case-insensitive)                         |
+| `_endsWith`    | LIKE suffix (case-sensitive)                            |
+| `_iendsWith`   | ILIKE suffix (case-insensitive)                         |
+| `_re`          | Regex match (`~`)                                       |
+| `_nre`         | Regex non-match (`!~`)                                  |
 | `_gt` / `_gte` | Greater than / greater than or equal                    |
 | `_lt` / `_lte` | Less than / less than or equal                          |
+| `_between`     | BETWEEN low AND high                                    |
+| `_nbetween`    | NOT BETWEEN low AND high                                |
+| `_is_null`     | IS NULL (true) / IS NOT NULL (false)                    |
 | `_and`         | Logical AND                                             |
 | `_or`          | Logical OR (generates UNION ALL)                        |
 | `_not`         | Negates a conjunction of conditions (NOT (...) wrapper) |
