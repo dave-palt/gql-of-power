@@ -318,19 +318,20 @@ filter: {
 
 ### Filter operations
 
-| Operation      | Meaning                                                |
-| -------------- | ------------------------------------------------------ |
-| `_eq`          | Equal                                                  |
-| `_ne`          | Not equal                                              |
-| `_in`          | In array                                               |
-| `_nin`         | Not in array                                           |
-| `_like`        | ILIKE (case-insensitive contains)                      |
-| `_gt` / `_gte` | Greater than / greater than or equal                   |
-| `_lt` / `_lte` | Less than / less than or equal                         |
-| `_and`         | Logical AND                                            |
-| `_or`          | Logical OR (generates UNION ALL)                       |
-| `_exists`      | Check related entities exist (AND-combined per key)    |
-| `_not_exists`  | Check no related entities exist (AND-combined per key) |
+| Operation      | Meaning                                                 |
+| -------------- | ------------------------------------------------------- |
+| `_eq`          | Equal                                                   |
+| `_ne`          | Not equal                                               |
+| `_in`          | In array                                                |
+| `_nin`         | Not in array                                            |
+| `_like`        | ILIKE (case-insensitive contains)                       |
+| `_gt` / `_gte` | Greater than / greater than or equal                    |
+| `_lt` / `_lte` | Less than / less than or equal                          |
+| `_and`         | Logical AND                                             |
+| `_or`          | Logical OR (generates UNION ALL)                        |
+| `_not`         | Negates a conjunction of conditions (NOT (...) wrapper) |
+| `_exists`      | Check related entities exist (AND-combined per key)     |
+| `_not_exists`  | Check no related entities exist (AND-combined per key)  |
 
 ### Existence Filters (`_exists` / `_not_exists`)
 
@@ -362,6 +363,28 @@ filter: {
 ```
 
 `_exists` generates `EXISTS (SELECT 1 FROM ... WHERE ...)` subqueries. `_not_exists` generates `NOT EXISTS (...)`. Multiple keys within one `_exists`/`_not_exists` each produce a separate `EXISTS`/`NOT EXISTS` clause, AND-combined in the WHERE. OR across exists conditions is achieved via `_or`.
+
+### Negation Filter (`_not`)
+
+Negate a set of conditions. `_not` takes an array of filter objects, AND-combines them, and wraps the result in `NOT (...)`.
+
+```graphql
+# Persons whose name is NOT "Sauron" AND race is NOT "Maiar"
+filter: {
+  _not: [
+    { name: "Sauron" }
+    { race: "Maiar" }
+  ]
+}
+
+# Combine _not with other filters
+filter: {
+  age_gt: 50
+  _not: [{ race: "Orc" }]
+}
+```
+
+Generates `NOT (cond1 AND cond2)` in the WHERE clause. For simple field-level negation, the negated operators (`_ne`, `_nin`) are more direct — `_not` is for negating compound expressions. Note: nesting `_or` inside `_not` is not fully negated (the UNION ALL path is not invertible); use De Morgan's law (`_and` of negated conditions) instead.
 
 ---
 
@@ -562,7 +585,6 @@ No `limit` or `offset` parameters are accepted — `LIMIT 1` is always applied.
 
 ## Known Limitations
 
-- ⚠️ Class-level `_not` conditions not yet supported
 - ⚠️ Order by columns on related/joined tables not supported
 - ⚠️ ACL pending async refactoring
 

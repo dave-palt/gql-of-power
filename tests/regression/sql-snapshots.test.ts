@@ -84,6 +84,13 @@ const goldenSQL: Record<string, string> = {
 	// _contains filter — ARRAY @> ARRAY
 	'filter-contains-race':
 		'select e_a1.id, e_a1.person_name AS "name" from ( select e_a1.id, e_a1.person_name from persons as e_a1 where true and ( ARRAY[e_a1.race] @> ARRAY[:v_race_contains1_1__0] ) ) as e_a1',
+	// _not class operation — negates a conjunction of conditions
+	'filter-not-simple':
+		'select e_a1.id, e_a1.person_name AS "name" from ( select e_a1.id, e_a1.person_name from persons as e_a1 where true and ( not (e_a1.person_name = :e_person_name2_person_name) ) ) as e_a1',
+	'filter-not-multi':
+		'select e_a1.id, e_a1.person_name AS "name" from ( select e_a1.id, e_a1.person_name from persons as e_a1 where true and ( not (e_a1.person_name = :e_person_name3_person_name and e_a1.race = :e_race6_race) ) ) as e_a1',
+	'filter-not-with-other':
+		'select e_a1.id, e_a1.person_name AS "name" from ( select e_a1.id, e_a1.person_name from persons as e_a1 where true and ( e_a1.age > :v_age_gt5_1 and not (e_a1.race = :e_race7_race) ) ) as e_a1',
 	'filter-exists-ring':
 		'select e_a1.id, e_a1.person_name AS "name" from ( select e_a1.id, e_a1.person_name from persons as e_a1 where true ) as e_a1',
 	'filter-not-exists-battle':
@@ -311,6 +318,29 @@ const scenarios: Scenario[] = [
 		fields: { id: {}, name: {} },
 		entity: Person,
 		filter: { race_contains: 'Elf' } as any,
+	},
+
+	// ── _not class operation ──────────────────────────────────────────────
+	// Simple _not — negate a single condition
+	{
+		name: 'filter-not-simple',
+		fields: { id: {}, name: {} },
+		entity: Person,
+		filter: { _not: [{ name: 'Frodo' }] } as any,
+	},
+	// _not with multiple conditions — NOT (cond1 AND cond2)
+	{
+		name: 'filter-not-multi',
+		fields: { id: {}, name: {} },
+		entity: Person,
+		filter: { _not: [{ name: 'Frodo' }, { race: 'Hobbit' }] } as any,
+	},
+	// _not combined with a regular field filter
+	{
+		name: 'filter-not-with-other',
+		fields: { id: {}, name: {} },
+		entity: Person,
+		filter: { age_gt: 50, _not: [{ race: 'Orc' }] } as any,
 	},
 
 	// ── Exists filters ────────────────────────────────────────────────────
