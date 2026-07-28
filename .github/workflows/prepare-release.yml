@@ -106,7 +106,7 @@ jobs:
 
       - name: Create Pull Request to main
         id: create_pr
-        uses: actions/github-script@v7
+        uses: actions/github-script@v9
         env:
           RELEASE_VERSION: ${{ steps.versions.outputs.release }}
           BUMP_TYPE: ${{ steps.versions.outputs.bump_type }}
