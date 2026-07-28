@@ -70,6 +70,40 @@ jobs:
           git commit -m "chore: bump version to ${{ steps.versions.outputs.release }}"
           git push origin "${{ env.branch }}"
 
+      - name: Gather changes since last release
+        id: changes
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          LAST_TAG=$(git tag --sort=-creatordate | grep '^v' | head -1 || echo "")
+          if [ -n "$LAST_TAG" ]; then
+            RAW_DATE=$(git log -1 --format=%cI "$LAST_TAG")
+            TAG_DATE=$(date -u -d "$RAW_DATE" +%Y-%m-%dT%H:%M:%SZ)
+            echo "Last release: $LAST_TAG ($TAG_DATE)"
+          else
+            TAG_DATE="2000-01-01T00:00:00Z"
+            LAST_TAG="(first release)"
+            echo "No previous release tag found. Listing all merged PRs."
+          fi
+
+          PRS=$(gh api "/search/issues" \
+            -f q="repo:${{ github.repository }} base:develop is:merged merged:>$TAG_DATE" \
+            -f sort=created \
+            -f order=asc \
+            -f per_page=100 \
+            --jq '.items[] | "- #\(.number) \(.title) (@\(.user.login))"' 2>/dev/null || echo "")
+
+          if [ -z "$PRS" ]; then
+            PRS="(No pull requests merged to develop since $LAST_TAG)"
+          fi
+
+          echo "last_tag=$LAST_TAG" >> "$GITHUB_OUTPUT"
+          {
+            echo "pr_list<<EOF"
+            echo "$PRS"
+            echo "EOF"
+          } >> "$GITHUB_OUTPUT"
+
       - name: Create Pull Request to main
         id: create_pr
         uses: actions/github-script@v7
@@ -77,11 +111,15 @@ jobs:
           RELEASE_VERSION: ${{ steps.versions.outputs.release }}
           BUMP_TYPE: ${{ steps.versions.outputs.bump_type }}
           NEXT_DEV: ${{ steps.versions.outputs.next_dev }}
+          PR_LIST: ${{ steps.changes.outputs.pr_list }}
+          LAST_TAG: ${{ steps.changes.outputs.last_tag }}
         with:
           script: |
             const releaseVersion = process.env.RELEASE_VERSION;
             const bumpType = process.env.BUMP_TYPE;
             const nextDev = process.env.NEXT_DEV;
+            const prList = process.env.PR_LIST || '';
+            const lastTag = process.env.LAST_TAG || 'first release';
 
             const { data: pr } = await github.rest.pulls.create({
               owner: context.repo.owner,
@@ -93,6 +131,10 @@ jobs:
 
               This PR prepares the release of version \`${releaseVersion}\`.
 
+              ### Changes Since ${lastTag}
+
+              ${prList}
+
               ### Version Bump
               - Type: **${bumpType}**
               - Version: \`${releaseVersion}\`
@@ -103,7 +145,7 @@ jobs:
               2. The release workflow will automatically:
                  - Tag the release
                  - Publish to npm
-                 - Create GitHub release
+                 - Create GitHub release (with auto-generated notes)
                  - Merge changes back to develop
                  - Bump develop to \`${nextDev}\`
 

@@ -145,7 +145,7 @@ jobs:
         with:
           tag_name: v${{ steps.new_version.outputs.version }}
           name: Release ${{ steps.new_version.outputs.version }}
-          body: 'Release version ${{ steps.new_version.outputs.version }}'
+          generate_release_notes: true
 
       - name: Determine bump type
         id: bump_type

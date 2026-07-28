@@ -63,7 +63,7 @@ Once merged to `main`, the **Release** workflow automatically:
 
 1. Checks out `main` and runs build + tests
 2. Publishes to npm
-3. Creates a git tag and GitHub Release
+3. Creates a git tag and GitHub Release (with **auto-generated release notes** — GitHub compiles the PR/commit list since the last tag, plus new contributors)
 4. Merges `main` back into `develop`
 5. Bumps `develop` to the next `-dev` version (minor/major only; patch leaves develop as-is)
 
