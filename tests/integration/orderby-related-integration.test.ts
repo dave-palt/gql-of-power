@@ -157,7 +157,7 @@ describe('ORDER BY Related Columns Integration Tests (PR #24)', () => {
 				async () => {
 					const fields = { id: {}, name: {}, power: {} };
 					const pagination = {
-						orderBy: [{ 'bearer.name': 'asc' as any }],
+						orderBy: [{ bearer: { name: 'asc' } }] as any,
 					};
 
 					const result = mapper.buildQueryAndBindingsFor({

@@ -120,18 +120,28 @@ export class GQLtoSQLMapper {
 						const value = obs[ob];
 						// Handle nested object for related m:1 columns (e.g. { author: { name: 'asc' } })
 						if (value !== null && typeof value === 'object' && !Array.isArray(value)) {
-							const subExprs = keys(value)
+							const nestedValue = value as Record<string, any>;
+							const subExprs = keys(nestedValue)
 								.map((subKey) => {
-									const sqlExpr = this.resolveRelatedOrderBy(
+									const resolved = this.resolveRelatedOrderBy(
 										entity.name,
 										metadata,
 										alias,
 										ob,
 										subKey
 									);
-									return sqlExpr ? { expr: sqlExpr, isSubquery: true } : null;
+									if (!resolved) return null;
+									return {
+										expr: resolved.sql,
+										isSubquery: true,
+										parentColumns: resolved.parentColumns,
+									};
 								})
-								.filter(Boolean) as { expr: string; isSubquery: true }[];
+								.filter(Boolean) as {
+								expr: string;
+								isSubquery: true;
+								parentColumns: string[];
+							}[];
 							if (subExprs.length > 0) {
 								return subExprs;
 							}
@@ -141,17 +151,20 @@ export class GQLtoSQLMapper {
 							metadata.properties[fieldName]?.fieldNames
 								?.map((fn) => `${alias.toString()}.${fn}`)
 								?.join(', ') ?? `${alias.toString()}.${fieldName}`;
-						return [{ expr, isSubquery: false }];
+						return [{ expr, isSubquery: false, parentColumns: [] }];
 					})
 					.flat()
 			)
 			.flat();
 
 		// Order-by fields must also be in the inner rawSelect subquery so the outer query can reference them.
-		// Correlated subqueries (related columns) are excluded — they reference the parent alias directly.
+		// Correlated subqueries (related columns) reference parent columns (e.g. e_a1.fellowship_id)
+		// that may not be in the SELECT list — those parent columns must also be projected.
 		orderByFields.forEach((f) => {
 			if (!f.isSubquery) {
 				rawSelect.add(f.expr);
+			} else if (f.parentColumns) {
+				f.parentColumns.forEach((col) => rawSelect.add(col));
 			}
 		});
 		logger.log('orderByFields', orderByFields, 'select', select, 'orderBy');
@@ -236,6 +249,11 @@ export class GQLtoSQLMapper {
 	 *
 	 * Generates: (SELECT e_rel.column FROM rel_table e_rel WHERE parent.fk = e_rel.pk)
 	 *
+	 * Returns { sql, parentColumns } where parentColumns are the parent-table columns
+	 * referenced in the WHERE clause (e.g. ['e_a1.fellowship_id']). The caller must
+	 * ensure these columns are projected by any wrapping subquery so the correlated
+	 * reference resolves in the outer query too.
+	 *
 	 * Returns null if the relation is not m:1 (caller falls back to flat resolution).
 	 */
 	private resolveRelatedOrderBy<T>(
@@ -244,7 +262,7 @@ export class GQLtoSQLMapper {
 		parentAlias: Alias,
 		relationName: string,
 		relatedFieldName: string
-	): string | null {
+	): { sql: string; parentColumns: string[] } | null {
 		// Look up the relation property on the current entity
 		const relProp = metadata.properties[relationName];
 		if (!relProp) return null;
@@ -278,13 +296,17 @@ export class GQLtoSQLMapper {
 
 		// Generate correlated subquery
 		const relAlias = 'e_o'; // stable alias for orderBy subqueries
+		const parentColumns = fkColumns.map((fk) => parentAlias.toColumnName(fk));
 		const joinCondition = fkColumns
 			.map((fk, i) => `${parentAlias.toColumnName(fk)} = ${relAlias}.${refPkColumns[i]}`)
 			.join(' and ');
 
 		const relColumns = relFieldMeta.fieldNames.map((fn) => `${relAlias}.${fn}`).join(', ');
 
-		return `(select ${relColumns} from "${relMetadata.tableName}" as ${relAlias} where ${joinCondition})`;
+		return {
+			sql: `(select ${relColumns} from "${relMetadata.tableName}" as ${relAlias} where ${joinCondition})`,
+			parentColumns,
+		};
 	}
 
 	/**
@@ -318,7 +340,7 @@ export class GQLtoSQLMapper {
 										ob,
 										subKey
 									);
-									const columns = resolved ? [resolved] : fieldMapper(ob);
+									const columns = resolved ? [resolved.sql] : fieldMapper(ob);
 									return columns.map((fn) => `${fn} ${direction}`).join(', ');
 								})
 								.filter((o) => o.length > 0)
