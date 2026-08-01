@@ -118,7 +118,7 @@ export class GQLtoSQLMapper {
 				keys(obs)
 					.map((ob) => {
 						const value = obs[ob];
-						// Handle nested object for related m:1 columns (e.g. { author: { name: 'asc' } })
+						// Handle nested object for related columns (e.g. { author: { name: 'asc' } })
 						if (value !== null && typeof value === 'object' && !Array.isArray(value)) {
 							const nestedValue = value as Record<string, any>;
 							const subExprs = keys(nestedValue)
@@ -128,7 +128,10 @@ export class GQLtoSQLMapper {
 										metadata,
 										alias,
 										ob,
-										subKey
+										subKey,
+										typeof nestedValue[subKey] === 'string'
+											? (nestedValue[subKey] as any)
+											: undefined
 									);
 									if (!resolved) return null;
 									return {
@@ -245,68 +248,136 @@ export class GQLtoSQLMapper {
 
 	/**
 	 * Resolves a nested-object orderBy key (e.g. orderBy: [{ author: { name: 'asc' } }])
-	 * into a correlated subquery SQL expression for many-to-one relations.
+	 * into a correlated subquery SQL expression for related columns.
 	 *
-	 * Generates: (SELECT e_rel.column FROM rel_table e_rel WHERE parent.fk = e_rel.pk)
+	 * Cardinality determines the subquery shape:
+	 *  - m:1 (exactly one related row): plain scalar subquery
+	 *      (SELECT e_o.col FROM rel_table e_o WHERE parent.fk = e_o.pk)
+	 *  - 1:m / m:m (many related rows): the rows are collapsed to a single sortable
+	 *    value via aggregation — MIN for ascending sorts, MAX for descending — so
+	 *    the parent row can be ordered deterministically.
 	 *
 	 * Returns { sql, parentColumns } where parentColumns are the parent-table columns
-	 * referenced in the WHERE clause (e.g. ['e_a1.fellowship_id']). The caller must
-	 * ensure these columns are projected by any wrapping subquery so the correlated
-	 * reference resolves in the outer query too.
+	 * referenced in the WHERE clause. The caller must ensure these columns are
+	 * projected by any wrapping subquery so the correlated reference resolves in
+	 * the outer query too.
 	 *
-	 * Returns null if the relation is not m:1 (caller falls back to flat resolution).
+	 * @param sortDir sort direction ('asc'|'desc') — picks MIN vs MAX for 1:m/m:m.
+	 *   Ignored for m:1.
+	 * Returns null if not a resolvable related field (caller falls back to flat resolution).
 	 */
 	private resolveRelatedOrderBy<T>(
 		entityName: string,
 		metadata: EntityMetadata<T>,
 		parentAlias: Alias,
 		relationName: string,
-		relatedFieldName: string
+		relatedFieldName: string,
+		sortDir?: string
 	): { sql: string; parentColumns: string[] } | null {
 		// Look up the relation property on the current entity
 		const relProp = metadata.properties[relationName];
 		if (!relProp) return null;
 
-		// Only support m:1 relations (clean, unambiguous — exactly one related row)
-		if (relProp.reference !== ReferenceType.MANY_TO_ONE) {
-			logger.log(
-				'resolveRelatedOrderBy',
-				`Skipping orderBy on "${relationName}": relation is not m:1 (only m:1 supported for related orderBy)`
-			);
-			return null;
-		}
-
-		// Get the related entity metadata
+		// Get the related entity metadata (shared by all cardinalities)
 		const relEntityName = relProp.type;
 		if (!this.exists(relEntityName)) return null;
 		const relMetadata = this.getMetadata<any, EntityMetadata<any>>(relEntityName);
 		if (!relMetadata?.tableName) return null;
 
-		// Resolve the FK columns: parent.fieldNames → related.referencedColumnNames
-		const fkColumns = relProp.fieldNames; // e.g. ['author_id'] on the parent table
-		const refPkColumns =
-			relProp.referencedColumnNames.length > 0
-				? relProp.referencedColumnNames
-				: relMetadata.primaryKeys;
-		if (fkColumns.length === 0 || fkColumns.length !== refPkColumns.length) return null;
-
 		// Resolve the related field's actual column name(s)
 		const relFieldMeta = relMetadata.properties[relatedFieldName];
-		if (!relFieldMeta) return null;
+		if (!relFieldMeta || relFieldMeta.fieldNames.length === 0) return null;
 
-		// Generate correlated subquery
 		const relAlias = 'e_o'; // stable alias for orderBy subqueries
-		const parentColumns = fkColumns.map((fk) => parentAlias.toColumnName(fk));
-		const joinCondition = fkColumns
-			.map((fk, i) => `${parentAlias.toColumnName(fk)} = ${relAlias}.${refPkColumns[i]}`)
-			.join(' and ');
 
-		const relColumns = relFieldMeta.fieldNames.map((fn) => `${relAlias}.${fn}`).join(', ');
+		// --- m:1: exactly one related row, no aggregation needed ---
+		if (relProp.reference === ReferenceType.MANY_TO_ONE) {
+			// Resolve the FK columns: parent.fieldNames → related.referencedColumnNames
+			const fkColumns = relProp.fieldNames; // e.g. ['author_id'] on the parent table
+			const refPkColumns =
+				relProp.referencedColumnNames.length > 0
+					? relProp.referencedColumnNames
+					: relMetadata.primaryKeys;
+			if (fkColumns.length === 0 || fkColumns.length !== refPkColumns.length) return null;
 
-		return {
-			sql: `(select ${relColumns} from "${relMetadata.tableName}" as ${relAlias} where ${joinCondition})`,
-			parentColumns,
-		};
+			const parentColumns = fkColumns.map((fk) => parentAlias.toColumnName(fk));
+			const joinCondition = fkColumns
+				.map((fk, i) => `${parentAlias.toColumnName(fk)} = ${relAlias}.${refPkColumns[i]}`)
+				.join(' and ');
+
+			const relColumns = relFieldMeta.fieldNames.map((fn) => `${relAlias}.${fn}`).join(', ');
+
+			return {
+				sql: `(select ${relColumns} from "${relMetadata.tableName}" as ${relAlias} where ${joinCondition})`,
+				parentColumns,
+			};
+		}
+
+		// Aggregated cases collapse many related rows into one sortable value.
+		// Multi-column related fields are ambiguous under aggregation — bail out.
+		if (relFieldMeta.fieldNames.length !== 1) return null;
+		const aggFn = (sortDir ?? 'asc').toLowerCase() === 'desc' ? 'max' : 'min';
+		const relColumn = `${aggFn}(${relAlias}.${relFieldMeta.fieldNames[0]})`;
+
+		// --- 1:m: child holds the FK; join parent.pk = child.fk (via mappedBy) ---
+		if (relProp.reference === ReferenceType.ONE_TO_MANY) {
+			if (!relProp.mappedBy) return null;
+			const childFkProp = relMetadata.properties[relProp.mappedBy];
+			if (!childFkProp) return null;
+
+			const childFkColumns = childFkProp.joinColumns;
+			const parentPkColumns =
+				childFkProp.referencedColumnNames.length > 0
+					? childFkProp.referencedColumnNames
+					: metadata.primaryKeys;
+			if (childFkColumns.length === 0 || childFkColumns.length !== parentPkColumns.length)
+				return null;
+
+			const parentColumns = parentPkColumns.map((pk) => parentAlias.toColumnName(pk));
+			const joinCondition = parentPkColumns
+				.map((pk, i) => `${parentAlias.toColumnName(pk)} = ${relAlias}.${childFkColumns[i]}`)
+				.join(' and ');
+
+			return {
+				sql: `(select ${relColumn} from "${relMetadata.tableName}" as ${relAlias} where ${joinCondition})`,
+				parentColumns,
+			};
+		}
+
+		// --- m:m: join related to pivot, correlate pivot to parent ---
+		if (relProp.reference === ReferenceType.MANY_TO_MANY) {
+			const pivotTable = relProp.pivotTable;
+			const joinColumns = relProp.joinColumns; // pivot cols referencing the parent side
+			const inverseJoinColumns = relProp.inverseJoinColumns; // pivot cols referencing the related side
+			if (!pivotTable || joinColumns.length === 0 || inverseJoinColumns.length === 0) return null;
+
+			const parentPkColumns =
+				relProp.referencedColumnNames.length > 0
+					? relProp.referencedColumnNames
+					: metadata.primaryKeys;
+			if (joinColumns.length !== parentPkColumns.length) return null;
+			if (inverseJoinColumns.length !== relMetadata.primaryKeys.length) return null;
+
+			const parentColumns = parentPkColumns.map((pk) => parentAlias.toColumnName(pk));
+			const pivotAlias = 'p_o';
+			const pivotJoinCondition = relMetadata.primaryKeys
+				.map((pk, i) => `${relAlias}.${pk} = ${pivotAlias}.${inverseJoinColumns[i]}`)
+				.join(' and ');
+			const parentJoinCondition = joinColumns
+				.map((jc, i) => `${pivotAlias}.${jc} = ${parentAlias.toColumnName(parentPkColumns[i])}`)
+				.join(' and ');
+
+			return {
+				sql: `(select ${relColumn} from "${relMetadata.tableName}" as ${relAlias} inner join "${pivotTable}" as ${pivotAlias} on ${pivotJoinCondition} where ${parentJoinCondition})`,
+				parentColumns,
+			};
+		}
+
+		logger.log(
+			'resolveRelatedOrderBy',
+			`Skipping orderBy on "${relationName}": relation has unsupported reference type "${relProp.reference}"`
+		);
+		return null;
 	}
 
 	/**
@@ -338,7 +409,8 @@ export class GQLtoSQLMapper {
 										metadata,
 										alias,
 										ob,
-										subKey
+										subKey,
+										typeof direction === 'string' ? direction : undefined
 									);
 									const columns = resolved ? [resolved.sql] : fieldMapper(ob);
 									return columns.map((fn) => `${fn} ${direction}`).join(', ');

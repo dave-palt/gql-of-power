@@ -14,7 +14,15 @@
 import { describe, expect, it } from 'bun:test';
 import { GQLtoSQLMapper } from '../../src/queries/gql-to-sql-mapper';
 import { createMockMetadataProvider } from '../fixtures/test-data';
-import { Author, Battle, Book, Fellowship, Person, Ring } from '../fixtures/middle-earth-schema';
+import {
+	Author,
+	Battle,
+	Book,
+	Fellowship,
+	Genre,
+	Person,
+	Ring,
+} from '../fixtures/middle-earth-schema';
 import '../setup';
 
 const normalize = (sql: string) => sql.replace(/\s+/g, ' ').trim();
@@ -105,6 +113,17 @@ const goldenSQL: Record<string, string> = {
 		'select e_a1.id, e_a1.person_name AS "name" from ( select e_a1.id, e_a1.person_name, e_a1.fellowship_id from persons as e_a1 where true order by (select e_o.fellowship_name from "fellowships" as e_o where e_a1.fellowship_id = e_o.id) desc limit :limit ) as e_a1 order by (select e_o.fellowship_name from "fellowships" as e_o where e_a1.fellowship_id = e_o.id) desc',
 	'orderby-related-mixed':
 		'select e_a1.book_title, e_a1.id, e_a1.book_title AS "title" from ( select e_a1.id, e_a1.book_title, e_a1.author_id from books as e_a1 where true order by (select e_o.author_name from "authors" as e_o where e_a1.author_id = e_o.id) asc, e_a1.book_title desc limit :limit ) as e_a1 order by (select e_o.author_name from "authors" as e_o where e_a1.author_id = e_o.id) asc, e_a1.book_title desc',
+	// ── ORDER BY related 1:m / m:m columns (MIN/MAX aggregated subquery) ───
+	'orderby-1m-author-books-title-asc':
+		'select e_a1.id, e_a1.author_name AS "name" from ( select e_a1.id, e_a1.author_name from authors as e_a1 where true order by (select min(e_o.book_title) from "books" as e_o where e_a1.id = e_o.author_id) asc limit :limit ) as e_a1 order by (select min(e_o.book_title) from "books" as e_o where e_a1.id = e_o.author_id) asc',
+	'orderby-1m-author-books-pages-desc':
+		'select e_a1.id, e_a1.author_name AS "name" from ( select e_a1.id, e_a1.author_name from authors as e_a1 where true order by (select max(e_o.page_count) from "books" as e_o where e_a1.id = e_o.author_id) desc limit :limit ) as e_a1 order by (select max(e_o.page_count) from "books" as e_o where e_a1.id = e_o.author_id) desc',
+	'orderby-mm-genre-books-title-asc':
+		'select e_a1.id, e_a1.genre_name AS "name" from ( select e_a1.id, e_a1.genre_name from genres as e_a1 where true order by (select min(e_o.book_title) from "books" as e_o inner join "book_genres" as p_o on e_o.id = p_o.book_id where p_o.genre_id = e_a1.id) asc limit :limit ) as e_a1 order by (select min(e_o.book_title) from "books" as e_o inner join "book_genres" as p_o on e_o.id = p_o.book_id where p_o.genre_id = e_a1.id) asc',
+	'orderby-mm-genre-books-published-desc':
+		'select e_a1.id, e_a1.genre_name AS "name" from ( select e_a1.id, e_a1.genre_name from genres as e_a1 where true order by (select max(e_o.published_year) from "books" as e_o inner join "book_genres" as p_o on e_o.id = p_o.book_id where p_o.genre_id = e_a1.id) desc limit :limit ) as e_a1 order by (select max(e_o.published_year) from "books" as e_o inner join "book_genres" as p_o on e_o.id = p_o.book_id where p_o.genre_id = e_a1.id) desc',
+	'orderby-1m-union-all-alias-rewrite':
+		'select e_a1.id, e_a1.author_name AS "name" from ( select distinct * from ((select e_a1.id, e_a1.author_name from authors as e_a1 where true and ( e_a1.author_name = :e_author_name1_author_name )) union all (select e_a1.id, e_a1.author_name from authors as e_a1 where true and ( e_a1.nationality = :e_nationality1_nationality ))) as e_a1_u order by (select min(e_o.book_title) from "books" as e_o where e_a1_u.id = e_o.author_id) asc ) as e_a1 order by (select min(e_o.book_title) from "books" as e_o where e_a1.id = e_o.author_id) asc',
 };
 
 type Scenario = {
@@ -387,6 +406,38 @@ const scenarios: Scenario[] = [
 		fields: { id: {}, title: {} },
 		entity: Book,
 		pagination: { limit: 10, orderBy: [{ author: { name: 'asc' } }, { title: 'desc' }] as any },
+	},
+	// ── ORDER BY related 1:m / m:m columns (MIN/MAX aggregated subquery) ───
+	{
+		name: 'orderby-1m-author-books-title-asc',
+		fields: { id: {}, name: {} },
+		entity: Author,
+		pagination: { limit: 10, orderBy: [{ books: { title: 'asc' } }] as any },
+	},
+	{
+		name: 'orderby-1m-author-books-pages-desc',
+		fields: { id: {}, name: {} },
+		entity: Author,
+		pagination: { limit: 10, orderBy: [{ books: { pages: 'desc' } }] as any },
+	},
+	{
+		name: 'orderby-mm-genre-books-title-asc',
+		fields: { id: {}, name: {} },
+		entity: Genre,
+		pagination: { limit: 10, orderBy: [{ books: { title: 'asc' } }] as any },
+	},
+	{
+		name: 'orderby-mm-genre-books-published-desc',
+		fields: { id: {}, name: {} },
+		entity: Genre,
+		pagination: { limit: 10, orderBy: [{ books: { publishedYear: 'desc' } }] as any },
+	},
+	{
+		name: 'orderby-1m-union-all-alias-rewrite',
+		fields: { id: {}, name: {} },
+		entity: Author,
+		filter: { _or: [{ name: 'Tolkien' }, { nationality: 'British' }] },
+		pagination: { orderBy: [{ books: { title: 'asc' } }] as any },
 	},
 ];
 

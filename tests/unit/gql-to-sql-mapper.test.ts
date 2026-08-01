@@ -18,6 +18,7 @@ import {
 	Artifact,
 	Author,
 	Book,
+	Genre,
 } from '../fixtures/middle-earth-schema';
 import { createMockMetadataProvider } from '../fixtures/test-data';
 import '../setup';
@@ -1854,6 +1855,87 @@ describe('GQLtoSQLMapper - Unit Tests', () => {
 					pagination: { orderBy: [{ nonexistent: { field: 'asc' } }] as any },
 				});
 			}).toThrow();
+		});
+	});
+
+	describe('ORDER BY related columns (1:m and m:m via MIN/MAX aggregation)', () => {
+		it('should generate a MIN() correlated subquery for 1:m orderBy asc', () => {
+			const result = mapper.buildQueryAndBindingsFor({
+				fields: { id: {}, name: {} } as any,
+				entity: Author,
+				customFields: {},
+				pagination: { orderBy: [{ books: { title: 'asc' } }] as any },
+			});
+
+			expect(result.querySQL).toContain('order by');
+			expect(result.querySQL).toContain(
+				'(select min(e_o.book_title) from "books" as e_o where e_a1.id = e_o.author_id) asc'
+			);
+		});
+
+		it('should generate a MAX() correlated subquery for 1:m orderBy desc', () => {
+			const result = mapper.buildQueryAndBindingsFor({
+				fields: { id: {}, name: {} } as any,
+				entity: Author,
+				customFields: {},
+				pagination: { orderBy: [{ books: { pages: 'desc' } }] as any },
+			});
+
+			expect(result.querySQL).toContain(
+				'(select max(e_o.page_count) from "books" as e_o where e_a1.id = e_o.author_id) desc'
+			);
+		});
+
+		it('should generate a MIN() pivot-joined subquery for m:m orderBy asc', () => {
+			const result = mapper.buildQueryAndBindingsFor({
+				fields: { id: {}, name: {} } as any,
+				entity: Genre,
+				customFields: {},
+				pagination: { orderBy: [{ books: { title: 'asc' } }] as any },
+			});
+
+			expect(result.querySQL).toContain(
+				'(select min(e_o.book_title) from "books" as e_o inner join "book_genres" as p_o on e_o.id = p_o.book_id where p_o.genre_id = e_a1.id) asc'
+			);
+		});
+
+		it('should generate a MAX() pivot-joined subquery for m:m orderBy desc', () => {
+			const result = mapper.buildQueryAndBindingsFor({
+				fields: { id: {}, name: {} } as any,
+				entity: Genre,
+				customFields: {},
+				pagination: { orderBy: [{ books: { publishedYear: 'desc' } }] as any },
+			});
+
+			expect(result.querySQL).toContain(
+				'(select max(e_o.published_year) from "books" as e_o inner join "book_genres" as p_o on e_o.id = p_o.book_id where p_o.genre_id = e_a1.id) desc'
+			);
+		});
+
+		it('should not add the aggregated subquery to the SELECT columns', () => {
+			const result = mapper.buildQueryAndBindingsFor({
+				fields: { id: {}, name: {} } as any,
+				entity: Author,
+				customFields: {},
+				pagination: { orderBy: [{ books: { title: 'asc' } }] as any },
+			});
+
+			const selectClause = result.querySQL.substring(0, result.querySQL.indexOf(' from '));
+			expect(selectClause).not.toContain('(select min(e_o');
+		});
+
+		it('should support mixed 1:m related + flat orderBy', () => {
+			const result = mapper.buildQueryAndBindingsFor({
+				fields: { id: {}, name: {} } as any,
+				entity: Author,
+				customFields: {},
+				pagination: {
+					orderBy: [{ books: { title: 'asc' } }, { name: 'desc' }] as any,
+				},
+			});
+
+			expect(result.querySQL).toContain('(select min(e_o.book_title) from "books" as e_o where');
+			expect(result.querySQL).toContain('e_a1.author_name desc');
 		});
 	});
 });
