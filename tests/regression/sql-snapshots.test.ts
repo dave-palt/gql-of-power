@@ -374,19 +374,19 @@ const scenarios: Scenario[] = [
 		name: 'orderby-related-author-name',
 		fields: { id: {}, title: {} },
 		entity: Book,
-		pagination: { limit: 10, orderBy: [{ 'author.name': 'asc' }] },
+		pagination: { limit: 10, orderBy: [{ author: { name: 'asc' } }] as any },
 	},
 	{
 		name: 'orderby-related-fellowship-name',
 		fields: { id: {}, name: {} },
 		entity: Person,
-		pagination: { limit: 10, orderBy: [{ 'fellowship.name': 'desc' }] },
+		pagination: { limit: 10, orderBy: [{ fellowship: { name: 'desc' } }] as any },
 	},
 	{
 		name: 'orderby-related-mixed',
 		fields: { id: {}, title: {} },
 		entity: Book,
-		pagination: { limit: 10, orderBy: [{ 'author.name': 'asc' }, { title: 'desc' }] },
+		pagination: { limit: 10, orderBy: [{ author: { name: 'asc' } }, { title: 'desc' }] as any },
 	},
 ];
 

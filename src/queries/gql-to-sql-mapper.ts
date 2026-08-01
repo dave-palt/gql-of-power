@@ -112,17 +112,28 @@ export class GQLtoSQLMapper {
 			{ select }
 		);
 
-		// Resolve orderBy fields, including related-column dot-notation for m:1 relations
+		// Resolve orderBy fields, including nested-object related columns for m:1 relations
 		const orderByFields = (pagination?.orderBy ?? [])
 			.map((obs) =>
 				keys(obs)
 					.map((ob) => {
-						// Handle dot-notation for related m:1 columns (e.g. "author.name")
-						if (ob.includes('.')) {
-							const sqlExpr = this.resolveRelatedOrderBy(entity.name, metadata, alias, ob);
-							if (sqlExpr) {
-								// Return as a tagged pair — subqueries must NOT be added to SELECT
-								return { expr: sqlExpr, isSubquery: true };
+						const value = obs[ob];
+						// Handle nested object for related m:1 columns (e.g. { author: { name: 'asc' } })
+						if (value !== null && typeof value === 'object' && !Array.isArray(value)) {
+							const subExprs = keys(value)
+								.map((subKey) => {
+									const sqlExpr = this.resolveRelatedOrderBy(
+										entity.name,
+										metadata,
+										alias,
+										ob,
+										subKey
+									);
+									return sqlExpr ? { expr: sqlExpr, isSubquery: true } : null;
+								})
+								.filter(Boolean) as { expr: string; isSubquery: true }[];
+							if (subExprs.length > 0) {
+								return subExprs;
 							}
 						}
 						const fieldName = getFieldByAlias(entity.name, ob);
@@ -130,7 +141,7 @@ export class GQLtoSQLMapper {
 							metadata.properties[fieldName]?.fieldNames
 								?.map((fn) => `${alias.toString()}.${fn}`)
 								?.join(', ') ?? `${alias.toString()}.${fieldName}`;
-						return { expr, isSubquery: false };
+						return [{ expr, isSubquery: false }];
 					})
 					.flat()
 			)
@@ -220,23 +231,20 @@ export class GQLtoSQLMapper {
 	}
 
 	/**
-	 * Resolves a dot-notation orderBy key (e.g. "author.name") into a correlated
-	 * subquery SQL expression for many-to-one relations.
+	 * Resolves a nested-object orderBy key (e.g. orderBy: [{ author: { name: 'asc' } }])
+	 * into a correlated subquery SQL expression for many-to-one relations.
 	 *
 	 * Generates: (SELECT e_rel.column FROM rel_table e_rel WHERE parent.fk = e_rel.pk)
 	 *
-	 * Returns null if the key is not a related m:1 field (caller falls back to flat resolution).
+	 * Returns null if the relation is not m:1 (caller falls back to flat resolution).
 	 */
 	private resolveRelatedOrderBy<T>(
 		entityName: string,
 		metadata: EntityMetadata<T>,
 		parentAlias: Alias,
-		obKey: string
+		relationName: string,
+		relatedFieldName: string
 	): string | null {
-		const [relationName, ...rest] = obKey.split('.');
-		const relatedFieldName = rest.join('.');
-		if (!relatedFieldName) return null;
-
 		// Look up the relation property on the current entity
 		const relProp = metadata.properties[relationName];
 		if (!relProp) return null;
@@ -245,7 +253,7 @@ export class GQLtoSQLMapper {
 		if (relProp.reference !== ReferenceType.MANY_TO_ONE) {
 			logger.log(
 				'resolveRelatedOrderBy',
-				`Skipping orderBy on "${obKey}": relation "${relationName}" is not m:1 (only m:1 supported for related orderBy)`
+				`Skipping orderBy on "${relationName}": relation is not m:1 (only m:1 supported for related orderBy)`
 			);
 			return null;
 		}
@@ -280,9 +288,9 @@ export class GQLtoSQLMapper {
 	}
 
 	/**
-	 * Builds ORDER BY SQL that handles both flat fields and related-column dot-notation.
-	 * Delegates to resolveRelatedOrderBy for dotted keys, falls back to the standard
-	 * field mapper for flat keys.
+	 * Builds ORDER BY SQL that handles both flat fields and nested-object related columns.
+	 * For nested objects (e.g. { author: { name: 'asc' } }), delegates to resolveRelatedOrderBy.
+	 * For flat fields (e.g. { title: 'asc' }), uses the standard field mapper.
 	 */
 	private buildOrderBySQLWithRelated<T>(
 		metadata: EntityMetadata<T>,
@@ -296,14 +304,29 @@ export class GQLtoSQLMapper {
 			.map((obs) =>
 				keys(obs)
 					.map((ob) => {
-						let columns: string[];
-						if (ob.includes('.')) {
-							const resolved = this.resolveRelatedOrderBy(entityName, metadata, alias, ob);
-							columns = resolved ? [resolved] : fieldMapper(ob);
-						} else {
-							columns = fieldMapper(ob);
+						const value = obs[ob];
+						if (value !== null && typeof value === 'object' && !Array.isArray(value)) {
+							// Nested object: { relationName: { fieldName: 'asc' } }
+							const subKeys = keys(value);
+							return subKeys
+								.map((subKey) => {
+									const direction = value[subKey];
+									const resolved = this.resolveRelatedOrderBy(
+										entityName,
+										metadata,
+										alias,
+										ob,
+										subKey
+									);
+									const columns = resolved ? [resolved] : fieldMapper(ob);
+									return columns.map((fn) => `${fn} ${direction}`).join(', ');
+								})
+								.filter((o) => o.length > 0)
+								.join(', ');
 						}
-						return columns.map((fn) => `${fn} ${obs[ob]}`).join(', ');
+						// Flat field: { fieldName: 'asc' }
+						const columns = fieldMapper(ob);
+						return columns.map((fn) => `${fn} ${value}`).join(', ');
 					})
 					.filter((o) => o.length > 0)
 					.join(', ')

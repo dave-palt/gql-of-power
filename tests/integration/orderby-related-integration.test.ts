@@ -1,12 +1,12 @@
 /**
  * Integration Tests: ORDER BY related m:1 columns (PR #24)
  *
- * Verifies against real PostgreSQL that dot-notation orderBy keys for
+ * Verifies against real PostgreSQL that nested-object orderBy keys for
  * many-to-one relations generate correct correlated subqueries and
  * return rows in the expected order.
  *
  * Example:
- *   orderBy: [{ 'fellowship.name': 'asc' }]
+ *   orderBy: [{ fellowship: { name: 'asc' } }]
  *   → ORDER BY (SELECT e_o.fellowship_name FROM fellowships ...) ASC
  *
  * Uses the shared Middle-earth schema + test data (tests/fixtures/).
@@ -95,7 +95,7 @@ describe('ORDER BY Related Columns Integration Tests (PR #24)', () => {
 				async () => {
 					const fields = { id: {}, name: {}, race: {} };
 					const pagination = {
-						orderBy: [{ 'fellowship.name': 'asc' as any }],
+						orderBy: [{ fellowship: { name: 'asc' as any } }],
 					};
 
 					const result = mapper.buildQueryAndBindingsFor({
@@ -129,7 +129,7 @@ describe('ORDER BY Related Columns Integration Tests (PR #24)', () => {
 				async () => {
 					const fields = { id: {}, name: {}, race: {} };
 					const pagination = {
-						orderBy: [{ 'fellowship.name': 'desc' as any }],
+						orderBy: [{ fellowship: { name: 'desc' as any } }],
 					};
 
 					const result = mapper.buildQueryAndBindingsFor({
@@ -185,7 +185,7 @@ describe('ORDER BY Related Columns Integration Tests (PR #24)', () => {
 				async () => {
 					const fields = { id: {}, name: {}, race: {} };
 					const pagination = {
-						orderBy: [{ 'fellowship.name': 'asc' as any }],
+						orderBy: [{ fellowship: { name: 'asc' as any } }],
 						limit: 5,
 					};
 

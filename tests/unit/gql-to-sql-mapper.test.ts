@@ -1807,7 +1807,7 @@ describe('GQLtoSQLMapper - Unit Tests', () => {
 				fields: { id: {}, title: {} } as any,
 				entity: Book,
 				customFields: {},
-				pagination: { orderBy: [{ 'author.name': 'asc' }] as any },
+				pagination: { orderBy: [{ author: { name: 'asc' } }] as any },
 			});
 
 			expect(result.querySQL).toContain('order by');
@@ -1822,7 +1822,7 @@ describe('GQLtoSQLMapper - Unit Tests', () => {
 				entity: Book,
 				customFields: {},
 				pagination: {
-					orderBy: [{ 'author.name': 'asc' }, { title: 'desc' }] as any,
+					orderBy: [{ author: { name: 'asc' } }, { title: 'desc' }] as any,
 				},
 			});
 
@@ -1835,7 +1835,7 @@ describe('GQLtoSQLMapper - Unit Tests', () => {
 				fields: { id: {}, title: {} } as any,
 				entity: Book,
 				customFields: {},
-				pagination: { orderBy: [{ 'author.name': 'asc' }] as any },
+				pagination: { orderBy: [{ author: { name: 'asc' } }] as any },
 			});
 
 			// The correlated subquery must NOT appear in the SELECT list
@@ -1843,15 +1843,15 @@ describe('GQLtoSQLMapper - Unit Tests', () => {
 			expect(selectClause).not.toContain('(select e_o');
 		});
 
-		it('should fall back to flat resolution for non-relation dotted keys', () => {
-			// A dotted key where the first segment is NOT a m:1 relation
+		it('should throw for non-existent relation keys', () => {
+			// A nested object where the key is NOT a m:1 relation
 			// should fall through to the regular field mapper (which throws)
 			expect(() => {
 				mapper.buildQueryAndBindingsFor({
 					fields: { id: {}, name: {} } as any,
 					entity: Person,
 					customFields: {},
-					pagination: { orderBy: [{ 'nonexistent.field': 'asc' }] as any },
+					pagination: { orderBy: [{ nonexistent: { field: 'asc' } }] as any },
 				});
 			}).toThrow();
 		});
