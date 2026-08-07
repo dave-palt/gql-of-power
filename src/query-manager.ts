@@ -9,6 +9,7 @@ import {
 	getCustomFieldsFor,
 	getGQLEntityNameFor,
 	getMapEnumFieldsFor,
+	getRelationFieldsFor,
 } from './entities/gql-entity';
 import { GQLtoSQLMapper } from './queries/gql-to-sql-mapper';
 import { DatabaseDriver, FieldSelection, MetadataProviderType } from './types/sql-types';
@@ -119,17 +120,43 @@ function convertMappedCustomField(
 	return convertFilterEnumValues(value, refEnumFields);
 }
 
+/**
+ * Recurse into a plain-`defineFields` relation nested filter using the target
+ * entity's enums. The relation field is looked up in `RelationFieldsMap`
+ * (registered by `createGQLEntityFilters`), which stores the target entity's
+ * ORM name thunk. Falls back to returning the value untouched if the key isn't
+ * a known relation field.
+ */
+function convertRelationField(
+	key: string,
+	value: any,
+	relationFields: Record<string, () => string>
+): any {
+	const lowercased = key.charAt(0).toLowerCase() + key.slice(1);
+	const relThunk = relationFields[key] ?? relationFields[lowercased];
+	if (!relThunk) return value;
+	const targetGqlEntityName = getGQLEntityNameFor(relThunk());
+	const targetEnumFields = getMapEnumFieldsFor(targetGqlEntityName);
+	return convertFilterEnumValues(value, targetEnumFields);
+}
+
 export function convertFilterEnumValues(
 	filter: any,
 	enumFields: Record<string, any>,
-	mappedCustomFields?: Record<string, { mapping: { refEntity: new () => any } }>
+	mappedCustomFields?: Record<string, { mapping: { refEntity: new () => any } }>,
+	relationFields?: Record<string, () => string>
 ): any {
 	if (!filter || typeof filter !== 'object' || Array.isArray(filter)) return filter;
-	if (Object.keys(enumFields).length === 0 && !mappedCustomFields) return filter;
+	if (
+		Object.keys(enumFields).length === 0 &&
+		!mappedCustomFields &&
+		(!relationFields || Object.keys(relationFields).length === 0)
+	)
+		return filter;
 
 	const result: any = {};
 	for (const [key, value] of Object.entries(filter)) {
-		result[key] = convertFilterEntry(key, value, enumFields, mappedCustomFields);
+		result[key] = convertFilterEntry(key, value, enumFields, mappedCustomFields, relationFields);
 	}
 	return result;
 }
@@ -139,11 +166,14 @@ function convertFilterEntry(
 	key: string,
 	value: any,
 	enumFields: Record<string, any>,
-	mappedCustomFields?: Record<string, { mapping: { refEntity: new () => any } }>
+	mappedCustomFields?: Record<string, { mapping: { refEntity: new () => any } }>,
+	relationFields?: Record<string, () => string>
 ): any {
 	if (LOGICAL_KEYS.has(key)) {
 		return Array.isArray(value)
-			? value.map((v: any) => convertFilterEnumValues(v, enumFields, mappedCustomFields))
+			? value.map((v: any) =>
+					convertFilterEnumValues(v, enumFields, mappedCustomFields, relationFields)
+				)
 			: value;
 	}
 	if (PASSTHROUGH_KEYS.has(key)) return value;
@@ -158,8 +188,14 @@ function convertFilterEntry(
 		return toDbValue(value, enumObj, isArr);
 	}
 
-	if (typeof value === 'object' && value !== null && !Array.isArray(value) && mappedCustomFields) {
-		return convertMappedCustomField(key, value, mappedCustomFields);
+	if (typeof value === 'object' && value !== null && !Array.isArray(value)) {
+		if (mappedCustomFields) {
+			const converted = convertMappedCustomField(key, value, mappedCustomFields);
+			if (converted !== value) return converted;
+		}
+		if (relationFields) {
+			return convertRelationField(key, value, relationFields);
+		}
 	}
 	return value;
 }
@@ -229,6 +265,7 @@ export class GQLQueryManager {
 			}
 			const customFields = getCustomFieldsFor(getGQLEntityNameFor(entityName));
 			const enumFields = getMapEnumFieldsFor(getGQLEntityNameFor(entityName));
+			const relationFields = getRelationFieldsFor(getGQLEntityNameFor(entityName));
 			const mapper = new GQLtoSQLMapper(provider, this.opts);
 
 			let entityForMapper: new () => T = entity;
@@ -238,7 +275,12 @@ export class GQLQueryManager {
 				Object.setPrototypeOf(entityForMapper, entity);
 			}
 
-			const convertedFilter = convertFilterEnumValues(filter, enumFields, customFields);
+			const convertedFilter = convertFilterEnumValues(
+				filter,
+				enumFields,
+				customFields,
+				relationFields
+			);
 
 			const { bindings, querySQL } = mapper.buildQueryAndBindingsFor({
 				fields,

@@ -12,9 +12,11 @@
  *   - operator-suffixed keys (name_eq) and camelCased keys resolve to the enum
  *   - non-enum fields are passed through
  *   - mapped custom-field nested filters recurse with the ref entity's enums
+ *   - plain relation-field nested filters recurse with the target entity's enums
  */
-import { describe, expect, it } from 'bun:test';
+import { clearMapEnumFields, defineFields, GQLEntityClass, GQLEntityBase } from '../../src';
 import { convertFilterEnumValues } from '../../src/query-manager';
+import { beforeAll, describe, expect, it } from 'bun:test';
 import '../setup';
 
 enum RingMaterial {
@@ -27,6 +29,16 @@ enum Realm {
 	Shire = 'SHIRE',
 	Mordor = 'MORDOR',
 }
+
+/** Enum used by the relation target entity (see RelationTarget class below). */
+enum BearerStatus {
+	Worthy = 100,
+	Corrupted = 200,
+	Undefined = 300,
+}
+
+/** Plain ORM class used as the relation target's entity. */
+class RelationTarget {}
 
 describe('convertFilterEnumValues', () => {
 	const enumFields = { material: RingMaterial, realm: Realm };
@@ -175,6 +187,72 @@ describe('convertFilterEnumValues', () => {
 			const result = convertFilterEnumValues(filter, enumFields);
 			// 'Ring' is not an enum field and no mappedCustomFields → untouched
 			expect(result).toEqual({ Ring: { material: 'Mithril' } });
+		});
+	});
+
+	describe('plain relation-field nested filters', () => {
+		// Register the relation target entity so getMapEnumFieldsFor resolves.
+		beforeAll(() => {
+			clearMapEnumFields();
+			const fields = defineFields(RelationTarget, {
+				id: { type: () => String, generateFilter: true },
+				name: { type: () => String, generateFilter: true },
+				status: { type: () => BearerStatus, generateFilter: true, mapNumericEnum: true },
+			});
+			GQLEntityClass(RelationTarget, fields)(class RelationTargetGQL extends GQLEntityBase {});
+		});
+
+		it('recurses into a relation field using the target entity enums', () => {
+			const relationFields = {
+				bearer: () => 'RelationTarget',
+			};
+			const filter = { bearer: { status_eq: 'Corrupted' } };
+			const result = convertFilterEnumValues(filter, {}, undefined, relationFields);
+			expect(result.bearer).toEqual({ status_eq: 200 });
+		});
+
+		it('handles uppercase-first relation field key (PascalCase)', () => {
+			const relationFields = {
+				Bearer: () => 'RelationTarget',
+			};
+			const filter = { Bearer: { status_eq: 'Worthy' } };
+			const result = convertFilterEnumValues(filter, {}, undefined, relationFields);
+			expect(result.Bearer).toEqual({ status_eq: 100 });
+		});
+
+		it('converts _in arrays inside relation nested filters', () => {
+			const relationFields = {
+				bearer: () => 'RelationTarget',
+			};
+			const filter = { bearer: { status_in: ['Worthy', 'Corrupted'] } };
+			const result = convertFilterEnumValues(filter, {}, undefined, relationFields);
+			expect(result.bearer).toEqual({ status_in: [100, 200] });
+		});
+
+		it('passes through when the key is not a known relation field', () => {
+			const relationFields = {
+				bearer: () => 'RelationTarget',
+			};
+			const filter = { unknownRel: { status_eq: 'Corrupted' } };
+			const result = convertFilterEnumValues(filter, {}, undefined, relationFields);
+			expect(result).toEqual({ unknownRel: { status_eq: 'Corrupted' } });
+		});
+
+		it('recurses through _or arrays containing relation nested filters', () => {
+			const relationFields = {
+				bearer: () => 'RelationTarget',
+			};
+			const filter = {
+				_or: [{ bearer: { status_eq: 'Worthy' } }, { bearer: { status_eq: 'Corrupted' } }],
+			};
+			const result = convertFilterEnumValues(filter, {}, undefined, relationFields);
+			expect(result._or).toEqual([{ bearer: { status_eq: 100 } }, { bearer: { status_eq: 200 } }]);
+		});
+
+		it('returns filter unchanged when enumFields, mappedCustomFields, and relationFields are all empty', () => {
+			const filter = { bearer: { status_eq: 'Corrupted' } };
+			const result = convertFilterEnumValues(filter, {});
+			expect(result).toBe(filter);
 		});
 	});
 });

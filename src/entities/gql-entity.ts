@@ -34,6 +34,14 @@ const CustomFieldsMap: Record<string, CustomFieldsSettings<any>> = {};
 const CountFieldsMap: Record<string, Record<string, CountFieldMeta>> = {};
 const MapEnumFieldsMap: Record<string, Record<string, any>> = {};
 const ParseJsonFieldsMap: Record<string, Set<string>> = {};
+/**
+ * Relation fields declared via the plain `defineFields` pattern (not via
+ * `customFields`/`mapping`). Keyed by gqlEntityName → field name → target
+ * entity's ORM name (the raw string returned by `relatedEntityName()`). Used by
+ * `convertFilterEnumValues` to recurse into nested relation filters and apply
+ * the target entity's mapNumericEnum conversions.
+ */
+const RelationFieldsMap: Record<string, Record<string, () => string>> = {};
 
 const aclMap: AccessControlList<any, any> = {};
 
@@ -202,6 +210,15 @@ export const registerParseJsonField = (gqlEntityName: string, fieldName: string)
 export const clearParseJsonFields = (): void => {
 	for (const key of Object.keys(ParseJsonFieldsMap)) {
 		delete ParseJsonFieldsMap[key];
+	}
+};
+
+export const getRelationFieldsFor = (name: string): Record<string, () => string> =>
+	RelationFieldsMap[name] ?? {};
+
+export const clearRelationFields = (): void => {
+	for (const key of Object.keys(RelationFieldsMap)) {
+		delete RelationFieldsMap[key];
 	}
 };
 
@@ -1347,6 +1364,17 @@ export function createGQLEntityFilters<T, K>(
 			deprecationReason: undefined,
 		} as FieldParameter;
 		metadata.collectClassFieldMetadata(fieldFilter);
+
+		// Register relation fields for nested-filter enum conversion. The nested
+		// FilterInput is exposed under both the camelCased fieldName (above) and the
+		// UppercasedFieldName — record both so convertFilterEnumValues can resolve
+		// whichever key the caller uses.
+		if ('relatedEntityName' in fieldOptions && fieldOptions.relatedEntityName) {
+			RelationFieldsMap[gqlEntityName] = RelationFieldsMap[gqlEntityName] || {};
+			const relThunk = fieldOptions.relatedEntityName as () => string;
+			RelationFieldsMap[gqlEntityName][fieldName] = relThunk;
+			RelationFieldsMap[gqlEntityName][UppercasedFieldName] = relThunk;
+		}
 
 		if ('array' in fieldOptions && 'relatedEntityName' in fieldOptions) {
 			const relatedEntityName = getGQLEntityNameFor(fieldOptions.relatedEntityName());
