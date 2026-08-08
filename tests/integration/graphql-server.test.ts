@@ -1485,9 +1485,11 @@ query GetMixedData {
 			it('should filter persons by signatureWeapon mapped field', async () => {
 				// The signatureWeapon is a custom field with mapping strategy.
 				// Filtering on it generates: EXISTS (SELECT 1 FROM weapons WHERE ...).
+				// Note: filter keys for custom fields are capitalized (SignatureWeapon),
+				// while the selection field is camelCase (signatureWeapon).
 				const query = `
 				query FilterByWeaponPower {
-				persons(filter: { signatureWeapon: { power_gt: 80 } }) {
+				persons(filter: { SignatureWeapon: { power_gt: 80 } }) {
 				id
 				name
 				signatureWeapon {
@@ -1519,7 +1521,7 @@ query GetMixedData {
 			it('should filter persons by signatureWeapon name', async () => {
 				const query = `
 				query FilterByWeaponName {
-				persons(filter: { signatureWeapon: { name: "Sting" } }) {
+				persons(filter: { SignatureWeapon: { name: "Sting" } }) {
 				id
 				name
 				signatureWeapon {
