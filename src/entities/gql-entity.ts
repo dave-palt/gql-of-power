@@ -591,7 +591,15 @@ function _buildInputType<T>(
 
 // ─── Shared resolver builder ─────────────────────────────────────────────────
 
-/** Phase 2: attach @FieldResolver methods for fields with `mapNumericEnum` (reverse-maps DB number → enum string). */
+/**
+ * Phase 2: attach @FieldResolver methods for fields with `mapNumericEnum`.
+ *
+ * The resolver returns the raw DB value unchanged. graphql-js's
+ * `GraphQLEnumType.serialize()` performs the value→name conversion itself
+ * (e.g. 100 → "Forged") using the internal values registered by
+ * `registerEnumType`. Returning the string key here would cause
+ * "Enum cannot represent value" errors at serialization time.
+ */
 function _registerMapNumericEnumResolvers<T>(
 	rawFields: Partial<FieldsSettings<T>>,
 	FieldsResolver: any
@@ -606,17 +614,7 @@ function _registerMapNumericEnumResolvers<T>(
 		const resolveFn = (root: any) => {
 			const value = root[fieldNameToUse];
 			if (value === null || value === undefined) return null;
-			try {
-				const enumObj = enumTypeThunk();
-				const key = enumObj[value];
-				if (typeof key === 'string') return key;
-				for (const enumKey of Object.keys(enumObj)) {
-					if (enumObj[enumKey] === value) return enumKey;
-				}
-				return value;
-			} catch {
-				return value;
-			}
+			return value;
 		};
 
 		Object.defineProperty(FieldsResolver.prototype, fieldNameToUse, {

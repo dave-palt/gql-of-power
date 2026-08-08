@@ -235,7 +235,7 @@ describe('mapNumericEnum FieldResolver', () => {
 		clearMapEnumFields();
 	});
 
-	it('should convert numeric DB values to enum string keys', () => {
+	it('should return raw DB values unchanged (graphql-js serializes enum names)', () => {
 		const fields = defineFields(TestBearer, {
 			id: { type: () => String, generateFilter: true },
 			name: { type: () => String, generateFilter: true },
@@ -248,13 +248,16 @@ describe('mapNumericEnum FieldResolver', () => {
 
 		const resolver = new TestBearerGQL.FieldsResolver();
 
-		expect((resolver as any).status({ status: 100 })).toBe('Worthy');
-		expect((resolver as any).status({ status: 200 })).toBe('Corrupted');
-		expect((resolver as any).status({ status: 300 })).toBe('Undefined');
-		expect((resolver as any).questState({ questState: 0 })).toBe('NotStarted');
-		expect((resolver as any).questState({ questState: 1 })).toBe('InProgress');
-		expect((resolver as any).questState({ questState: 2 })).toBe('Completed');
-		expect((resolver as any).questState({ questState: 3 })).toBe('Failed');
+		// The resolver returns the raw DB value. graphql-js's
+		// GraphQLEnumType.serialize() converts the internal value to the
+		// enum name string (100 → "Worthy") at response serialization time.
+		expect((resolver as any).status({ status: 100 })).toBe(100);
+		expect((resolver as any).status({ status: 200 })).toBe(200);
+		expect((resolver as any).status({ status: 300 })).toBe(300);
+		expect((resolver as any).questState({ questState: 0 })).toBe(0);
+		expect((resolver as any).questState({ questState: 1 })).toBe(1);
+		expect((resolver as any).questState({ questState: 2 })).toBe(2);
+		expect((resolver as any).questState({ questState: 3 })).toBe(3);
 	});
 
 	it('should handle aliased fields', () => {
@@ -274,8 +277,8 @@ describe('mapNumericEnum FieldResolver', () => {
 
 		const resolver = new TestBearerAliasGQL.FieldsResolver();
 
-		expect((resolver as any).status({ status: 100 })).toBe('Worthy');
-		expect((resolver as any).status({ status: 200 })).toBe('Corrupted');
+		expect((resolver as any).status({ status: 100 })).toBe(100);
+		expect((resolver as any).status({ status: 200 })).toBe(200);
 	});
 
 	it('should return null/undefined unchanged', () => {
@@ -476,7 +479,7 @@ describe('mapNumericEnum FieldResolver with string-valued enums', () => {
 		clearMapEnumFields();
 	});
 
-	it('should convert string DB values to enum keys for string-valued enums', () => {
+	it('should return raw string DB values for string-valued enums (graphql-js serializes)', () => {
 		const fields = defineFields(TestQuest, {
 			id: { type: () => String, generateFilter: true },
 			name: { type: () => String, generateFilter: true },
@@ -492,17 +495,19 @@ describe('mapNumericEnum FieldResolver with string-valued enums', () => {
 
 		const resolver = new TestQuestGQL.FieldsResolver();
 
-		expect((resolver as any).frequency({ frequency: '1' })).toBe('Weekly');
-		expect((resolver as any).frequency({ frequency: '2' })).toBe('Fortnightly');
-		expect((resolver as any).frequency({ frequency: '3' })).toBe('Every3Weeks');
-		expect((resolver as any).frequency({ frequency: '4' })).toBe('Every4Weeks');
-		expect((resolver as any).frequency({ frequency: '5' })).toBe('MonthlyFirstWeek');
-		expect((resolver as any).frequency({ frequency: '6' })).toBe('OnCall');
-		expect((resolver as any).frequency({ frequency: '7' })).toBe('Other');
-		expect((resolver as any).frequency({ frequency: '11' })).toBe('Every6Weeks');
+		// Resolver returns raw DB value. graphql-js serialize() converts
+		// internal value → enum name ('1' → 'Weekly').
+		expect((resolver as any).frequency({ frequency: '1' })).toBe('1');
+		expect((resolver as any).frequency({ frequency: '2' })).toBe('2');
+		expect((resolver as any).frequency({ frequency: '3' })).toBe('3');
+		expect((resolver as any).frequency({ frequency: '4' })).toBe('4');
+		expect((resolver as any).frequency({ frequency: '5' })).toBe('5');
+		expect((resolver as any).frequency({ frequency: '6' })).toBe('6');
+		expect((resolver as any).frequency({ frequency: '7' })).toBe('7');
+		expect((resolver as any).frequency({ frequency: '11' })).toBe('11');
 	});
 
-	it('should convert alphanumeric string DB values to enum keys', () => {
+	it('should return raw alphanumeric DB values for string-valued enums', () => {
 		const fields = defineFields(TestRune, {
 			id: { type: () => String, generateFilter: true },
 			name: { type: () => String, generateFilter: true },
@@ -518,9 +523,9 @@ describe('mapNumericEnum FieldResolver with string-valued enums', () => {
 
 		const resolver = new TestRuneGQL.FieldsResolver();
 
-		expect((resolver as any).inscription({ inscription: 'ABC123' })).toBe('Alpha');
-		expect((resolver as any).inscription({ inscription: 'XYZ789' })).toBe('Beta');
-		expect((resolver as any).inscription({ inscription: '1A2B3C' })).toBe('Gamma');
+		expect((resolver as any).inscription({ inscription: 'ABC123' })).toBe('ABC123');
+		expect((resolver as any).inscription({ inscription: 'XYZ789' })).toBe('XYZ789');
+		expect((resolver as any).inscription({ inscription: '1A2B3C' })).toBe('1A2B3C');
 	});
 
 	it('should return raw value for unmapped string values', () => {
