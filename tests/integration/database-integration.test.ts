@@ -576,8 +576,8 @@ describe('GQL-of-Power Database Integration Tests', () => {
 						filter: filter as any,
 					});
 
-					// Verify the generated SQL actually contains UNION ALL
-					expect(result.querySQL).toContain('UNION ALL');
+					// Verify the generated SQL actually contains UNION ALL (case-insensitive)
+					expect(result.querySQL.toLowerCase()).toContain('union all');
 
 					const dbResults = await metadataProvider.executeQuery(
 						k.raw(result.querySQL, result.bindings).toString()
@@ -627,7 +627,7 @@ describe('GQL-of-Power Database Integration Tests', () => {
 						filter: filter as any,
 					});
 
-					expect(result.querySQL).toContain('UNION ALL');
+					expect(result.querySQL.toLowerCase()).toContain('union all');
 
 					const dbResults = await metadataProvider.executeQuery(
 						k.raw(result.querySQL, result.bindings).toString()

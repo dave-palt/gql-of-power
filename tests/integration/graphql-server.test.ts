@@ -15,6 +15,7 @@
 
 import { afterAll, beforeAll, describe, expect, it } from 'bun:test';
 import { GraphQLResolveInfo } from 'graphql';
+import { GraphQLJSON } from 'graphql-type-json';
 import { createYoga } from 'graphql-yoga';
 import 'reflect-metadata';
 import {
@@ -117,7 +118,7 @@ const RingFields: Partial<Record<keyof Ring, FieldSettings | RelatedFieldSetting
 	},
 	// jsonb column wrapped with a JSON-parsing expression in SQL.
 	metadata: {
-		type: () => Object,
+		type: () => GraphQLJSON,
 		options: { nullable: true },
 		generateFilter: false,
 		parseJson: true,
