@@ -39,6 +39,12 @@ export class Ring {
 	name!: string;
 	power!: string;
 	forgedBy?: string;
+	// Server-managed timestamp (excludeFromInput demo)
+	forgedDate?: Date;
+	// Numeric enum column — DB stores 100/200/300 (mapNumericEnum demo)
+	status?: number;
+	// jsonb column surfaced as a JSON object (parseJson demo)
+	metadata?: Record<string, any>;
 	// 1:1 relationship
 	bearerId?: number;
 	bearer?: Person;
@@ -246,6 +252,9 @@ export const RingMetadata: EntityMetadata<Ring> = {
 		name: createProperty('string', 'name', ['ring_name']),
 		power: createProperty('string', 'power', ['power_description']),
 		forgedBy: createProperty('string', 'forgedBy', ['forged_by']),
+		status: createProperty('number', 'status', ['status']),
+		metadata: createProperty('any', 'metadata', ['metadata']),
+		forgedDate: createProperty('Date', 'forgedDate', ['forged_date']),
 		bearerId: createProperty('number', 'bearerId', ['bearer_id']),
 		bearer: createProperty('Person', 'bearer', ['bearer_id'], {
 			referenceType: ReferenceType.MANY_TO_ONE,

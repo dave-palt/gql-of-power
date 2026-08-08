@@ -551,6 +551,94 @@ describe('GQL-of-Power Database Integration Tests', () => {
 				},
 				TEST_TIMEOUT
 			);
+
+			it(
+				'should execute UNION ALL with correct results across branches',
+				async () => {
+					// Root-level _or splits into N SELECTs combined with UNION ALL.
+					// This test verifies column-count alignment across branches and
+					// that the correct rows are returned from each branch.
+					const fields = {
+						id: {},
+						name: {},
+						race: {},
+						age: {},
+					};
+
+					const filter = {
+						_or: [{ race: 'Hobbit' }, { race: 'Elf' }],
+					};
+
+					const result = mapper.buildQueryAndBindingsFor({
+						fields,
+						entity: Person,
+						customFields: {},
+						filter: filter as any,
+					});
+
+					// Verify the generated SQL actually contains UNION ALL (case-insensitive)
+					expect(result.querySQL.toLowerCase()).toContain('union all');
+
+					const dbResults = await metadataProvider.executeQuery(
+						k.raw(result.querySQL, result.bindings).toString()
+					);
+
+					expect(dbResults).toBeDefined();
+					expect(Array.isArray(dbResults)).toBe(true);
+
+					// Every result should be either a Hobbit or an Elf (from the two UNION branches)
+					for (const row of dbResults) {
+						expect(['Hobbit', 'Elf']).toContain(row.race);
+					}
+
+					// We should have both races represented
+					const races = new Set(dbResults.map((r: any) => r.race));
+					expect(races.has('Hobbit')).toBe(true);
+					expect(races.has('Elf')).toBe(true);
+				},
+				TEST_TIMEOUT
+			);
+
+			it(
+				'should execute UNION ALL with nested relationships',
+				async () => {
+					// UNION ALL where each branch also selects a related entity.
+					// This catches column-count mismatches when nested relations
+					// add extra projected columns to each branch.
+					const fields = {
+						id: {},
+						name: {},
+						fellowship: {
+							fields: {
+								id: {},
+								name: {},
+							},
+						},
+					};
+
+					const filter = {
+						_or: [{ race: 'Hobbit' }, { age: { _gt: 1000 } }],
+					};
+
+					const result = mapper.buildQueryAndBindingsFor({
+						fields,
+						entity: Person,
+						customFields: {},
+						filter: filter as any,
+					});
+
+					expect(result.querySQL.toLowerCase()).toContain('union all');
+
+					const dbResults = await metadataProvider.executeQuery(
+						k.raw(result.querySQL, result.bindings).toString()
+					);
+
+					expect(dbResults).toBeDefined();
+					expect(Array.isArray(dbResults)).toBe(true);
+					expect(dbResults.length).toBeGreaterThan(0);
+				},
+				TEST_TIMEOUT
+			);
 		});
 
 		describe('Pagination and Ordering', () => {
