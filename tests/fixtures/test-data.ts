@@ -110,6 +110,9 @@ export const SampleRings = [
 		ring_name: 'The One Ring',
 		power_description: 'Controls all other Rings of Power',
 		forged_by: 'Sauron',
+		status: 100, // Forged
+		metadata: { inscription: 'Ash nazg durbatulûk', age: 3000 },
+		forged_date: '1600-01-01T00:00:00Z',
 		bearer_id: 1,
 	},
 	{
@@ -117,6 +120,9 @@ export const SampleRings = [
 		ring_name: 'The Master Ring',
 		power_description: 'Ultimate power over Middle-earth',
 		forged_by: 'Sauron',
+		status: 200, // Lost
+		metadata: { inscription: 'One Ring to rule them all', age: 3000 },
+		forged_date: '1600-01-01T00:00:00Z',
 		bearer_id: 10,
 	},
 	{
@@ -124,6 +130,9 @@ export const SampleRings = [
 		ring_name: 'Vilya',
 		power_description: 'Ring of Air, mightiest of the Three',
 		forged_by: 'Celebrimbor',
+		status: 300, // Destroyed
+		metadata: { element: 'Air', power: 'healing', age: 2900 },
+		forged_date: '1590-01-01T00:00:00Z',
 		bearer_id: null,
 	},
 ];

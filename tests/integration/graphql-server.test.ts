@@ -17,7 +17,17 @@ import { afterAll, beforeAll, describe, expect, it } from 'bun:test';
 import { GraphQLResolveInfo } from 'graphql';
 import { createYoga } from 'graphql-yoga';
 import 'reflect-metadata';
-import { Arg, buildSchema, Field, Info, InputType, Int, Query, Resolver } from 'type-graphql';
+import {
+	Arg,
+	buildSchema,
+	Field,
+	Info,
+	InputType,
+	Int,
+	Query,
+	Resolver,
+	registerEnumType,
+} from 'type-graphql';
 
 import { SQL } from 'bun';
 import { join } from 'path';
@@ -25,9 +35,18 @@ import { createGQLTypes } from '../../src/entities/gql-entity';
 import { GQLQueryManager } from '../../src/query-manager';
 import { FieldSettings, RelatedFieldSettings } from '../../src/types';
 import { DatabaseMetadataProvider } from '../fixtures/database-metadata-provider';
-import { Battle, Fellowship, Person, Ring } from '../fixtures/middle-earth-schema';
+import { Battle, Fellowship, Person, Ring, Weapon } from '../fixtures/middle-earth-schema';
 import { AllSampleData } from '../fixtures/test-data';
 import { getTestDBConfig } from '../fixtures/test-db-config';
+
+// ─── Enum for mapNumericEnum live-DB test ───────────────────────────────────
+// DB stores the numeric code (100/200/300); GraphQL exposes the string key.
+enum RingStatus {
+	Forged = 100,
+	Lost = 200,
+	Destroyed = 300,
+}
+registerEnumType(RingStatus, { name: 'RingStatus' });
 
 // Test server configuration
 const TEST_PORT = 4455;
@@ -82,6 +101,27 @@ const RingFields: Partial<Record<keyof Ring, FieldSettings | RelatedFieldSetting
 	name: { type: () => String, options: { nullable: true }, generateFilter: true }, // Make nullable to handle DB data
 	power: { type: () => String, options: { nullable: true }, generateFilter: true }, // Make nullable to handle DB data
 	forgedBy: { type: () => String, options: { nullable: true }, generateFilter: true },
+	// Server-managed timestamp — kept out of the auto-generated Input type.
+	forgedDate: {
+		type: () => Date,
+		options: { nullable: true },
+		generateFilter: true,
+		excludeFromInput: true,
+	},
+	// Numeric enum column: DB stores 100/200/300, GQL exposes Forged/Lost/Destroyed.
+	status: {
+		type: () => RingStatus,
+		options: { nullable: true },
+		generateFilter: true,
+		mapNumericEnum: true,
+	},
+	// jsonb column wrapped with a JSON-parsing expression in SQL.
+	metadata: {
+		type: () => Object,
+		options: { nullable: true },
+		generateFilter: false,
+		parseJson: true,
+	},
 	bearer: {
 		type: () => PersonGQL.GQLEntity,
 		options: { nullable: true },
@@ -105,6 +145,8 @@ const FellowshipFields: Partial<
 		array: true,
 		relatedEntityName: () => 'Person',
 		getFilterType: () => Int,
+		// Auto-generated Int field `memberCount` with its own filter argument.
+		countFieldName: 'memberCount',
 	},
 };
 
@@ -123,8 +165,30 @@ const BattleFields: Partial<Record<keyof Battle, FieldSettings | RelatedFieldSet
 	},
 };
 
+// ─── Weapon entity (used by mapping custom-field filter test) ────────────────
+const WeaponFields: Partial<Record<keyof Weapon, FieldSettings | RelatedFieldSettings<any>>> = {
+	id: { type: () => Number, options: { nullable: false }, generateFilter: true },
+	name: { type: () => String, options: { nullable: true }, generateFilter: true },
+	type: { type: () => String, options: { nullable: true }, generateFilter: true },
+	power: { type: () => Number, options: { nullable: true }, generateFilter: true },
+};
+
 // Create GQL types using the library
-const PersonGQL = createGQLTypes(Person, PersonFields);
+const WeaponGQL = createGQLTypes(Weapon, WeaponFields);
+const PersonGQL = createGQLTypes(Person, PersonFields, {
+	customFields: {
+		signatureWeapon: {
+			type: () => WeaponGQL.GQLEntity,
+			options: { nullable: true },
+			generateFilter: true,
+			mapping: {
+				refEntity: Weapon,
+				refFields: 'id',
+				fields: 'signatureWeaponId',
+			},
+		},
+	},
+});
 const RingGQL = createGQLTypes(Ring, RingFields);
 const FellowshipGQL = createGQLTypes(Fellowship, FellowshipFields);
 const BattleGQL = createGQLTypes(Battle, BattleFields);
@@ -136,9 +200,10 @@ class TestInput {
 	})
 	limit?: number;
 }
-// Resolvers using GQLQueryManager
+// Resolvers using GQLQueryManager — extend FieldsResolver so that
+// mapNumericEnum, parseJson, and other auto-generated field resolvers work.
 @Resolver(() => PersonGQL.GQLEntity)
-class PersonResolver {
+class PersonResolver extends PersonGQL.FieldsResolver {
 	@Query(() => [PersonGQL.GQLEntity], { description: 'Get all persons from Middle-earth' })
 	async persons(
 		@Info() info: GraphQLResolveInfo,
@@ -170,7 +235,7 @@ class PersonResolver {
 }
 
 @Resolver(() => RingGQL.GQLEntity)
-class RingResolver {
+class RingResolver extends RingGQL.FieldsResolver {
 	@Query(() => [RingGQL.GQLEntity], { description: 'Get all rings of power' })
 	async rings(
 		@Info() info: GraphQLResolveInfo,
@@ -181,7 +246,7 @@ class RingResolver {
 }
 
 @Resolver(() => FellowshipGQL.GQLEntity)
-class FellowshipResolver {
+class FellowshipResolver extends FellowshipGQL.FieldsResolver {
 	@Query(() => [FellowshipGQL.GQLEntity], { description: 'Get all fellowships' })
 	async fellowships(
 		@Info() info: GraphQLResolveInfo,
@@ -192,13 +257,24 @@ class FellowshipResolver {
 }
 
 @Resolver(() => BattleGQL.GQLEntity)
-class BattleResolver {
+class BattleResolver extends BattleGQL.FieldsResolver {
 	@Query(() => [BattleGQL.GQLEntity], { description: 'Get all battles from Middle-earth history' })
 	async battles(
 		@Info() info: GraphQLResolveInfo,
 		@Arg('filter', () => BattleGQL.GQLEntityFilterInput, { nullable: true }) filter?: any
 	): Promise<any[]> {
 		return await queryManager.getQueryResultsForInfo(metadataProvider, Battle, info, filter);
+	}
+}
+
+@Resolver(() => WeaponGQL.GQLEntity)
+class WeaponResolver extends WeaponGQL.FieldsResolver {
+	@Query(() => [WeaponGQL.GQLEntity], { description: 'Get all weapons from Middle-earth' })
+	async weapons(
+		@Info() info: GraphQLResolveInfo,
+		@Arg('filter', () => WeaponGQL.GQLEntityFilterInput, { nullable: true }) filter?: any
+	): Promise<any[]> {
+		return await queryManager.getQueryResultsForInfo(metadataProvider, Weapon, info, filter);
 	}
 }
 
@@ -250,7 +326,13 @@ describe('GraphQL Server Integration Tests', () => {
 
 				// Build GraphQL schema
 				const schema = await buildSchema({
-					resolvers: [PersonResolver, RingResolver, FellowshipResolver, BattleResolver],
+					resolvers: [
+						PersonResolver,
+						RingResolver,
+						FellowshipResolver,
+						BattleResolver,
+						WeaponResolver,
+					],
 					validate: false, // Skip validation for faster testing
 				});
 
@@ -1147,6 +1229,322 @@ query GetMixedData {
 				expect(boPelennorFields).toEqual(boPelennorFields2);
 				expect(boHelmDeep.name).toBeString();
 				expect(boHelmDeep.name).toContain('Helm');
+			});
+		});
+
+		describe('mapNumericEnum — live DB conversion', () => {
+			it('should query rings and return enum string keys for numeric status column', async () => {
+				const query = `
+				query GetRingsWithStatus {
+				rings {
+				id
+				name
+				status
+				}
+				}
+				`;
+
+				const response = await fetch(TEST_URL, {
+					method: 'POST',
+					headers: { 'Content-Type': 'application/json' },
+					body: JSON.stringify({ query }),
+				});
+
+				expect(response.status).toBe(200);
+				const result = await response.json();
+				expect(result.errors).toBeUndefined();
+				expect(result.data.rings).toBeArrayOfSize(3);
+
+				// DB stores 100/200/300; GraphQL should expose Forged/Lost/Destroyed
+				const statuses = result.data.rings.map((r: any) => r.status).sort();
+				expect(statuses).toEqual(['Destroyed', 'Forged', 'Lost']);
+			});
+
+			it('should filter rings by enum string key (converted to numeric for SQL)', async () => {
+				// The filter receives the GQL string key "Forged", which must be
+				// converted to the DB numeric value 100 for the WHERE clause.
+				const query = `
+				query FilterByForged {
+				rings(filter: { status: "Forged" }) {
+				id
+				name
+				status
+				}
+				}
+				`;
+
+				const response = await fetch(TEST_URL, {
+					method: 'POST',
+					headers: { 'Content-Type': 'application/json' },
+					body: JSON.stringify({ query }),
+				});
+
+				expect(response.status).toBe(200);
+				const result = await response.json();
+				expect(result.errors).toBeUndefined();
+				expect(result.data.rings).toBeArrayOfSize(1);
+				expect(result.data.rings[0].status).toBe('Forged');
+				expect(result.data.rings[0].name).toContain('One Ring');
+			});
+
+			it('should filter rings by enum using _in operator', async () => {
+				const query = `
+				query FilterByMultipleStatuses {
+				rings(filter: { status_in: ["Lost", "Destroyed"] }) {
+				id
+				name
+				status
+				}
+				}
+				`;
+
+				const response = await fetch(TEST_URL, {
+					method: 'POST',
+					headers: { 'Content-Type': 'application/json' },
+					body: JSON.stringify({ query }),
+				});
+
+				expect(response.status).toBe(200);
+				const result = await response.json();
+				expect(result.errors).toBeUndefined();
+				expect(result.data.rings).toBeArrayOfSize(2);
+			});
+		});
+
+		describe('parseJson — jsonb column', () => {
+			it('should return parsed JSON object from jsonb column', async () => {
+				const query = `
+				query GetRingsWithMetadata {
+				rings {
+				id
+				name
+				metadata
+				}
+				}
+				`;
+
+				const response = await fetch(TEST_URL, {
+					method: 'POST',
+					headers: { 'Content-Type': 'application/json' },
+					body: JSON.stringify({ query }),
+				});
+
+				expect(response.status).toBe(200);
+				const result = await response.json();
+				expect(result.errors).toBeUndefined();
+				expect(result.data.rings).toBeArrayOfSize(3);
+
+				// Each ring should have a parsed metadata object
+				for (const ring of result.data.rings) {
+					expect(ring.metadata).toBeObject();
+				}
+
+				const oneRing = result.data.rings.find((r: any) => r.name === 'The One Ring');
+				expect(oneRing.metadata.inscription).toBe('Ash nazg durbatulûk');
+				expect(oneRing.metadata.age).toBe(3000);
+			});
+		});
+
+		describe('Count fields — correlated COUNT(*) subquery', () => {
+			it('should return memberCount for fellowships', async () => {
+				const query = `
+				query GetFellowshipCounts {
+				fellowships {
+				id
+				name
+				memberCount
+				}
+				}
+				`;
+
+				const response = await fetch(TEST_URL, {
+					method: 'POST',
+					headers: { 'Content-Type': 'application/json' },
+					body: JSON.stringify({ query }),
+				});
+
+				expect(response.status).toBe(200);
+				const result = await response.json();
+				expect(result.errors).toBeUndefined();
+				expect(result.data.fellowships).toBeArray();
+
+				// Fellowship of the Ring has 4 Hobbits + others in sample data
+				const fotr = result.data.fellowships.find((f: any) => f.name === 'Fellowship of the Ring');
+				expect(fotr).toBeDefined();
+				expect(fotr.memberCount).toBeGreaterThan(0);
+			});
+
+			it('should filter fellowships by memberCount_gt', async () => {
+				const query = `
+				query FilterByMemberCount {
+				fellowships(filter: { memberCount_gt: 2 }) {
+				id
+				name
+				memberCount
+				}
+				}
+				`;
+
+				const response = await fetch(TEST_URL, {
+					method: 'POST',
+					headers: { 'Content-Type': 'application/json' },
+					body: JSON.stringify({ query }),
+				});
+
+				expect(response.status).toBe(200);
+				const result = await response.json();
+				expect(result.errors).toBeUndefined();
+				expect(result.data.fellowships).toBeArray();
+				// Every returned fellowship should have > 2 members
+				for (const f of result.data.fellowships) {
+					expect(f.memberCount).toBeGreaterThan(2);
+				}
+			});
+		});
+
+		describe('_exists / _not_exists — EXISTS subqueries', () => {
+			it('should filter persons by _exists on fellowship', async () => {
+				// Find persons that DO belong to a fellowship named "Fellowship of the Ring"
+				const query = `
+				query ExistsFilter {
+				persons(filter: { _exists: { fellowship: { name: "Fellowship of the Ring" } } }) {
+				id
+				name
+				}
+				}
+				`;
+
+				const response = await fetch(TEST_URL, {
+					method: 'POST',
+					headers: { 'Content-Type': 'application/json' },
+					body: JSON.stringify({ query }),
+				});
+
+				expect(response.status).toBe(200);
+				const result = await response.json();
+				expect(result.errors).toBeUndefined();
+				expect(result.data.persons).toBeArray();
+				expect(result.data.persons.length).toBeGreaterThan(0);
+			});
+
+			it('should filter persons by _not_exists on fellowship', async () => {
+				// Find persons that do NOT belong to any "Fellowship of the Ring"
+				const query = `
+				query NotExistsFilter {
+				persons(filter: { _not_exists: { fellowship: { name: "Fellowship of the Ring" } } }) {
+				id
+				name
+				}
+				}
+				`;
+
+				const response = await fetch(TEST_URL, {
+					method: 'POST',
+					headers: { 'Content-Type': 'application/json' },
+					body: JSON.stringify({ query }),
+				});
+
+				expect(response.status).toBe(200);
+				const result = await response.json();
+				expect(result.errors).toBeUndefined();
+				expect(result.data.persons).toBeArray();
+
+				// Sauron is not in the Fellowship — should be present
+				const sauron = result.data.persons.find((p: any) => p.name === 'Sauron');
+				expect(sauron).toBeDefined();
+			});
+
+			it('should filter rings by _exists on bearer', async () => {
+				// Find rings that have a bearer
+				const query = `
+				query RingsWithBearer {
+				rings(filter: { _exists: { bearer: { name: "Frodo Baggins" } } }) {
+				id
+				name
+				bearer {
+				id
+				name
+				}
+				}
+				}
+				`;
+
+				const response = await fetch(TEST_URL, {
+					method: 'POST',
+					headers: { 'Content-Type': 'application/json' },
+					body: JSON.stringify({ query }),
+				});
+
+				expect(response.status).toBe(200);
+				const result = await response.json();
+				expect(result.errors).toBeUndefined();
+				expect(result.data.rings).toBeArrayOfSize(1);
+				expect(result.data.rings[0].bearer.name).toBe('Frodo Baggins');
+			});
+		});
+
+		describe('Mapping custom-field filter — EXISTS subquery', () => {
+			it('should filter persons by signatureWeapon mapped field', async () => {
+				// The signatureWeapon is a custom field with mapping strategy.
+				// Filtering on it generates: EXISTS (SELECT 1 FROM weapons WHERE ...).
+				const query = `
+				query FilterByWeaponPower {
+				persons(filter: { signatureWeapon: { power_gt: 80 } }) {
+				id
+				name
+				signatureWeapon {
+				id
+				name
+				power
+				}
+				}
+				}
+				`;
+
+				const response = await fetch(TEST_URL, {
+					method: 'POST',
+					headers: { 'Content-Type': 'application/json' },
+					body: JSON.stringify({ query }),
+				});
+
+				expect(response.status).toBe(200);
+				const result = await response.json();
+				expect(result.errors).toBeUndefined();
+				expect(result.data.persons).toBeArray();
+				// Every returned person should have a weapon with power > 80
+				for (const p of result.data.persons) {
+					expect(p.signatureWeapon).toBeDefined();
+					expect(p.signatureWeapon.power).toBeGreaterThan(80);
+				}
+			});
+
+			it('should filter persons by signatureWeapon name', async () => {
+				const query = `
+				query FilterByWeaponName {
+				persons(filter: { signatureWeapon: { name: "Sting" } }) {
+				id
+				name
+				signatureWeapon {
+				name
+				}
+				}
+				}
+				`;
+
+				const response = await fetch(TEST_URL, {
+					method: 'POST',
+					headers: { 'Content-Type': 'application/json' },
+					body: JSON.stringify({ query }),
+				});
+
+				expect(response.status).toBe(200);
+				const result = await response.json();
+				expect(result.errors).toBeUndefined();
+				expect(result.data.persons).toBeArray();
+				// Frodo wields Sting
+				const frodo = result.data.persons.find((p: any) => p.name === 'Frodo Baggins');
+				expect(frodo).toBeDefined();
+				expect(frodo.signatureWeapon.name).toBe('Sting');
 			});
 		});
 
