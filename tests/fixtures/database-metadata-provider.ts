@@ -141,6 +141,19 @@ export const DatabaseEntityMetadata: Record<string, EntityMetadata<any>> = {
 				pivotTable: 'book_characters',
 				reference: 'm:n',
 			},
+			// 1:1 FK scalar — Person → Weapon via signature_weapon_id.
+			// Used by the mapping custom-field filter (SignatureWeapon).
+			signatureWeaponId: {
+				type: 'number',
+				name: 'signatureWeaponId',
+				fieldNames: ['signature_weapon_id'],
+				mappedBy: '',
+				joinColumns: [],
+				referencedColumnNames: [],
+				inverseJoinColumns: [],
+				pivotTable: '',
+				reference: undefined,
+			},
 		},
 	},
 
