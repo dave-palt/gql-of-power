@@ -1262,11 +1262,11 @@ query GetMixedData {
 			});
 
 			it('should filter rings by enum string key (converted to numeric for SQL)', async () => {
-				// The filter receives the GQL string key "Forged", which must be
+				// The filter receives the GQL enum value Forged, which must be
 				// converted to the DB numeric value 100 for the WHERE clause.
 				const query = `
 				query FilterByForged {
-				rings(filter: { status: "Forged" }) {
+				rings(filter: { status: Forged }) {
 				id
 				name
 				status
@@ -1291,7 +1291,7 @@ query GetMixedData {
 			it('should filter rings by enum using _in operator', async () => {
 				const query = `
 				query FilterByMultipleStatuses {
-				rings(filter: { status_in: ["Lost", "Destroyed"] }) {
+				rings(filter: { status_in: [Lost, Destroyed] }) {
 				id
 				name
 				status
@@ -1404,11 +1404,12 @@ query GetMixedData {
 		});
 
 		describe('_exists / _not_exists — EXISTS subqueries', () => {
-			it('should filter persons by _exists on fellowship', async () => {
-				// Find persons that DO belong to a fellowship named "Fellowship of the Ring"
+			it('should filter persons by _exists on battles (array relation)', async () => {
+				// `battles` is an array relation on Person → generates EXISTS subquery.
+				// Find persons that have at least one battle with > 500 casualties.
 				const query = `
 				query ExistsFilter {
-				persons(filter: { _exists: { fellowship: { name: "Fellowship of the Ring" } } }) {
+				persons(filter: { _exists: { battles: { casualties_gt: 500 } } }) {
 				id
 				name
 				}
@@ -1428,11 +1429,11 @@ query GetMixedData {
 				expect(result.data.persons.length).toBeGreaterThan(0);
 			});
 
-			it('should filter persons by _not_exists on fellowship', async () => {
-				// Find persons that do NOT belong to any "Fellowship of the Ring"
+			it('should filter persons by _not_exists on battles (array relation)', async () => {
+				// Find persons that do NOT have any battle with > 500 casualties.
 				const query = `
 				query NotExistsFilter {
-				persons(filter: { _not_exists: { fellowship: { name: "Fellowship of the Ring" } } }) {
+				persons(filter: { _not_exists: { battles: { casualties_gt: 500 } } }) {
 				id
 				name
 				}
@@ -1450,22 +1451,18 @@ query GetMixedData {
 				expect(result.errors).toBeUndefined();
 				expect(result.data.persons).toBeArray();
 
-				// Sauron is not in the Fellowship — should be present
-				const sauron = result.data.persons.find((p: any) => p.name === 'Sauron');
-				expect(sauron).toBeDefined();
+				// Frodo (id 1) has no battles — should be present
+				const frodo = result.data.persons.find((p: any) => p.name === 'Frodo Baggins');
+				expect(frodo).toBeDefined();
 			});
 
-			it('should filter rings by _exists on bearer', async () => {
-				// Find rings that have a bearer
+			it('should filter fellowships by _exists on members (array relation)', async () => {
+				// Find fellowships that have at least one Hobbit member.
 				const query = `
-				query RingsWithBearer {
-				rings(filter: { _exists: { bearer: { name: "Frodo Baggins" } } }) {
+				query FellowshipExists {
+				fellowships(filter: { _exists: { members: { race: "Hobbit" } } }) {
 				id
 				name
-				bearer {
-				id
-				name
-				}
 				}
 				}
 				`;
@@ -1479,8 +1476,8 @@ query GetMixedData {
 				expect(response.status).toBe(200);
 				const result = await response.json();
 				expect(result.errors).toBeUndefined();
-				expect(result.data.rings).toBeArrayOfSize(1);
-				expect(result.data.rings[0].bearer.name).toBe('Frodo Baggins');
+				expect(result.data.fellowships).toBeArray();
+				expect(result.data.fellowships.length).toBeGreaterThan(0);
 			});
 		});
 
