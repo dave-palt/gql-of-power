@@ -17,7 +17,7 @@ import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it } from
 import { join } from 'path';
 import knex from 'knex';
 import { GQLtoSQLMapper } from '../../src/queries/gql-to-sql-mapper';
-import { Person, Ring, Author, Book, Genre } from '../fixtures/middle-earth-schema';
+import { Person, Ring, Fellowship, Battle } from '../fixtures/middle-earth-schema';
 import { DatabaseMetadataProvider } from '../fixtures/database-metadata-provider';
 import { AllSampleData } from '../fixtures/test-data';
 import { getTestDBConfig } from '../fixtures/test-db-config';
@@ -383,24 +383,27 @@ describe('Filter Operators Integration Tests (PR #23)', () => {
 			// These tests exercise the path: requiresRelations → recursiveMap →
 			// filterProcessor.mapFilter(). The new operators must work as inline
 			// filters on nested relations, not just at the root level.
+			//
+			// Uses Fellowship.members (1:m → Person) and Battle.warriors (m:n → Person)
+			// which are all registered in the DatabaseMetadataProvider.
 
 			it(
-				'should apply _startsWith as inline filter on nested 1:m books',
+				'should apply _startsWith as inline filter on nested 1:m members',
 				async () => {
 					const result = mapper.buildQueryAndBindingsFor({
-						fields: { id: {}, name: {}, fb: {} } as any,
-						entity: Author,
+						fields: { id: {}, name: {}, _fm: {} } as any,
+						entity: Fellowship,
 						customFields: {
-							fb: {
-								type: () => Book,
+							_fm: {
+								type: () => Person,
 								requiresRelations: {
-									books: {
-										as: '_fb',
-										fields: { id: {}, title: {} },
-										filter: { title_startsWith: 'The' },
+									members: {
+										as: '_fm',
+										fields: { id: {}, name: {} },
+										filter: { name_startsWith: 'Frodo' },
 									},
 								},
-								resolve: (r: any) => r._fb,
+								resolve: (r: any) => r._fm,
 							},
 						} as any,
 					});
@@ -418,22 +421,22 @@ describe('Filter Operators Integration Tests (PR #23)', () => {
 			);
 
 			it(
-				'should apply _not as inline filter on nested 1:m books',
+				'should apply _not as inline filter on nested 1:m members',
 				async () => {
 					const result = mapper.buildQueryAndBindingsFor({
-						fields: { id: {}, name: {}, fb: {} } as any,
-						entity: Author,
+						fields: { id: {}, name: {}, _fm: {} } as any,
+						entity: Fellowship,
 						customFields: {
-							fb: {
-								type: () => Book,
+							_fm: {
+								type: () => Person,
 								requiresRelations: {
-									books: {
-										as: '_fb',
-										fields: { id: {}, title: {} },
-										filter: { _not: [{ title_eq: 'Silmarillion' }] },
+									members: {
+										as: '_fm',
+										fields: { id: {}, name: {} },
+										filter: { _not: [{ name_eq: 'Gandalf' }] },
 									},
 								},
-								resolve: (r: any) => r._fb,
+								resolve: (r: any) => r._fm,
 							},
 						} as any,
 					});
@@ -454,21 +457,21 @@ describe('Filter Operators Integration Tests (PR #23)', () => {
 				'should apply _and with multiple operators as inline filter on nested 1:m',
 				async () => {
 					const result = mapper.buildQueryAndBindingsFor({
-						fields: { id: {}, name: {}, fb: {} } as any,
-						entity: Author,
+						fields: { id: {}, name: {}, _fm: {} } as any,
+						entity: Fellowship,
 						customFields: {
-							fb: {
-								type: () => Book,
+							_fm: {
+								type: () => Person,
 								requiresRelations: {
-									books: {
-										as: '_fb',
-										fields: { id: {}, title: {}, pages: {} },
+									members: {
+										as: '_fm',
+										fields: { id: {}, name: {}, age: {} },
 										filter: {
-											_and: [{ title_startsWith: 'The' }, { pages_nbetween: [1000, 2000] }],
+											_and: [{ name_startsWith: 'Frodo' }, { age_nbetween: [1000, 3000] }],
 										},
 									},
 								},
-								resolve: (r: any) => r._fb,
+								resolve: (r: any) => r._fm,
 							},
 						} as any,
 					});
@@ -487,24 +490,24 @@ describe('Filter Operators Integration Tests (PR #23)', () => {
 			);
 
 			it(
-				'should apply _or as inline filter on nested m:m books',
+				'should apply _or as inline filter on nested m:n warriors',
 				async () => {
 					const result = mapper.buildQueryAndBindingsFor({
-						fields: { id: {}, name: {}, fb: {} } as any,
-						entity: Genre,
+						fields: { id: {}, name: {}, _bw: {} } as any,
+						entity: Battle,
 						customFields: {
-							fb: {
-								type: () => Book,
+							_bw: {
+								type: () => Person,
 								requiresRelations: {
-									books: {
-										as: '_fb',
-										fields: { id: {}, title: {} },
+									warriors: {
+										as: '_bw',
+										fields: { id: {}, name: {} },
 										filter: {
-											_or: [{ title_startsWith: 'The' }, { title_endsWith: 'Rings' }],
+											_or: [{ name_startsWith: 'Frodo' }, { name_endsWith: 'Gandalf' }],
 										},
 									},
 								},
-								resolve: (r: any) => r._fb,
+								resolve: (r: any) => r._bw,
 							},
 						} as any,
 					});
