@@ -97,6 +97,9 @@ CREATE TABLE persons (
     fellowship_id INTEGER REFERENCES fellowships(id),
     signature_weapon_id INTEGER REFERENCES weapons(id),
     signature_artifact_id INTEGER REFERENCES artifacts(id),
+    -- Numeric enum: DB stores the numeric code (1/2/3), GraphQL exposes
+    -- the string key via mapNumericEnum.
+    rank_code INTEGER,
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
 

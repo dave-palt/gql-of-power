@@ -26,6 +26,7 @@ export const SamplePersons = [
 		fellowship_id: 1,
 		signature_weapon_id: 1,
 		signature_artifact_id: 1,
+		rank_code: 3, // Leader
 	},
 	{
 		id: 2,
@@ -35,6 +36,7 @@ export const SamplePersons = [
 		home_location: null,
 		fellowship_id: 1,
 		signature_weapon_id: 2,
+		rank_code: 2, // Officer
 	},
 	{
 		id: 3,
@@ -44,6 +46,7 @@ export const SamplePersons = [
 		home_location: 'Gondor',
 		fellowship_id: 1,
 		signature_weapon_id: 3,
+		rank_code: 2, // Officer
 	},
 	{
 		id: 4,
@@ -52,6 +55,7 @@ export const SamplePersons = [
 		race: 'Elf',
 		home_location: 'Mirkwood',
 		fellowship_id: 1,
+		rank_code: 1, // Member
 	},
 	{
 		id: 5,
@@ -60,6 +64,7 @@ export const SamplePersons = [
 		race: 'Dwarf',
 		home_location: 'Erebor',
 		fellowship_id: 1,
+		rank_code: 1, // Member
 	},
 	{
 		id: 6,
@@ -68,6 +73,7 @@ export const SamplePersons = [
 		race: 'Human',
 		home_location: 'Gondor',
 		fellowship_id: 1,
+		rank_code: 2, // Officer
 	},
 	{
 		id: 7,
@@ -76,6 +82,7 @@ export const SamplePersons = [
 		race: 'Hobbit',
 		home_location: 'Hobbiton, Shire',
 		fellowship_id: 1,
+		rank_code: 1, // Member
 	},
 	{
 		id: 8,
@@ -84,6 +91,7 @@ export const SamplePersons = [
 		race: 'Hobbit',
 		home_location: 'Buckland, Shire',
 		fellowship_id: 1,
+		rank_code: 1, // Member
 	},
 	{
 		id: 9,
@@ -92,6 +100,7 @@ export const SamplePersons = [
 		race: 'Hobbit',
 		home_location: 'Tookland, Shire',
 		fellowship_id: 1,
+		rank_code: 1, // Member
 	},
 	{
 		id: 10,
@@ -101,6 +110,7 @@ export const SamplePersons = [
 		home_location: 'Mordor',
 		ring_id: 2,
 		fellowship_id: null,
+		rank_code: 3, // Leader
 	},
 ];
 

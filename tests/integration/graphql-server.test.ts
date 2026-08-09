@@ -49,6 +49,17 @@ enum RingStatus {
 }
 registerEnumType(RingStatus, { name: 'RingStatus' });
 
+// ─── Enum for mapNumericEnum inline-filter integration test ─────────────────
+// `Person.rank` is a numeric enum column (1/2/3 in DB, string key in GQL).
+// Person is reachable via `Fellowship.members` (1:m array relation), so inline
+// `filter` args are available — exercising the AST-based enum conversion path.
+enum PersonRank {
+	Member = 1,
+	Officer = 2,
+	Leader = 3,
+}
+registerEnumType(PersonRank, { name: 'PersonRank' });
+
 // Test server configuration
 const TEST_PORT = 4455;
 const TEST_URL = `http://localhost:${TEST_PORT}/graphql`;
@@ -73,6 +84,14 @@ const PersonFields: Partial<Record<keyof Person, FieldSettings | RelatedFieldSet
 	age: { type: () => Number, options: { nullable: true }, generateFilter: true },
 	race: { type: () => String, options: { nullable: true }, generateFilter: true }, // Make nullable to handle DB data
 	home: { type: () => String, options: { nullable: true }, generateFilter: true },
+	// Numeric enum column: DB stores 1/2/3, GQL exposes Member/Officer/Leader.
+	// Used by the inline filter enum-conversion integration tests below.
+	rank: {
+		type: () => PersonRank,
+		options: { nullable: true },
+		generateFilter: true,
+		mapNumericEnum: true,
+	},
 	ring: {
 		type: () => RingGQL.GQLEntity,
 		options: { nullable: true },
@@ -1545,6 +1564,201 @@ query GetMixedData {
 				const frodo = result.data.persons.find((p: any) => p.name === 'Frodo Baggins');
 				expect(frodo).toBeDefined();
 				expect(frodo.signatureWeapon.name).toBe('Sting');
+			});
+		});
+
+		describe('mapNumericEnum — rank field (Person)', () => {
+			// Person.rank is a mapNumericEnum column (DB: 1/2/3 → GQL: Member/Officer/Leader).
+			// These tests exercise BOTH filter-conversion paths:
+			//   1. Top-level filter on `persons` — string key → numeric code in WHERE
+			//   2. Inline filter on `Fellowship.members` (array relation) — string key →
+			//      numeric code in the EXISTS subquery that selects qualifying parents.
+			//   3. Output serialization — numeric DB value → string key via FieldResolver.
+			//
+			// NOTE on inline filter semantics: an inline `filter` on a 1:m relation
+			// generates an `EXISTS` that filters *which parent entities are returned*.
+			// The lateral join still returns ALL children of qualifying parents. So we
+			// assert on which fellowships are present, not on individual member rows.
+
+			it('should filter persons by top-level rank_eq (string key → numeric code)', async () => {
+				// Leaders (rank_code = 3): Frodo, Sauron.
+				const query = `
+					query FilterRankEq {
+						persons(filter: { rank_eq: Leader }) {
+							id
+							name
+							rank
+						}
+					}
+				`;
+
+				const response = await fetch(TEST_URL, {
+					method: 'POST',
+					headers: { 'Content-Type': 'application/json' },
+					body: JSON.stringify({ query }),
+				});
+
+				expect(response.status).toBe(200);
+				const result = await response.json();
+				expect(result.errors).toBeUndefined();
+				expect(result.data.persons).toBeArray();
+				expect(result.data.persons.length).toBe(2);
+				// Every result must be a Leader (string key, not numeric code)
+				const names = result.data.persons.map((p: any) => p.name).sort();
+				expect(names).toEqual(['Frodo Baggins', 'Sauron']);
+				for (const p of result.data.persons) {
+					expect(p.rank).toBe('Leader');
+				}
+			});
+
+			it('should filter persons by top-level rank_in with multiple enum keys', async () => {
+				// Officers + Leaders: Gandalf, Aragorn, Boromir, Frodo, Sauron (5 total).
+				const query = `
+					query FilterRankIn {
+						persons(filter: { rank_in: [Officer, Leader] }) {
+							name
+							rank
+						}
+					}
+				`;
+
+				const response = await fetch(TEST_URL, {
+					method: 'POST',
+					headers: { 'Content-Type': 'application/json' },
+					body: JSON.stringify({ query }),
+				});
+
+				expect(response.status).toBe(200);
+				const result = await response.json();
+				expect(result.errors).toBeUndefined();
+				expect(result.data.persons).toBeArray();
+				expect(result.data.persons.length).toBe(5);
+				// No Members should leak through
+				for (const p of result.data.persons) {
+					expect(['Officer', 'Leader']).toContain(p.rank);
+				}
+			});
+
+			it('should exclude non-matching ranks via top-level rank_eq', async () => {
+				// Members only (rank_code = 1): Legolas, Gimli, Sam, Merry, Pippin.
+				// Frodo (Leader) must NOT appear.
+				const query = `
+					query FilterMembersOnly {
+						persons(filter: { rank_eq: Member }) {
+							name
+							rank
+						}
+					}
+				`;
+
+				const response = await fetch(TEST_URL, {
+					method: 'POST',
+					headers: { 'Content-Type': 'application/json' },
+					body: JSON.stringify({ query }),
+				});
+
+				expect(response.status).toBe(200);
+				const result = await response.json();
+				expect(result.errors).toBeUndefined();
+				expect(result.data.persons).toBeArray();
+				expect(result.data.persons.length).toBe(5);
+				const names = result.data.persons.map((p: any) => p.name);
+				expect(names).not.toContain('Frodo Baggins');
+				expect(names).toContain('Samwise Gamgee');
+			});
+
+			it('should filter fellowships by inline rank_eq on members (EXISTS path)', async () => {
+				// Inline filter on 1:m relation generates EXISTS.
+				// Fellowship 1 (FotR) has Frodo (Leader) → qualifies.
+				// Fellowship 2 (White Council) has no members → does NOT qualify.
+				const query = `
+					query InlineFilterRankEq {
+						fellowships {
+							id
+							name
+							members(filter: { rank_eq: Leader }) {
+								id
+								name
+								rank
+							}
+						}
+					}
+				`;
+
+				const response = await fetch(TEST_URL, {
+					method: 'POST',
+					headers: { 'Content-Type': 'application/json' },
+					body: JSON.stringify({ query }),
+				});
+
+				expect(response.status).toBe(200);
+				const result = await response.json();
+				expect(result.errors).toBeUndefined();
+				expect(result.data.fellowships).toBeArray();
+				// Only Fellowship 1 qualifies (has a Leader). White Council has no members.
+				const fellowshipNames = result.data.fellowships.map((f: any) => f.name);
+				expect(fellowshipNames).toContain('Fellowship of the Ring');
+				expect(fellowshipNames).not.toContain('The White Council');
+			});
+
+			it('should filter fellowships by inline rank_in with multiple enum keys', async () => {
+				// Officers + Leaders via inline _in: same fellowships qualify as _eq
+				// because Fellowship 1 has both Officers and Leaders.
+				const query = `
+					query InlineFilterRankIn {
+						fellowships {
+							id
+							name
+							members(filter: { rank_in: [Officer, Leader] }) {
+								id
+								name
+								rank
+							}
+						}
+					}
+				`;
+
+				const response = await fetch(TEST_URL, {
+					method: 'POST',
+					headers: { 'Content-Type': 'application/json' },
+					body: JSON.stringify({ query }),
+				});
+
+				expect(response.status).toBe(200);
+				const result = await response.json();
+				expect(result.errors).toBeUndefined();
+				expect(result.data.fellowships).toBeArray();
+				expect(result.data.fellowships.length).toBe(1);
+				expect(result.data.fellowships[0].name).toBe('Fellowship of the Ring');
+			});
+
+			it('should serialize rank output as string key (not numeric code)', async () => {
+				// Verify the output direction: graphql-js serialize converts numeric
+				// DB values to string keys. This is the mapNumericEnum output path.
+				const query = `
+					query RankSerialization {
+						persons(filter: { name: "Gandalf" }) {
+							id
+							name
+							rank
+						}
+					}
+				`;
+
+				const response = await fetch(TEST_URL, {
+					method: 'POST',
+					headers: { 'Content-Type': 'application/json' },
+					body: JSON.stringify({ query }),
+				});
+
+				expect(response.status).toBe(200);
+				const result = await response.json();
+				expect(result.errors).toBeUndefined();
+				expect(result.data.persons).toBeArray();
+				expect(result.data.persons.length).toBe(1);
+				// DB value is 2 (integer), but GraphQL output must be "Officer" (string key)
+				expect(result.data.persons[0].rank).toBe('Officer');
+				expect(typeof result.data.persons[0].rank).toBe('string');
 			});
 		});
 

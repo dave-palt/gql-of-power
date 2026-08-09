@@ -82,6 +82,18 @@ export const DatabaseEntityMetadata: Record<string, EntityMetadata<any>> = {
 				pivotTable: '',
 				reference: undefined,
 			},
+			// Numeric enum column — DB stores 1/2/3 (mapNumericEnum demo for inline filters)
+			rank: {
+				type: 'number',
+				name: 'rank',
+				fieldNames: ['rank_code'],
+				mappedBy: '',
+				joinColumns: [],
+				referencedColumnNames: [],
+				inverseJoinColumns: [],
+				pivotTable: '',
+				reference: undefined,
+			},
 			// 1:1 relationship - Person has one Ring (via bearer_id on rings table)
 			ring: {
 				type: 'Ring',
@@ -594,6 +606,7 @@ const MockData = {
 			race: 'Hobbit',
 			home_location: 'Bag End, Shire',
 			fellowship_id: 1,
+			rank_code: 3,
 		},
 		{
 			id: 2,
@@ -602,6 +615,7 @@ const MockData = {
 			race: 'Wizard',
 			home_location: 'Valinor',
 			fellowship_id: 1,
+			rank_code: 2,
 		},
 		{
 			id: 3,
@@ -610,6 +624,7 @@ const MockData = {
 			race: 'Human',
 			home_location: 'Gondor',
 			fellowship_id: 1,
+			rank_code: 2,
 		},
 		{
 			id: 4,
@@ -618,6 +633,7 @@ const MockData = {
 			race: 'Elf',
 			home_location: 'Woodland Realm',
 			fellowship_id: 1,
+			rank_code: 1,
 		},
 		{
 			id: 5,
@@ -626,6 +642,7 @@ const MockData = {
 			race: 'Dwarf',
 			home_location: 'Erebor',
 			fellowship_id: 1,
+			rank_code: 1,
 		},
 		{
 			id: 6,
@@ -634,6 +651,7 @@ const MockData = {
 			race: 'Human',
 			home_location: 'Gondor',
 			fellowship_id: 1,
+			rank_code: 2,
 		},
 		{
 			id: 7,
@@ -642,6 +660,7 @@ const MockData = {
 			race: 'Hobbit',
 			home_location: 'Bag End, Shire',
 			fellowship_id: 1,
+			rank_code: 1,
 		},
 		{
 			id: 8,
@@ -650,6 +669,7 @@ const MockData = {
 			race: 'Hobbit',
 			home_location: 'Buckland, Shire',
 			fellowship_id: 1,
+			rank_code: 1,
 		},
 		{
 			id: 9,
@@ -658,6 +678,7 @@ const MockData = {
 			race: 'Hobbit',
 			home_location: 'Great Smials, Shire',
 			fellowship_id: 1,
+			rank_code: 1,
 		},
 	],
 	rings: [
