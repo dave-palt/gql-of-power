@@ -1938,4 +1938,141 @@ describe('GQLtoSQLMapper - Unit Tests', () => {
 			expect(result.querySQL).toContain('e_a1.author_name desc');
 		});
 	});
+
+	describe('ORDER BY related columns in NESTED relation fields (inline orderBy)', () => {
+		// These tests exercise the path: handleFieldArguments → RelationshipHandler → buildOrderBy callback.
+		// Before the fix, nested-object orderBy keys like { author: { name: 'asc' } } produced
+		// "order by alias.[object Object]" — broken SQL. The fix threads buildOrderBySQLWithRelated
+		// into RelationshipHandler so related-column resolution works at any nesting depth.
+
+		it('should resolve m:1 related orderBy inside a nested 1:m relation', () => {
+			// Author → books (1:m), order each author's books by book.author.name (m:1 correlated subquery)
+			const result = mapper.buildQueryAndBindingsFor({
+				fields: { id: {}, name: {}, sortedBooks: {} } as any,
+				entity: Author,
+				customFields: {
+					sortedBooks: {
+						type: () => Book,
+						requiresRelations: {
+							books: {
+								as: '_sortedBooks',
+								fields: { id: {}, title: {} },
+								pagination: { orderBy: [{ author: { name: 'asc' } }] as any },
+							},
+						},
+						resolve: (root: any) => root._sortedBooks,
+					},
+				} as any,
+			});
+
+			const sql = result.querySQL;
+			// The correlated subquery must appear in the ORDER BY of the inner lateral subquery,
+			// not the outer SELECT list.
+			expect(sql).toContain('order by');
+			expect(sql).toContain('(select e_o.author_name from "authors" as e_o where');
+			expect(sql).toContain('asc');
+		});
+
+		it('should resolve flat orderBy inside a nested 1:m relation (baseline)', () => {
+			// Author → books (1:m), order by book.title (flat column) — confirms the callback
+			// also handles the non-related case without regression.
+			const result = mapper.buildQueryAndBindingsFor({
+				fields: { id: {}, name: {}, sortedBooks: {} } as any,
+				entity: Author,
+				customFields: {
+					sortedBooks: {
+						type: () => Book,
+						requiresRelations: {
+							books: {
+								as: '_sortedBooks',
+								fields: { id: {}, title: {} },
+								pagination: { orderBy: [{ title: 'desc' }] as any },
+							},
+						},
+						resolve: (root: any) => root._sortedBooks,
+					},
+				} as any,
+			});
+
+			expect(result.querySQL).toContain('order by');
+			expect(result.querySQL).toMatch(/book_title.*desc/);
+		});
+
+		it('should resolve m:1 related orderBy inside a nested m:m relation', () => {
+			// Genre → books (m:m), order each genre's books by book.author.name (m:1)
+			const result = mapper.buildQueryAndBindingsFor({
+				fields: { id: {}, name: {}, sortedBooks: {} } as any,
+				entity: Genre,
+				customFields: {
+					sortedBooks: {
+						type: () => Book,
+						requiresRelations: {
+							books: {
+								as: '_sortedBooks',
+								fields: { id: {}, title: {} },
+								pagination: { orderBy: [{ author: { name: 'asc' } }] as any },
+							},
+						},
+						resolve: (root: any) => root._sortedBooks,
+					},
+				} as any,
+			});
+
+			const sql = result.querySQL;
+			expect(sql).toContain('order by');
+			expect(sql).toContain('(select e_o.author_name from "authors" as e_o where');
+			expect(sql).toContain('asc');
+		});
+
+		it('should resolve 1:m related orderBy inside a nested 1:m relation', () => {
+			// Author → books (1:m), order by books.genres.name (1:m → m:m sub-aggregation).
+			// Book → genres is m:m, so this exercises the MIN/MAX aggregation path in the nested callback.
+			const result = mapper.buildQueryAndBindingsFor({
+				fields: { id: {}, name: {}, sortedBooks: {} } as any,
+				entity: Author,
+				customFields: {
+					sortedBooks: {
+						type: () => Book,
+						requiresRelations: {
+							books: {
+								as: '_sortedBooks',
+								fields: { id: {}, title: {} },
+								pagination: { orderBy: [{ genres: { name: 'asc' } }] as any },
+							},
+						},
+						resolve: (root: any) => root._sortedBooks,
+					},
+				} as any,
+			});
+
+			const sql = result.querySQL;
+			expect(sql).toContain('order by');
+			expect(sql).toContain('(select min(e_o.genre_name)');
+			expect(sql).toContain('asc');
+		});
+
+		it('should not leak the related-column subquery into the outer SELECT', () => {
+			const result = mapper.buildQueryAndBindingsFor({
+				fields: { id: {}, name: {}, sortedBooks: {} } as any,
+				entity: Author,
+				customFields: {
+					sortedBooks: {
+						type: () => Book,
+						requiresRelations: {
+							books: {
+								as: '_sortedBooks',
+								fields: { id: {}, title: {} },
+								pagination: { orderBy: [{ author: { name: 'asc' } }] as any },
+							},
+						},
+						resolve: (root: any) => root._sortedBooks,
+					},
+				} as any,
+			});
+
+			// The outer SELECT clause must not contain the orderBy subquery
+			const outerSelect = result.querySQL.substring(0, result.querySQL.indexOf(' from '));
+			expect(outerSelect).not.toContain('(select e_o');
+		});
+	});
 });

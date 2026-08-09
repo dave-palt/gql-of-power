@@ -63,7 +63,9 @@ export class GQLtoSQLMapper {
 			this.recursiveMap.bind(this),
 			this.namedParameterPrefix
 		);
-		this.relationshipHandler = new RelationshipHandler();
+		this.relationshipHandler = new RelationshipHandler((orderBy, metadata, alias) =>
+			this.buildOrderBySQLWithRelated(metadata, alias, orderBy)
+		);
 	}
 
 	public buildQueryAndBindingsFor<T, K>({

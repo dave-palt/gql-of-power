@@ -16,7 +16,7 @@ import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it } from
 import { join } from 'path';
 import knex from 'knex';
 import { GQLtoSQLMapper } from '../../src/queries/gql-to-sql-mapper';
-import { Person, Ring } from '../fixtures/middle-earth-schema';
+import { Author, Book, Genre, Person, Ring } from '../fixtures/middle-earth-schema';
 import { DatabaseMetadataProvider } from '../fixtures/database-metadata-provider';
 import { AllSampleData } from '../fixtures/test-data';
 import { getTestDBConfig } from '../fixtures/test-db-config';
@@ -204,6 +204,122 @@ describe('ORDER BY Related Columns Integration Tests (PR #24)', () => {
 
 					expect(dbResults).toBeDefined();
 					expect(dbResults.length).toBeLessThanOrEqual(5);
+				},
+				TEST_TIMEOUT
+			);
+		});
+
+		describe('ORDER BY related columns in NESTED relation fields', () => {
+			// These tests exercise the path: handleFieldArguments → RelationshipHandler →
+			// buildOrderBy callback → buildOrderBySQLWithRelated. Before the fix, nested
+			// orderBy with related-column keys produced broken SQL ([object Object]).
+			// Now the correlated subquery is threaded into the lateral join's inner query.
+
+			it(
+				'should order nested 1:m books by related m:1 author.name (inline orderBy)',
+				async () => {
+					// Author → books (1:m), order each author's books by book.author.name
+					// (self-referential m:1 correlated subquery inside the lateral join)
+					const result = mapper.buildQueryAndBindingsFor({
+						fields: { id: {}, name: {}, sortedBooks: {} } as any,
+						entity: Author,
+						customFields: {
+							sortedBooks: {
+								type: () => Book,
+								requiresRelations: {
+									books: {
+										as: '_sortedBooks',
+										fields: { id: {}, title: {} },
+										pagination: { orderBy: [{ author: { name: 'asc' } }] as any },
+									},
+								},
+								resolve: (root: any) => root._sortedBooks,
+							},
+						} as any,
+					});
+
+					const sql = result.querySQL;
+					expect(sql.toLowerCase()).toContain('order by');
+					expect(sql).toContain('(select e_o.author_name from "authors" as e_o where');
+
+					const dbResults = await metadataProvider.executeQuery(
+						k.raw(result.querySQL, result.bindings).toString()
+					);
+
+					expect(dbResults).toBeDefined();
+					expect(Array.isArray(dbResults)).toBe(true);
+					expect(dbResults.length).toBeGreaterThan(0);
+				},
+				TEST_TIMEOUT
+			);
+
+			it(
+				'should order nested m:m books by related m:1 author.name (inline orderBy)',
+				async () => {
+					// Genre → books (m:m), order each genre's books by book.author.name
+					const result = mapper.buildQueryAndBindingsFor({
+						fields: { id: {}, name: {}, sortedBooks: {} } as any,
+						entity: Genre,
+						customFields: {
+							sortedBooks: {
+								type: () => Book,
+								requiresRelations: {
+									books: {
+										as: '_sortedBooks',
+										fields: { id: {}, title: {} },
+										pagination: { orderBy: [{ author: { name: 'asc' } }] as any },
+									},
+								},
+								resolve: (root: any) => root._sortedBooks,
+							},
+						} as any,
+					});
+
+					const sql = result.querySQL;
+					expect(sql.toLowerCase()).toContain('order by');
+					expect(sql).toContain('(select e_o.author_name from "authors" as e_o where');
+
+					const dbResults = await metadataProvider.executeQuery(
+						k.raw(result.querySQL, result.bindings).toString()
+					);
+
+					expect(dbResults).toBeDefined();
+					expect(Array.isArray(dbResults)).toBe(true);
+				},
+				TEST_TIMEOUT
+			);
+
+			it(
+				'should order nested 1:m books by flat column (inline orderBy baseline)',
+				async () => {
+					// Author → books (1:m), order by book.title (flat column)
+					const result = mapper.buildQueryAndBindingsFor({
+						fields: { id: {}, name: {}, sortedBooks: {} } as any,
+						entity: Author,
+						customFields: {
+							sortedBooks: {
+								type: () => Book,
+								requiresRelations: {
+									books: {
+										as: '_sortedBooks',
+										fields: { id: {}, title: {} },
+										pagination: { orderBy: [{ title: 'desc' }] as any },
+									},
+								},
+								resolve: (root: any) => root._sortedBooks,
+							},
+						} as any,
+					});
+
+					expect(result.querySQL.toLowerCase()).toContain('order by');
+					expect(result.querySQL).toMatch(/book_title.*desc/);
+
+					const dbResults = await metadataProvider.executeQuery(
+						k.raw(result.querySQL, result.bindings).toString()
+					);
+
+					expect(dbResults).toBeDefined();
+					expect(Array.isArray(dbResults)).toBe(true);
 				},
 				TEST_TIMEOUT
 			);

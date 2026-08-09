@@ -124,6 +124,13 @@ const goldenSQL: Record<string, string> = {
 		'select e_a1.id, e_a1.genre_name AS "name" from ( select e_a1.id, e_a1.genre_name from genres as e_a1 where true order by (select max(e_o.published_year) from "books" as e_o inner join "book_genres" as p_o on e_o.id = p_o.book_id where p_o.genre_id = e_a1.id) desc limit :limit ) as e_a1 order by (select max(e_o.published_year) from "books" as e_o inner join "book_genres" as p_o on e_o.id = p_o.book_id where p_o.genre_id = e_a1.id) desc',
 	'orderby-1m-union-all-alias-rewrite':
 		'select e_a1.id, e_a1.author_name AS "name" from ( select distinct * from ((select e_a1.id, e_a1.author_name from authors as e_a1 where true and ( e_a1.author_name = :e_author_name1_author_name )) union all (select e_a1.id, e_a1.author_name from authors as e_a1 where true and ( e_a1.nationality = :e_nationality1_nationality ))) as e_a1_u order by (select min(e_o.book_title) from "books" as e_o where e_a1_u.id = e_o.author_id) asc ) as e_a1 order by (select min(e_o.book_title) from "books" as e_o where e_a1.id = e_o.author_id) asc',
+	// ── ORDER BY related columns in NESTED relation fields (inline orderBy) ─
+	'nested-orderby-1m-m1-author-books-by-author-name':
+		'select e_a1.id, e_a1.author_name AS "name", null AS "sortedBooks", f_rq1.value as "_sortedBooks" from ( select e_a1.id, e_a1.author_name from authors as e_a1 where true ) as e_a1 left outer join lateral ( select coalesce(json_agg(row_to_json(f_rq1))::json, \'[]\'::json)::jsonb as value from ( select f_rq1.author_id, f_rq1.id, f_rq1.book_title AS "title" from "books" as f_rq1 where e_a1.id = f_rq1.author_id order by (select e_o.author_name from "authors" as e_o where f_rq1.author_id = e_o.id) asc ) as f_rq1 ) as f_rq1 on true',
+	'nested-orderby-1m-flat-author-books-by-title':
+		'select e_a1.id, e_a1.author_name AS "name", null AS "sortedBooks", f_rq1.value as "_sortedBooks" from ( select e_a1.id, e_a1.author_name from authors as e_a1 where true ) as e_a1 left outer join lateral ( select coalesce(json_agg(row_to_json(f_rq1))::json, \'[]\'::json)::jsonb as value from ( select f_rq1.author_id, f_rq1.id, f_rq1.book_title AS "title" from "books" as f_rq1 where e_a1.id = f_rq1.author_id order by f_rq1.book_title desc ) as f_rq1 ) as f_rq1 on true',
+	'nested-orderby-mm-m1-genre-books-by-author-name':
+		'select e_a1.id, e_a1.genre_name AS "name", null AS "sortedBooks", f_rq1.value as "_sortedBooks" from ( select e_a1.id, e_a1.genre_name from genres as e_a1 where true ) as e_a1 left outer join lateral ( select coalesce(json_agg(row_to_json(f_rq1))::json, \'[]\'::json)::jsonb as value from ( select f_rq1.id, f_rq1.book_title AS "title" from "books" as f_rq1 where (id) in (select book_id from book_genres where e_a1.id = book_genres.genre_id) order by (select e_o.author_name from "authors" as e_o where f_rq1.author_id = e_o.id) asc ) as f_rq1 ) as f_rq1 on true',
 };
 
 type Scenario = {
@@ -438,6 +445,62 @@ const scenarios: Scenario[] = [
 		entity: Author,
 		filter: { _or: [{ name: 'Tolkien' }, { nationality: 'British' }] },
 		pagination: { orderBy: [{ books: { title: 'asc' } }] as any },
+	},
+	// ── ORDER BY related columns in NESTED relation fields (inline orderBy) ─
+	// These exercise the RelationshipHandler → buildOrderBy callback path.
+	{
+		name: 'nested-orderby-1m-m1-author-books-by-author-name',
+		fields: { id: {}, name: {}, sortedBooks: {} },
+		entity: Author,
+		customFields: {
+			sortedBooks: {
+				type: () => Book,
+				requiresRelations: {
+					books: {
+						as: '_sortedBooks',
+						fields: { id: {}, title: {} },
+						pagination: { orderBy: [{ author: { name: 'asc' } }] as any },
+					},
+				},
+				resolve: (root: any) => root._sortedBooks,
+			},
+		} as any,
+	},
+	{
+		name: 'nested-orderby-1m-flat-author-books-by-title',
+		fields: { id: {}, name: {}, sortedBooks: {} },
+		entity: Author,
+		customFields: {
+			sortedBooks: {
+				type: () => Book,
+				requiresRelations: {
+					books: {
+						as: '_sortedBooks',
+						fields: { id: {}, title: {} },
+						pagination: { orderBy: [{ title: 'desc' }] as any },
+					},
+				},
+				resolve: (root: any) => root._sortedBooks,
+			},
+		} as any,
+	},
+	{
+		name: 'nested-orderby-mm-m1-genre-books-by-author-name',
+		fields: { id: {}, name: {}, sortedBooks: {} },
+		entity: Genre,
+		customFields: {
+			sortedBooks: {
+				type: () => Book,
+				requiresRelations: {
+					books: {
+						as: '_sortedBooks',
+						fields: { id: {}, title: {} },
+						pagination: { orderBy: [{ author: { name: 'asc' } }] as any },
+					},
+				},
+				resolve: (root: any) => root._sortedBooks,
+			},
+		} as any,
 	},
 ];
 

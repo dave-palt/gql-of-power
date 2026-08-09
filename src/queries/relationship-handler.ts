@@ -6,8 +6,38 @@ import { logger } from '../variables';
 import { Alias } from './alias';
 import { SQLBuilder } from './sql-builder';
 
+/**
+ * Callback that builds an ORDER BY SQL clause from a nested-relation orderBy spec,
+ * resolving related-column keys (e.g. { author: { name: 'asc' } }) into correlated
+ * subqueries. When provided, it replaces the flat-only SQLBuilder.buildOrderBySQL
+ * call in the nested-relation path so inline orderBy on relation fields supports
+ * related columns at any depth.
+ */
+export type OrderBySQLBuilder = (
+	orderBy: GQLEntityOrderByInputType<any>[],
+	metadata: EntityMetadata<any>,
+	alias: Alias
+) => string;
+
 export class RelationshipHandler {
-	constructor() {}
+	constructor(private relatedOrderByBuilder?: OrderBySQLBuilder) {}
+
+	/**
+	 * Builds ORDER BY SQL for a nested-relation field, preferring the
+	 * related-aware builder when available (so nested-object orderBy keys
+	 * like { author: { name: 'asc' } } resolve to correlated subqueries).
+	 * Falls back to the flat-only SQLBuilder.buildOrderBySQL otherwise.
+	 */
+	private buildOrderBy(
+		orderBy: GQLEntityOrderByInputType<any>[],
+		metadata: EntityMetadata<any>,
+		alias: Alias
+	): string {
+		if (this.relatedOrderByBuilder) {
+			return this.relatedOrderByBuilder(orderBy, metadata, alias);
+		}
+		return SQLBuilder.buildOrderBySQL(orderBy, SQLBuilder.getFieldMapper(metadata, alias));
+	}
 
 	/**
 	 * Handles One-to-Many and One-to-One relationships
@@ -77,10 +107,7 @@ export class RelationshipHandler {
 				new Set(ons.map((on) => `${alias.toColumnName(on)}`).concat(Array.from(select)))
 			);
 
-			const orderBySQL = SQLBuilder.buildOrderBySQL(
-				orderBy,
-				SQLBuilder.getFieldMapper(referenceField, alias)
-			);
+			const orderBySQL = this.buildOrderBy(orderBy, referenceField, alias);
 			const isNestedNeeded = isArray || offset || limit || orderBySQL.length > 0;
 
 			// const fromSQL = `"${referenceField.tableName}" as ${alias.toString()}`;
@@ -279,10 +306,7 @@ export class RelationshipHandler {
 			const jsonSQL = SQLBuilder.generateJsonSelectStatement(alias.toString(), true);
 			const refAlias = alias.toString();
 
-			const orderByClause = SQLBuilder.buildOrderBySQL(
-				orderBy,
-				SQLBuilder.getFieldMapper(fieldMetadata, alias)
-			);
+			const orderByClause = this.buildOrderBy(orderBy ?? [], fieldMetadata, alias);
 
 			const innerSubquery = `( select ${selectFields.join(', ')} from "${fieldMetadata.tableName}" as ${refAlias} where (${fieldMetadata.primaryKeys.join(', ')}) in (${pivotTableSQL}) ${whereWithValues.length > 0 ? ` and ( ${whereWithValues.join(' and ')} )` : ''} ${orderByClause} ${limit && !isNaN(limit) ? `limit ${limit}` : ''} ${offset && !isNaN(offset) ? `offset ${offset}` : ''} ) as ${refAlias}`;
 			const fromBody =
