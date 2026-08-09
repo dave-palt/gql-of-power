@@ -918,6 +918,9 @@ function _registerFiltersAndPagination<T>(
 
 		@Field(() => [GQLEntityOrderBy], { nullable: true })
 		orderBy?: OrderByOptions[];
+
+		@Field(() => Boolean, { nullable: true })
+		distinct?: boolean;
 	}
 	Object.defineProperty(GQLEntityPaginationInputField, 'name', {
 		value: paginationTypeName,

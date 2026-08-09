@@ -39,15 +39,16 @@ export class SQLBuilder {
 		value?: { innerJoin: string } | { where: string },
 		innerOrderBy?: string,
 		innerLimit?: string,
-		innerOffset?: string
+		innerOffset?: string,
+		distinctKeyword: string = ''
 	): string {
-		return `select ${selectFields.join(', ')}
+		return `select ${distinctKeyword}${selectFields.join(', ')}
             from (
 				select ${rawSelect.join(', ')}
 					from ${tableName} as ${alias}
 					${globalInnerJoin.join(' \n')}
 					${value && 'innerJoin' in value ? value.innerJoin : ''}
-				where true 
+				where true
 				${globalWhereJoin.length > 0 ? ` and ( ${globalWhereJoin.join(' and ')} )` : ''}
 				${value && 'where' in value ? `and ${value.where}` : ''}
 				${innerOrderBy ?? ''}

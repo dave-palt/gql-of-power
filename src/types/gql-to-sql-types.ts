@@ -15,6 +15,7 @@ export type MappingsType = {
 	limit?: number;
 	offset?: number;
 	orderBy: GQLEntityOrderByInputType<any>[];
+	distinct?: boolean;
 	alias?: Alias;
 	_or: MappingsType[];
 	_and: MappingsType[];

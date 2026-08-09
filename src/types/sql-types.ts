@@ -261,7 +261,7 @@ export type RequireRelationConfig = {
 	 * Static pagination to apply to the relationship subquery.
 	 * When `forwardArgs` is true, this serves as a base that GQL args override/extend.
 	 */
-	pagination?: { limit?: number; offset?: number; orderBy?: any[] };
+	pagination?: { limit?: number; offset?: number; orderBy?: any[]; distinct?: boolean };
 	/**
 	 * Forward GQL filter/pagination args from the custom field to this relationship.
 	 * Static config serves as base; GQL args override/add.
