@@ -182,6 +182,47 @@ export type FieldBaseSettings = {
 			 * }
 			 */
 			countFieldName?: string;
+
+			/**
+			 * When set, generates additional Float/Int fields on the GQL entity that return
+			 * aggregated values (sum, avg, min, max) of a column on the related entities.
+			 * Each entry becomes a field in the GQL schema with an optional `filter` argument.
+			 *
+			 * The generated SQL is a correlated subquery:
+			 * ```sql
+			 * (SELECT SUM(pages) FROM "books" AS e_w1 WHERE e_w1.author_id = a_1.id AND <filter>) AS "totalPages"
+			 * ```
+			 *
+			 * avg/min/max work identically with their respective SQL function.
+			 *
+			 * @example
+			 * const fields = defineFields(Author, {
+			 *   books: {
+			 *     type: () => BookGQL,
+			 *     array: true,
+			 *     relatedEntityName: () => 'Book',
+			 *     aggregateFields: [
+			 *       { fn: 'sum', column: 'pages', fieldName: 'totalPages' },
+			 *       { fn: 'avg', column: 'pages', fieldName: 'avgPages' },
+			 *       { fn: 'min', column: 'publishedYear', fieldName: 'oldestBook' },
+			 *       { fn: 'max', column: 'publishedYear', fieldName: 'newestBook' },
+			 *     ],
+			 *   },
+			 * });
+			 *
+			 * // GQL query:
+			 * query {
+			 *   authors {
+			 *     totalPages(filter: { genre: 'Fantasy' })
+			 *     avgPages
+			 *   }
+			 * }
+			 */
+			aggregateFields?: Array<{
+				fn: AggregateFunction;
+				column: string;
+				fieldName: string;
+			}>;
 	  }
 );
 
@@ -409,6 +450,32 @@ export type CountFieldMeta = {
 	/** The GQL field name for the count (e.g. 'bookCount'). */
 	countFieldName: string;
 	/** The ORM relationship field name that this count derives from (e.g. 'books'). */
+	relationshipFieldName: string;
+	/** Resolves to the related entity's ORM class name (e.g. 'Book'). */
+	relatedEntityName: () => string;
+};
+
+/**
+ * Supported SQL aggregate functions.
+ * - sum: total of all matching values
+ * - avg: arithmetic mean of all matching values
+ * - min: smallest matching value
+ * - max: largest matching value
+ */
+export type AggregateFunction = 'sum' | 'avg' | 'min' | 'max';
+
+/**
+ * Metadata for a single auto-generated aggregate field.
+ * Stored internally in AggregateFieldsMap.
+ */
+export type AggregateFieldMeta = {
+	/** The GQL field name for the aggregate (e.g. 'totalPages'). */
+	aggregateFieldName: string;
+	/** The SQL aggregate function (sum, avg, min, max). */
+	fn: AggregateFunction;
+	/** The ORM property name on the related entity whose column is aggregated (e.g. 'pages'). */
+	column: string;
+	/** The ORM relationship field name that this aggregate derives from (e.g. 'books'). */
 	relationshipFieldName: string;
 	/** Resolves to the related entity's ORM class name (e.g. 'Book'). */
 	relatedEntityName: () => string;

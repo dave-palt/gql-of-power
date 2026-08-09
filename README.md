@@ -151,16 +151,17 @@ const fields = defineFields(Book, {
 
 #### Field options
 
-| Option              | Type                | Purpose                                                                               |
-| ------------------- | ------------------- | ------------------------------------------------------------------------------------- |
-| `type`              | `() => GraphQLType` | GraphQL return type (required)                                                        |
-| `generateFilter`    | `boolean`           | Generate filter input fields for this property                                        |
-| `options`           | `FieldOptions`      | type-graphql field options (nullable, description, etc.)                              |
-| `alias`             | `string`            | Override the GQL field name                                                           |
-| `array`             | `true`              | Mark as array return type                                                             |
-| `relatedEntityName` | `() => string`      | ORM entity name for array relation fields (auto-derived when using `@GQLEntityClass`) |
-| `countFieldName`    | `string`            | Generate a count field for this relationship (see [Count Fields](#count-fields))      |
-| `enum`              | `EnumData`          | Register an enum type                                                                 |
+| Option              | Type                     | Purpose                                                                               |
+| ------------------- | ------------------------ | ------------------------------------------------------------------------------------- |
+| `type`              | `() => GraphQLType`      | GraphQL return type (required)                                                        |
+| `generateFilter`    | `boolean`                | Generate filter input fields for this property                                        |
+| `options`           | `FieldOptions`           | type-graphql field options (nullable, description, etc.)                              |
+| `alias`             | `string`                 | Override the GQL field name                                                           |
+| `array`             | `true`                   | Mark as array return type                                                             |
+| `relatedEntityName` | `() => string`           | ORM entity name for array relation fields (auto-derived when using `@GQLEntityClass`) |
+| `countFieldName`    | `string`                 | Generate a count field for this relationship (see [Count Fields](#count-fields))      |
+| `aggregateFields`   | `AggregateFieldConfig[]` | Generate sum/avg/min/max aggregate fields (see [Aggregate Fields](#aggregate-fields)) |
+| `enum`              | `EnumData`               | Register an enum type                                                                 |
 
 ### `@GQLEntityClass(OrmClass, fields, extra?)`
 
@@ -525,6 +526,89 @@ WHERE (SELECT COUNT(*) FROM "books" AS e_w1 WHERE e_w1.author_id = a_1.id) > :v_
 ```
 
 Works for all relationship types (1:m, m:1, m:n). For m:n, the pivot table is included in the subquery.
+
+---
+
+## Aggregate Fields
+
+Add `aggregateFields` to any relationship field to auto-generate numeric fields that return aggregated values (`sum`, `avg`, `min`, `max`) of a column on the related entities. Each aggregate is computed via a correlated subquery — no JOINs in the outer query.
+
+### Definition
+
+```typescript
+const authorFields = defineFields(Author, {
+	id: { type: () => ID, generateFilter: true },
+	name: { type: () => String, generateFilter: true },
+	books: {
+		type: () => BookGQL,
+		array: true,
+		relatedEntityName: () => 'Book',
+		countFieldName: 'bookCount',
+		aggregateFields: [
+			{ fn: 'sum', column: 'pages', fieldName: 'totalPages' }, // Float
+			{ fn: 'avg', column: 'pages', fieldName: 'avgPages' }, // Float
+			{ fn: 'min', column: 'publishedYear', fieldName: 'oldestBook' }, // Int
+			{ fn: 'max', column: 'publishedYear', fieldName: 'newestBook' }, // Int
+		],
+	},
+});
+```
+
+### Field types
+
+| Function | GQL type | SQL function |
+| -------- | -------- | ------------ |
+| `sum`    | `Float`  | `SUM(col)`   |
+| `avg`    | `Float`  | `AVG(col)`   |
+| `min`    | `Float`  | `MIN(col)`   |
+| `max`    | `Float`  | `MAX(col)`   |
+
+> **Note:** The `column` is the **property name** on the related entity, not the raw SQL column name. The mapper resolves it to the correct DB column via metadata.
+
+### Querying
+
+```graphql
+query {
+	authors {
+		name
+		totalPages
+		avgPages
+		oldestBook
+		newestBook
+	}
+}
+```
+
+### Filtering by Aggregates
+
+Aggregate fields support the same numeric operators as count fields:
+
+```graphql
+# Authors whose total pages exceed 500
+filter: { totalPages_gt: 500 }
+
+# Implicit _eq
+filter: { totalPages: 500 }
+
+# Nested object form (AND-combined)
+filter: { TotalPages: { _gt: 200, _lte: 800 } }
+```
+
+Supported operators: `_eq`, `_ne`, `_gt`, `_gte`, `_lt`, `_lte`.
+
+### Generated SQL
+
+```sql
+-- totalPages (select)
+SELECT ...,
+  (SELECT SUM(page_count) FROM "books" AS e_w1 WHERE e_w1.author_id = a_1.id) AS "totalPages"
+FROM authors AS a_1 ...
+
+-- totalPages_gt (filter)
+WHERE (SELECT SUM(page_count) FROM "books" AS e_w1 WHERE e_w1.author_id = a_1.id) > :v_totalPages1_1
+```
+
+Works for all relationship types (1:m, m:1, m:m). For m:m, the pivot table is included in the subquery.
 
 ---
 

@@ -281,7 +281,7 @@ export const ArmyFields: Partial<FieldsSettings<Army>> = {
 
 /**
  * Author field configurations
- * Demonstrates 1:m (books) relationship with a count field.
+ * Demonstrates 1:m (books) relationship with a count field and aggregate fields.
  */
 export const AuthorFields: Partial<FieldsSettings<Author>> = {
 	id: { type: () => Number, options: { nullable: false }, generateFilter: true },
@@ -296,6 +296,12 @@ export const AuthorFields: Partial<FieldsSettings<Author>> = {
 		relatedEntityName: () => Book.name,
 		getFilterType: () => Int,
 		countFieldName: 'bookCount',
+		aggregateFields: [
+			{ fn: 'sum', column: 'pages', fieldName: 'totalPages' }, // total pages across all books
+			{ fn: 'avg', column: 'pages', fieldName: 'avgPages' }, // average book length
+			{ fn: 'min', column: 'publishedYear', fieldName: 'oldestBookYear' }, // first publication
+			{ fn: 'max', column: 'publishedYear', fieldName: 'newestBookYear' }, // latest publication
+		],
 	},
 };
 
