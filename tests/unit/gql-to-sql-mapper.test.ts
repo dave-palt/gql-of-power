@@ -18,6 +18,7 @@ import {
 	Artifact,
 	Author,
 	Book,
+	Genre,
 } from '../fixtures/middle-earth-schema';
 import { createMockMetadataProvider } from '../fixtures/test-data';
 import '../setup';
@@ -1798,6 +1799,221 @@ describe('GQLtoSQLMapper - Unit Tests', () => {
 			expect(result.querySQL).toContain('REPLACE(TRIM(BOTH');
 			expect(result.querySQL).toContain('person_name AS "name"');
 			expect(result.querySQL).toMatch(/e_a\d+\.id/);
+		});
+	});
+
+	describe('Inline/Nested Filter Operators (PR #23)', () => {
+		// These tests verify that the new filter operators (_not, _startsWith,
+		// _endsWith, _is_null, _nlike, _nilike, _nre, _nbetween) work not only
+		// at the root entity level but also as inline filters on nested relation
+		// fields. The operators flow through the same FilterProcessor.mapFilter()
+		// dispatch table for both paths, so these tests guard against regressions
+		// in that dispatch wiring.
+
+		it('should apply _startsWith as inline filter on nested 1:m relation', () => {
+			const result = mapper.buildQueryAndBindingsFor({
+				fields: { id: {}, name: {}, filteredBooks: {} } as any,
+				entity: Author,
+				customFields: {
+					filteredBooks: {
+						type: () => Book,
+						requiresRelations: {
+							books: {
+								as: '_filteredBooks',
+								fields: { id: {}, title: {} },
+								filter: { title_startsWith: 'The' },
+							},
+						},
+						resolve: (root: any) => root._filteredBooks,
+					},
+				} as any,
+			});
+
+			expect(result.querySQL).toContain('like');
+			expect(result.querySQL).toMatch(/title_startsWith|The/);
+		});
+
+		it('should apply _endsWith as inline filter on nested 1:m relation', () => {
+			const result = mapper.buildQueryAndBindingsFor({
+				fields: { id: {}, name: {}, filteredBooks: {} } as any,
+				entity: Author,
+				customFields: {
+					filteredBooks: {
+						type: () => Book,
+						requiresRelations: {
+							books: {
+								as: '_filteredBooks',
+								fields: { id: {}, title: {} },
+								filter: { title_endsWith: 'Rings' },
+							},
+						},
+						resolve: (root: any) => root._filteredBooks,
+					},
+				} as any,
+			});
+
+			expect(result.querySQL).toContain('like');
+			expect(result.querySQL).toMatch(/book_title.*%/);
+		});
+
+		it('should apply _not as inline filter on nested 1:m relation', () => {
+			const result = mapper.buildQueryAndBindingsFor({
+				fields: { id: {}, name: {}, filteredBooks: {} } as any,
+				entity: Author,
+				customFields: {
+					filteredBooks: {
+						type: () => Book,
+						requiresRelations: {
+							books: {
+								as: '_filteredBooks',
+								fields: { id: {}, title: {} },
+								filter: { _not: [{ title_eq: 'Silmarillion' }] },
+							},
+						},
+						resolve: (root: any) => root._filteredBooks,
+					},
+				} as any,
+			});
+
+			expect(result.querySQL).toContain('not (');
+		});
+
+		it('should apply _is_null as inline filter on nested 1:m relation', () => {
+			const result = mapper.buildQueryAndBindingsFor({
+				fields: { id: {}, name: {}, filteredBooks: {} } as any,
+				entity: Author,
+				customFields: {
+					filteredBooks: {
+						type: () => Book,
+						requiresRelations: {
+							books: {
+								as: '_filteredBooks',
+								fields: { id: {}, title: {} },
+								filter: { title_is_null: true },
+							},
+						},
+						resolve: (root: any) => root._filteredBooks,
+					},
+				} as any,
+			});
+
+			expect(result.querySQL).toMatch(/is null/i);
+		});
+
+		it('should apply _nlike as inline filter on nested 1:m relation', () => {
+			const result = mapper.buildQueryAndBindingsFor({
+				fields: { id: {}, name: {}, filteredBooks: {} } as any,
+				entity: Author,
+				customFields: {
+					filteredBooks: {
+						type: () => Book,
+						requiresRelations: {
+							books: {
+								as: '_filteredBooks',
+								fields: { id: {}, title: {} },
+								filter: { title_nlike: '%Hobbit%' },
+							},
+						},
+						resolve: (root: any) => root._filteredBooks,
+					},
+				} as any,
+			});
+
+			expect(result.querySQL).toContain('not like');
+		});
+
+		it('should apply _nre (not regex) as inline filter on nested 1:m relation', () => {
+			const result = mapper.buildQueryAndBindingsFor({
+				fields: { id: {}, name: {}, filteredBooks: {} } as any,
+				entity: Author,
+				customFields: {
+					filteredBooks: {
+						type: () => Book,
+						requiresRelations: {
+							books: {
+								as: '_filteredBooks',
+								fields: { id: {}, title: {} },
+								filter: { title_nre: '^Lord' },
+							},
+						},
+						resolve: (root: any) => root._filteredBooks,
+					},
+				} as any,
+			});
+
+			// PostgreSQL not-regex operator
+			expect(result.querySQL).toContain('!~');
+		});
+
+		it('should apply _nbetween as inline filter on nested 1:m relation', () => {
+			const result = mapper.buildQueryAndBindingsFor({
+				fields: { id: {}, name: {}, filteredBooks: {} } as any,
+				entity: Author,
+				customFields: {
+					filteredBooks: {
+						type: () => Book,
+						requiresRelations: {
+							books: {
+								as: '_filteredBooks',
+								fields: { id: {}, title: {}, pages: {} },
+								filter: { pages_nbetween: [100, 500] },
+							},
+						},
+						resolve: (root: any) => root._filteredBooks,
+					},
+				} as any,
+			});
+
+			expect(result.querySQL).toContain('not between');
+		});
+
+		it('should apply multiple operators via _and as inline filter on nested relation', () => {
+			const result = mapper.buildQueryAndBindingsFor({
+				fields: { id: {}, name: {}, filteredBooks: {} } as any,
+				entity: Author,
+				customFields: {
+					filteredBooks: {
+						type: () => Book,
+						requiresRelations: {
+							books: {
+								as: '_filteredBooks',
+								fields: { id: {}, title: {}, pages: {} },
+								filter: {
+									_and: [{ title_startsWith: 'The' }, { pages_nbetween: [1000, 2000] }],
+								},
+							},
+						},
+						resolve: (root: any) => root._filteredBooks,
+					},
+				} as any,
+			});
+
+			// Should have both like (from _startsWith) and not between (from _nbetween)
+			expect(result.querySQL).toContain('like');
+			expect(result.querySQL).toContain('not between');
+		});
+
+		it('should apply _startsWith as inline filter on nested m:m relation', () => {
+			const result = mapper.buildQueryAndBindingsFor({
+				fields: { id: {}, name: {}, filteredBooks: {} } as any,
+				entity: Genre,
+				customFields: {
+					filteredBooks: {
+						type: () => Book,
+						requiresRelations: {
+							books: {
+								as: '_filteredBooks',
+								fields: { id: {}, title: {} },
+								filter: { title_startsWith: 'The' },
+							},
+						},
+						resolve: (root: any) => root._filteredBooks,
+					},
+				} as any,
+			});
+
+			expect(result.querySQL).toContain('like');
+			expect(result.querySQL).toContain("|| '%'");
 		});
 	});
 });

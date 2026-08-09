@@ -315,13 +315,146 @@ describe('FilterProcessor', () => {
 	});
 
 	describe('_not operations', () => {
-		it('should warn about unimplemented _not operation', () => {
+		it('should negate a single direct field condition', () => {
 			const personMetadata = mockProvider.getMetadata('Person') as EntityMetadata<Person>;
 			const mapping = QueriesUtils.newMappings();
 			const mappings = new Map<string, MappingsType>();
 			const parentAlias = aliasManager.start('p');
 			const alias = aliasManager.start('p');
 
+			// Mock recursiveMapFunction to return a where clause for the name field
+			const mockMappings = new Map<string, MappingsType>();
+			const testMapping = QueriesUtils.newMappings();
+			testMapping.where.push('e_p2.person_name = :v_not_val');
+			testMapping.values = { v_not_val: 'Frodo' };
+			mockMappings.set('name', testMapping);
+			mockRecursiveMapFunction.mockImplementation(() => mockMappings);
+
+			filterProcessor._not({
+				entityMetadata: personMetadata,
+				gqlFilters: [{ name: 'Frodo' as any }],
+				parentAlias,
+				alias,
+				fieldName: '_not',
+				mapping,
+				mappings,
+			});
+
+			expect(mapping.where).toHaveLength(1);
+			expect(mapping.where[0]).toContain('not (');
+			expect(mapping.where[0]).toContain('person_name');
+			expect(Object.values(mapping.values)).toContain('Frodo');
+		});
+
+		it('should negate a conjunction of multiple conditions with AND inside NOT', () => {
+			const personMetadata = mockProvider.getMetadata('Person') as EntityMetadata<Person>;
+			const mapping = QueriesUtils.newMappings();
+			const mappings = new Map<string, MappingsType>();
+			const parentAlias = aliasManager.start('p');
+			const alias = aliasManager.start('p');
+
+			// Mock returns different where per call
+			let callIdx = 0;
+			const nameMapping = QueriesUtils.newMappings();
+			nameMapping.where.push('e_p2.person_name = :v_not_name');
+			nameMapping.values = { v_not_name: 'Frodo' };
+
+			const raceMapping = QueriesUtils.newMappings();
+			raceMapping.where.push('e_p2.race = :v_not_race');
+			raceMapping.values = { v_not_race: 'Hobbit' };
+
+			mockRecursiveMapFunction.mockImplementation(() => {
+				const m = callIdx === 0 ? nameMapping : raceMapping;
+				callIdx++;
+				const mm = new Map<string, MappingsType>();
+				mm.set('f', m);
+				return mm;
+			});
+
+			filterProcessor._not({
+				entityMetadata: personMetadata,
+				gqlFilters: [{ name: 'Frodo' as any }, { race: 'Hobbit' as any }],
+				parentAlias,
+				alias,
+				fieldName: '_not',
+				mapping,
+				mappings,
+			});
+
+			expect(mapping.where).toHaveLength(1);
+			// NOT (cond1 AND cond2)
+			expect(mapping.where[0]).toMatch(/^not \(/);
+			expect(mapping.where[0]).toContain(' and ');
+			expect(mapping.where[0]).toContain('person_name');
+			expect(mapping.where[0]).toContain('race');
+			expect(Object.values(mapping.values)).toContain('Frodo');
+			expect(Object.values(mapping.values)).toContain('Hobbit');
+		});
+
+		it('should handle a single filter object (not wrapped in array)', () => {
+			const personMetadata = mockProvider.getMetadata('Person') as EntityMetadata<Person>;
+			const mapping = QueriesUtils.newMappings();
+			const mappings = new Map<string, MappingsType>();
+			const parentAlias = aliasManager.start('p');
+			const alias = aliasManager.start('p');
+
+			const mockMappings = new Map<string, MappingsType>();
+			const testMapping = QueriesUtils.newMappings();
+			testMapping.where.push('e_p2.person_name = :v_not_sauron');
+			testMapping.values = { v_not_sauron: 'Sauron' };
+			mockMappings.set('name', testMapping);
+			mockRecursiveMapFunction.mockImplementation(() => mockMappings);
+
+			filterProcessor._not({
+				entityMetadata: personMetadata,
+				gqlFilters: { name: 'Sauron' as any } as any,
+				parentAlias,
+				alias,
+				fieldName: '_not',
+				mapping,
+				mappings,
+			});
+
+			expect(mapping.where).toHaveLength(1);
+			expect(mapping.where[0]).toContain('not (');
+			expect(Object.values(mapping.values)).toContain('Sauron');
+		});
+
+		it('should produce no where clause for an empty filter array', () => {
+			const personMetadata = mockProvider.getMetadata('Person') as EntityMetadata<Person>;
+			const mapping = QueriesUtils.newMappings();
+			const mappings = new Map<string, MappingsType>();
+			const parentAlias = aliasManager.start('p');
+			const alias = aliasManager.start('p');
+
+			filterProcessor._not({
+				entityMetadata: personMetadata,
+				gqlFilters: [],
+				parentAlias,
+				alias,
+				fieldName: '_not',
+				mapping,
+				mappings,
+			});
+
+			expect(mapping.where).toHaveLength(0);
+		});
+
+		it('should warn when _or is nested inside _not', () => {
+			const personMetadata = mockProvider.getMetadata('Person') as EntityMetadata<Person>;
+			const mapping = QueriesUtils.newMappings();
+			const mappings = new Map<string, MappingsType>();
+			const parentAlias = aliasManager.start('p');
+			const alias = aliasManager.start('p');
+
+			// Set up mock to return a mapping with _or entries
+			const mockMappings = new Map<string, MappingsType>();
+			const orMapping = QueriesUtils.newMappings();
+			orMapping._or.push(QueriesUtils.newMappings());
+			mockMappings.set('_or', orMapping);
+			mockRecursiveMapFunction.mockImplementation(() => mockMappings);
+
+			// Enable logging for this test — logger.warn is gated by shouldLog()
 			const originalLogType = process.env.D3GOP_LOG_TYPE;
 			process.env.D3GOP_LOG_TYPE = 'FilterProcessor';
 
@@ -335,7 +468,7 @@ describe('FilterProcessor', () => {
 
 			filterProcessor._not({
 				entityMetadata: personMetadata,
-				gqlFilters: [],
+				gqlFilters: [{ _or: [{ name: 'Frodo' as any }] } as any],
 				parentAlias,
 				alias,
 				fieldName: '_not',
@@ -343,8 +476,8 @@ describe('FilterProcessor', () => {
 				mappings,
 			});
 
-			expect(warnCallCount).toBe(1);
-			expect(lastWarnMessage).toBe('FilterProcessor - _not operation not yet implemented');
+			expect(warnCallCount).toBeGreaterThanOrEqual(1);
+			expect(lastWarnMessage).toContain('nested _or inside _not');
 
 			console.warn = originalWarn;
 			process.env.D3GOP_LOG_TYPE = originalLogType;

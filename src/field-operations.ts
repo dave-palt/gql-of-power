@@ -22,13 +22,22 @@ export abstract class FieldOperationsClass<T> {
 	abstract _lt: T;
 	abstract _lte: T;
 	abstract _like: T;
-	abstract _re: T;
+	abstract _nlike: T;
 	abstract _ilike: T;
+	abstract _nilike: T;
+	abstract _startsWith: T;
+	abstract _istartsWith: T;
+	abstract _endsWith: T;
+	abstract _iendsWith: T;
+	abstract _re: T;
+	abstract _nre: T;
 	abstract _fulltext: T;
 	abstract _overlap: T[];
 	abstract _contains: T;
 	abstract _contained: T;
 	abstract _between: T[];
+	abstract _nbetween: T[];
+	abstract _is_null: T;
 	abstract _exists: T;
 }
 
@@ -101,12 +110,40 @@ export const FieldOperations = {
 		where: `${l} like ${r}`,
 		value: undefined,
 	}),
-	_re: ([l, r]: string[], []: Scalar[]) => ({
-		where: `${l} ~ ${r}`,
+	_nlike: ([l, r]: string[], []: Scalar[]) => ({
+		where: `${l} not like ${r}`,
 		value: undefined,
 	}),
 	_ilike: ([l, r]: string[], []: Scalar[]) => ({
 		where: `${l} ilike ${r}`,
+		value: undefined,
+	}),
+	_nilike: ([l, r]: string[], []: Scalar[]) => ({
+		where: `${l} not ilike ${r}`,
+		value: undefined,
+	}),
+	_startsWith: ([l, r]: string[], []: Scalar[]) => ({
+		where: `${l} like ${r} || '%'`,
+		value: undefined,
+	}),
+	_istartsWith: ([l, r]: string[], []: Scalar[]) => ({
+		where: `${l} ilike ${r} || '%'`,
+		value: undefined,
+	}),
+	_endsWith: ([l, r]: string[], []: Scalar[]) => ({
+		where: `${l} like '%' || ${r}`,
+		value: undefined,
+	}),
+	_iendsWith: ([l, r]: string[], []: Scalar[]) => ({
+		where: `${l} ilike '%' || ${r}`,
+		value: undefined,
+	}),
+	_re: ([l, r]: string[], []: Scalar[]) => ({
+		where: `${l} ~ ${r}`,
+		value: undefined,
+	}),
+	_nre: ([l, r]: string[], []: Scalar[]) => ({
+		where: `${l} !~ ${r}`,
 		value: undefined,
 	}),
 	_fulltext: ([l, r]: string[], []: Scalar[]) => ({
@@ -123,6 +160,14 @@ export const FieldOperations = {
 	}),
 	_between: ([l, r1, r2]: string[], []: Scalar[]) => ({
 		where: `${l} between ${r1} and ${r2}`,
+		value: undefined,
+	}),
+	_nbetween: ([l, r1, r2]: string[], []: Scalar[]) => ({
+		where: `${l} not between ${r1} and ${r2}`,
+		value: undefined,
+	}),
+	_is_null: ([l]: string[], [_l, rv]: Scalar[]) => ({
+		where: rv ? `${l} is null` : `${l} is not null`,
 		value: undefined,
 	}),
 	_exists: ([l]: string[], []: Scalar[]) => ({

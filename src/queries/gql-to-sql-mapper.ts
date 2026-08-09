@@ -645,7 +645,36 @@ export class GQLtoSQLMapper {
 			limit,
 			offset,
 			orderBy,
+			_or: refOr,
+			_and: refAnd,
 		} = QueriesUtils.mappingsReducer(newMappings, newMapping);
+
+		// For nested relation subqueries, class-level logical operators (_and,
+		// _or, _not) must be flattened into the WHERE clause — the relationship
+		// handler builds lateral joins (not UNION ALL), so the root-level
+		// _or/_and UNION-ALL splitting doesn't apply here.
+		//
+		// _not already pushes 'NOT (...)' conditions to `where`, so only
+		// _and and _or entries need explicit flattening.
+		const nestedWhere = [...whereWithValues];
+		const nestedValues = { ...refValues };
+		for (const andEntry of refAnd) {
+			nestedWhere.push(...andEntry.where);
+			Object.assign(nestedValues, andEntry.values);
+		}
+		if (refOr.length > 0) {
+			// OR entries are combined into a single '(w1 OR w2 OR ...)' clause
+			const orClauses: string[] = [];
+			for (const orEntry of refOr) {
+				if (orEntry.where.length > 0) {
+					orClauses.push(`(${orEntry.where.join(' and ')})`);
+					Object.assign(nestedValues, orEntry.values);
+				}
+			}
+			if (orClauses.length > 0) {
+				nestedWhere.push(`(${orClauses.join(' or ')})`);
+			}
+		}
 
 		this._dispatchRequiredRelationMapping(
 			relFieldProps,
@@ -653,8 +682,8 @@ export class GQLtoSQLMapper {
 			mapping,
 			latestAlias,
 			childAlias,
-			whereWithValues,
-			refValues,
+			nestedWhere,
+			nestedValues,
 			refInnerJoin,
 			refOuterJoin,
 			refSelect,

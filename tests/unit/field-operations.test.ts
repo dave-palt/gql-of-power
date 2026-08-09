@@ -61,6 +61,29 @@ describe('FieldOperations', () => {
 			expect(FieldOperations._re(['e.name', R], []).where).toBe('e.name ~ :ring');
 		});
 
+		it('_nlike/_nilike/_nre emit negated pattern operators', () => {
+			expect(FieldOperations._nlike(['e.name', R], []).where).toBe('e.name not like :ring');
+			expect(FieldOperations._nilike(['e.name', R], []).where).toBe('e.name not ilike :ring');
+			expect(FieldOperations._nre(['e.name', R], []).where).toBe('e.name !~ :ring');
+		});
+
+		it('_startsWith/_istartsWith append a wildcard to the right', () => {
+			expect(FieldOperations._startsWith(['e.name', R], []).where).toBe("e.name like :ring || '%'");
+			expect(FieldOperations._istartsWith(['e.name', R], []).where).toBe(
+				"e.name ilike :ring || '%'"
+			);
+		});
+
+		it('_endsWith/_iendsWith prepend a wildcard to the right', () => {
+			expect(FieldOperations._endsWith(['e.name', R], []).where).toBe("e.name like '%' || :ring");
+			expect(FieldOperations._iendsWith(['e.name', R], []).where).toBe("e.name ilike '%' || :ring");
+		});
+
+		it('_is_null emits "is null" for true, "is not null" for false', () => {
+			expect(FieldOperations._is_null(['e.age', R], ['', true]).where).toBe('e.age is null');
+			expect(FieldOperations._is_null(['e.age', R], ['', false]).where).toBe('e.age is not null');
+		});
+
 		it('_fulltext emits tsvector @@ tsquery', () => {
 			expect(FieldOperations._fulltext(['e.body', R], []).where).toBe(
 				'e.body::tsvector @@ :ring::tsquery'
@@ -112,6 +135,13 @@ describe('FieldOperations', () => {
 		it('_between emits a BETWEEN ... AND ...', () => {
 			expect(FieldOperations._between(['e.age', ':lo', ':hi'], [])).toEqual({
 				where: 'e.age between :lo and :hi',
+				value: undefined,
+			});
+		});
+
+		it('_nbetween emits a NOT BETWEEN ... AND ...', () => {
+			expect(FieldOperations._nbetween(['e.age', ':lo', ':hi'], [])).toEqual({
+				where: 'e.age not between :lo and :hi',
 				value: undefined,
 			});
 		});
