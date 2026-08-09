@@ -50,7 +50,7 @@ persons(filter: { _not_exists: { Battle: {} } })
 - Multiple keys are AND-combined: `{ _exists: { Ring: {...} }, _not_exists: { Battle: {...} } }`.
 - The library auto-generates `EntityExistsFilterInput` types.
 
-**Known gap:** `_not` with a plain object value does not recursively convert enum values (only array-valued `_and`/`_or`/`_not` do). If you nest enums under `_not`, convert them manually first.
+- `_not` takes an array of filter objects, AND-combines them, and wraps the result in `NOT (...)`: `{ _not: [{ name: "Sauron" }, { race: "Maiar" }] }` produces `NOT (name = 'Sauron' AND race = 'Maiar')`. Enum values inside `_not` are converted recursively (same path as `_and`/`_or`). Note: nesting `_or` inside `_not` is not fully negated (UNION ALL is not invertible) — use De Morgan's law instead.
 
 ## mapNumericEnum — DB stores number, GQL wants the string key
 

@@ -437,18 +437,84 @@ export class FilterProcessor extends ClassOperations {
 	}
 
 	/**
-	 * Handles _not operations (placeholder implementation)
+	 * Handles _not operations.
+	 *
+	 * Negates the conjunction of all filter conditions in the array.
+	 * `_not: [{ a: 1 }, { b: 2 }]` produces `NOT (a = 1 AND b = 2)`.
+	 *
+	 * Each filter in the array is mapped via recursiveMap (same as _and),
+	 * the resulting WHERE clauses are combined with AND, and the whole
+	 * expression is wrapped in `NOT (...)`. Required JOINs and bound values
+	 * are forwarded so relationship-based conditions resolve correctly.
+	 *
+	 * @example
+	 * ```graphql
+	 * filter: {
+	 *   _not: [{ name: "Sauron" }, { race: "Maiar" }]
+	 * }
+	 * ```
+	 * Generates:
+	 * ```sql
+	 * WHERE ... AND NOT (person_name = :val AND person_race = :val2)
+	 * ```
 	 */
 	public _not<T>({
 		entityMetadata,
 		gqlFilters,
+		parentAlias,
 		alias,
 		fieldName,
 		mapping,
 		mappings,
+		customFields,
 	}: ClassOperationInputType<T>): void {
-		// TODO: Implement _not operation
-		logger.warn('FilterProcessor - _not operation not yet implemented');
+		const filters = Array.isArray(gqlFilters) ? gqlFilters : [gqlFilters];
+
+		const combined = filters.reduce(
+			(acc, f) => {
+				const mapped = this.recursiveMapFunction({
+					entityMetadata,
+					gqlFilters: [f],
+					parentAlias,
+					alias,
+					customFields,
+				});
+
+				// Nested _or/_and inside _not cannot be negated via a simple NOT(...)
+				// wrapper because they rely on the UNION ALL path. Warn so callers
+				// know those branches aren't fully negated.
+				const orEntry = mapped.get('_or');
+				if (orEntry && orEntry._or.length > 0) {
+					logger.warn(
+						"FilterProcessor - _not: nested _or inside _not is not fully negated; use De Morgan's (_and of negated conditions) instead"
+					);
+				}
+
+				mapped.delete('_or');
+				mapped.delete('_and');
+				const reduced = QueriesUtils.mappingsReducer(mapped);
+
+				acc.where.push(...reduced.where);
+				acc.innerJoin.push(...reduced.innerJoin);
+				acc.values = { ...acc.values, ...reduced.values };
+
+				return acc;
+			},
+			{
+				where: [] as string[],
+				innerJoin: [] as string[],
+				values: {} as Record<string, any>,
+			}
+		);
+
+		if (combined.where.length > 0) {
+			const negatedWhere = `not (${combined.where.join(' and ')})`;
+			mapping.where.push(negatedWhere);
+			mapping.innerJoin.push(...combined.innerJoin);
+			mapping.values = { ...mapping.values, ...combined.values };
+		}
+
+		logger.log('FilterProcessor - _not - negated where', mapping.where);
 	}
 
 	/**
