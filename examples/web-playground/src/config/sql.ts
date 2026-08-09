@@ -15,15 +15,11 @@ const DB_CONFIG = {
 };
 
 // Database setup
-// export const db = new Database(':memory:');
-// export const sql = db.query.bind(db);
 export const sql = new SQL(DB_CONFIG.url());
 // Knex instance for parameter binding
 export const knexInstance = knex({
 	client: 'pg',
-	// connection: ':memory:',
-	// useNullAsDefault: true,
 });
 await sql`select 1`;
-console.log('Knex initialized for SQLite in-memory database.');
+console.log('Knex initialized for PostgreSQL database.');
 // Initialize database with sample data

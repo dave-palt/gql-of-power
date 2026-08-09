@@ -1,8 +1,11 @@
 import {
 	getCountFieldsFor,
+	getCustomFieldsFor,
 	getFieldByAlias,
 	getGQLEntityNameFor,
+	getMapEnumFieldsFor,
 	getParseJsonFieldsFor,
+	getRelationFieldsFor,
 } from '../entities/gql-entity';
 import {
 	CountFieldMeta,
@@ -22,6 +25,7 @@ import { MappingsType, mappingsTypeToString } from '../types/gql-to-sql-types';
 import { keys } from '../utils/object';
 import { logger } from '../variables';
 import { Alias, AliasManager, AliasType } from './alias';
+import { convertFilterEnumValues } from './enum-filter-converter';
 import { FilterProcessor } from './filter-processor';
 import { RelationshipHandler } from './relationship-handler';
 import { SQLBuilder } from './sql-builder';
@@ -840,11 +844,18 @@ export class GQLtoSQLMapper {
 		let filterOr: MappingsType[] = [];
 
 		if (args?.filter) {
+			const countGqlEntityName = getGQLEntityNameFor(relatedMetadata.name ?? '');
+			const countConvertedFilter = convertFilterEnumValues(
+				args.filter,
+				getMapEnumFieldsFor(countGqlEntityName),
+				getCustomFieldsFor(countGqlEntityName),
+				getRelationFieldsFor(countGqlEntityName)
+			);
 			const filterMapped = this.recursiveMap({
 				entityMetadata: relatedMetadata,
 				parentAlias: countAlias,
 				alias: countAlias,
-				gqlFilters: [args.filter],
+				gqlFilters: [countConvertedFilter],
 				isFieldFilter: true,
 			});
 
@@ -1120,12 +1131,35 @@ export class GQLtoSQLMapper {
 
 		logger.log(prefix, 'args', parentGqlFieldNameKey, { ...filter }, JSON.stringify(pagination));
 		if (filter || pagination) {
+			// Convert mapNumericEnum string keys → raw DB values for inline field
+			// filter args. The top-level filter goes through convertFilterEnumValues
+			// in GQLQueryManager, but inline filter args (e.g. `books(filter: {...})`)
+			// enter here and would otherwise bypass enum conversion, causing
+			// mapNumericEnum fields in sub-entity filters to fail silently.
+			//
+			// The filter keys belong to the TARGET entity (e.g. Book), not the parent
+			// (e.g. Author). We WRAP the filter under the field name and convert using
+			// the PARENT entity's registries — convertRelationField /
+			// convertMappedCustomField then resolve the target entity and recurse into
+			// its enum fields, handling arbitrary nesting depth.
+			const gqlEntityName = getGQLEntityNameFor(entityMetadata.name ?? '');
+			const parentEnumFields = getMapEnumFieldsFor(gqlEntityName);
+			const parentCustomFields = getCustomFieldsFor(gqlEntityName);
+			const parentRelationFields = getRelationFieldsFor(gqlEntityName);
+			const wrappedConverted = convertFilterEnumValues(
+				{ [parentGqlFieldNameKey]: filter },
+				parentEnumFields,
+				parentCustomFields,
+				parentRelationFields
+			);
+			const convertedFilter = wrappedConverted[parentGqlFieldNameKey] ?? filter;
+
 			const mapped = this.recursiveMap({
 				entityMetadata,
 				parentAlias: alias,
 				alias,
 				gqlFilters: [
-					{ [parentGqlFieldNameKey]: { ...filter } } as GQLEntityFilterInputFieldType<T>,
+					{ [parentGqlFieldNameKey]: { ...convertedFilter } } as GQLEntityFilterInputFieldType<T>,
 				],
 				isFieldFilter: true,
 			});

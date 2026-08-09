@@ -82,6 +82,18 @@ export const DatabaseEntityMetadata: Record<string, EntityMetadata<any>> = {
 				pivotTable: '',
 				reference: undefined,
 			},
+			// Numeric enum column — DB stores 1/2/3 (mapNumericEnum demo for inline filters)
+			rank: {
+				type: 'number',
+				name: 'rank',
+				fieldNames: ['rank_code'],
+				mappedBy: '',
+				joinColumns: [],
+				referencedColumnNames: [],
+				inverseJoinColumns: [],
+				pivotTable: '',
+				reference: undefined,
+			},
 			// 1:1 relationship - Person has one Ring (via bearer_id on rings table)
 			ring: {
 				type: 'Ring',
@@ -141,6 +153,19 @@ export const DatabaseEntityMetadata: Record<string, EntityMetadata<any>> = {
 				pivotTable: 'book_characters',
 				reference: 'm:n',
 			},
+			// 1:1 FK scalar — Person → Weapon via signature_weapon_id.
+			// Used by the mapping custom-field filter (SignatureWeapon).
+			signatureWeaponId: {
+				type: 'number',
+				name: 'signatureWeaponId',
+				fieldNames: ['signature_weapon_id'],
+				mappedBy: '',
+				joinColumns: [],
+				referencedColumnNames: [],
+				inverseJoinColumns: [],
+				pivotTable: '',
+				reference: undefined,
+			},
 		},
 	},
 
@@ -186,6 +211,42 @@ export const DatabaseEntityMetadata: Record<string, EntityMetadata<any>> = {
 				type: 'string',
 				name: 'forgedBy',
 				fieldNames: ['forged_by'],
+				mappedBy: '',
+				joinColumns: [],
+				referencedColumnNames: [],
+				inverseJoinColumns: [],
+				pivotTable: '',
+				reference: undefined,
+			},
+			// Numeric enum column — DB stores 100/200/300 (mapNumericEnum demo)
+			status: {
+				type: 'number',
+				name: 'status',
+				fieldNames: ['status'],
+				mappedBy: '',
+				joinColumns: [],
+				referencedColumnNames: [],
+				inverseJoinColumns: [],
+				pivotTable: '',
+				reference: undefined,
+			},
+			// jsonb column surfaced as a JSON object (parseJson demo)
+			metadata: {
+				type: 'any',
+				name: 'metadata',
+				fieldNames: ['metadata'],
+				mappedBy: '',
+				joinColumns: [],
+				referencedColumnNames: [],
+				inverseJoinColumns: [],
+				pivotTable: '',
+				reference: undefined,
+			},
+			// Server-managed timestamp (excludeFromInput demo)
+			forgedDate: {
+				type: 'Date',
+				name: 'forgedDate',
+				fieldNames: ['forged_date'],
 				mappedBy: '',
 				joinColumns: [],
 				referencedColumnNames: [],
@@ -479,6 +540,58 @@ export const DatabaseEntityMetadata: Record<string, EntityMetadata<any>> = {
 			},
 		},
 	},
+
+	Weapon: {
+		name: 'Weapon',
+		tableName: 'weapons',
+		primaryKeys: ['id'],
+		properties: {
+			id: {
+				type: 'number',
+				name: 'id',
+				fieldNames: ['id'],
+				mappedBy: '',
+				joinColumns: [],
+				referencedColumnNames: [],
+				inverseJoinColumns: [],
+				pivotTable: '',
+				reference: undefined,
+			},
+			name: {
+				type: 'string',
+				name: 'name',
+				fieldNames: ['weapon_name'],
+				mappedBy: '',
+				joinColumns: [],
+				referencedColumnNames: [],
+				inverseJoinColumns: [],
+				pivotTable: '',
+				reference: undefined,
+			},
+			type: {
+				type: 'string',
+				name: 'type',
+				fieldNames: ['weapon_type'],
+				mappedBy: '',
+				joinColumns: [],
+				referencedColumnNames: [],
+				inverseJoinColumns: [],
+				pivotTable: '',
+				reference: undefined,
+			},
+			power: {
+				type: 'number',
+				name: 'power',
+				fieldNames: ['power_level'],
+				mappedBy: '',
+				joinColumns: [],
+				referencedColumnNames: [],
+				inverseJoinColumns: [],
+				pivotTable: '',
+				reference: undefined,
+			},
+		},
+	},
 };
 
 /**
@@ -493,6 +606,7 @@ const MockData = {
 			race: 'Hobbit',
 			home_location: 'Bag End, Shire',
 			fellowship_id: 1,
+			rank_code: 3,
 		},
 		{
 			id: 2,
@@ -501,6 +615,7 @@ const MockData = {
 			race: 'Wizard',
 			home_location: 'Valinor',
 			fellowship_id: 1,
+			rank_code: 2,
 		},
 		{
 			id: 3,
@@ -509,6 +624,7 @@ const MockData = {
 			race: 'Human',
 			home_location: 'Gondor',
 			fellowship_id: 1,
+			rank_code: 2,
 		},
 		{
 			id: 4,
@@ -517,6 +633,7 @@ const MockData = {
 			race: 'Elf',
 			home_location: 'Woodland Realm',
 			fellowship_id: 1,
+			rank_code: 1,
 		},
 		{
 			id: 5,
@@ -525,6 +642,7 @@ const MockData = {
 			race: 'Dwarf',
 			home_location: 'Erebor',
 			fellowship_id: 1,
+			rank_code: 1,
 		},
 		{
 			id: 6,
@@ -533,6 +651,7 @@ const MockData = {
 			race: 'Human',
 			home_location: 'Gondor',
 			fellowship_id: 1,
+			rank_code: 2,
 		},
 		{
 			id: 7,
@@ -541,6 +660,7 @@ const MockData = {
 			race: 'Hobbit',
 			home_location: 'Bag End, Shire',
 			fellowship_id: 1,
+			rank_code: 1,
 		},
 		{
 			id: 8,
@@ -549,6 +669,7 @@ const MockData = {
 			race: 'Hobbit',
 			home_location: 'Buckland, Shire',
 			fellowship_id: 1,
+			rank_code: 1,
 		},
 		{
 			id: 9,
@@ -557,6 +678,7 @@ const MockData = {
 			race: 'Hobbit',
 			home_location: 'Great Smials, Shire',
 			fellowship_id: 1,
+			rank_code: 1,
 		},
 	],
 	rings: [

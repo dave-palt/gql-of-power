@@ -85,7 +85,7 @@ jobs:
 
     steps:
       - name: Checkout main
-        uses: actions/checkout@v5
+        uses: actions/checkout@v7
         with:
           ref: main
           fetch-depth: 0
@@ -126,7 +126,7 @@ jobs:
         run: bun run test
 
       - name: Setup Node.js for npm publishing
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@v7
         with:
           node-version: '24'
           registry-url: 'https://registry.npmjs.org'
@@ -141,11 +141,11 @@ jobs:
           echo "version=$VERSION" >> $GITHUB_OUTPUT
 
       - name: Create GitHub Release
-        uses: softprops/action-gh-release@v2
+        uses: softprops/action-gh-release@v3
         with:
           tag_name: v${{ steps.new_version.outputs.version }}
           name: Release ${{ steps.new_version.outputs.version }}
-          body: 'Release version ${{ steps.new_version.outputs.version }}'
+          generate_release_notes: true
 
       - name: Determine bump type
         id: bump_type

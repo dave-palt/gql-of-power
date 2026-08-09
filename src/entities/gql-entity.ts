@@ -34,6 +34,14 @@ const CustomFieldsMap: Record<string, CustomFieldsSettings<any>> = {};
 const CountFieldsMap: Record<string, Record<string, CountFieldMeta>> = {};
 const MapEnumFieldsMap: Record<string, Record<string, any>> = {};
 const ParseJsonFieldsMap: Record<string, Set<string>> = {};
+/**
+ * Relation fields declared via the plain `defineFields` pattern (not via
+ * `customFields`/`mapping`). Keyed by gqlEntityName → field name → target
+ * entity's ORM name (the raw string returned by `relatedEntityName()`). Used by
+ * `convertFilterEnumValues` to recurse into nested relation filters and apply
+ * the target entity's mapNumericEnum conversions.
+ */
+const RelationFieldsMap: Record<string, Record<string, () => string>> = {};
 
 const aclMap: AccessControlList<any, any> = {};
 
@@ -202,6 +210,15 @@ export const registerParseJsonField = (gqlEntityName: string, fieldName: string)
 export const clearParseJsonFields = (): void => {
 	for (const key of Object.keys(ParseJsonFieldsMap)) {
 		delete ParseJsonFieldsMap[key];
+	}
+};
+
+export const getRelationFieldsFor = (name: string): Record<string, () => string> =>
+	RelationFieldsMap[name] ?? {};
+
+export const clearRelationFields = (): void => {
+	for (const key of Object.keys(RelationFieldsMap)) {
+		delete RelationFieldsMap[key];
 	}
 };
 
@@ -574,7 +591,15 @@ function _buildInputType<T>(
 
 // ─── Shared resolver builder ─────────────────────────────────────────────────
 
-/** Phase 2: attach @FieldResolver methods for fields with `mapNumericEnum` (reverse-maps DB number → enum string). */
+/**
+ * Phase 2: attach @FieldResolver methods for fields with `mapNumericEnum`.
+ *
+ * The resolver returns the raw DB value unchanged. graphql-js's
+ * `GraphQLEnumType.serialize()` performs the value→name conversion itself
+ * (e.g. 100 → "Forged") using the internal values registered by
+ * `registerEnumType`. Returning the string key here would cause
+ * "Enum cannot represent value" errors at serialization time.
+ */
 function _registerMapNumericEnumResolvers<T>(
 	rawFields: Partial<FieldsSettings<T>>,
 	FieldsResolver: any
@@ -589,17 +614,7 @@ function _registerMapNumericEnumResolvers<T>(
 		const resolveFn = (root: any) => {
 			const value = root[fieldNameToUse];
 			if (value === null || value === undefined) return null;
-			try {
-				const enumObj = enumTypeThunk();
-				const key = enumObj[value];
-				if (typeof key === 'string') return key;
-				for (const enumKey of Object.keys(enumObj)) {
-					if (enumObj[enumKey] === value) return enumKey;
-				}
-				return value;
-			} catch {
-				return value;
-			}
+			return value;
 		};
 
 		Object.defineProperty(FieldsResolver.prototype, fieldNameToUse, {
@@ -819,7 +834,17 @@ function _registerMappingFieldFilter<T>(
 		target: GQLEntityFilterInput,
 		name: UppercasedFieldName,
 		schemaName: UppercasedFieldName,
-		getType: () => TypeMap[refFilterTypeName] ?? GQLEntityFilterInput,
+		getType: () => {
+			const type = TypeMap[refFilterTypeName];
+			if (!type) {
+				throw new Error(
+					`gql-of-power: FilterInput for referenced entity "${refGqlEntityName}" (${refFilterTypeName}) ` +
+						`is not registered. Make sure ${refGqlEntityName}'s buildResolvers() is called ` +
+						`(or use createGQLTypes / @GQLEntityClass) before building the schema.`
+				);
+			}
+			return type;
+		},
 		typeOptions: { nullable: true },
 		complexity: undefined,
 		description: `Filter by ${fieldNameToUse} fields`,
@@ -1051,7 +1076,17 @@ function _registerExistsFilters<T>(
 				target: GQLEntityExistsFilterInput,
 				name: relFieldName,
 				schemaName: relFieldName,
-				getType: () => TypeMap[relFilterTypeName] ?? GQLEntityFilterInput,
+				getType: () => {
+					const type = TypeMap[relFilterTypeName];
+					if (!type) {
+						throw new Error(
+							`gql-of-power: FilterInput for related entity "${relGQLEntityName}" (${relFilterTypeName}) ` +
+								`is not registered. Make sure ${relGQLEntityName}'s buildResolvers() is called ` +
+								`(or use createGQLTypes / @GQLEntityClass) before building the schema.`
+						);
+					}
+					return type;
+				},
 				typeOptions: { nullable: true },
 				complexity: undefined,
 				description: `Filter ${relFieldName} by their fields for existence check`,
@@ -1347,6 +1382,17 @@ export function createGQLEntityFilters<T, K>(
 			deprecationReason: undefined,
 		} as FieldParameter;
 		metadata.collectClassFieldMetadata(fieldFilter);
+
+		// Register relation fields for nested-filter enum conversion. The nested
+		// FilterInput is exposed under both the camelCased fieldName (above) and the
+		// UppercasedFieldName — record both so convertFilterEnumValues can resolve
+		// whichever key the caller uses.
+		if ('relatedEntityName' in fieldOptions && fieldOptions.relatedEntityName) {
+			RelationFieldsMap[gqlEntityName] = RelationFieldsMap[gqlEntityName] || {};
+			const relThunk = fieldOptions.relatedEntityName as () => string;
+			RelationFieldsMap[gqlEntityName][fieldName] = relThunk;
+			RelationFieldsMap[gqlEntityName][UppercasedFieldName] = relThunk;
+		}
 
 		if ('array' in fieldOptions && 'relatedEntityName' in fieldOptions) {
 			const relatedEntityName = getGQLEntityNameFor(fieldOptions.relatedEntityName());

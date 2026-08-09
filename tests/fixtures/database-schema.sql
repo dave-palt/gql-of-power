@@ -97,6 +97,9 @@ CREATE TABLE persons (
     fellowship_id INTEGER REFERENCES fellowships(id),
     signature_weapon_id INTEGER REFERENCES weapons(id),
     signature_artifact_id INTEGER REFERENCES artifacts(id),
+    -- Numeric enum: DB stores the numeric code (1/2/3), GraphQL exposes
+    -- the string key via mapNumericEnum.
+    rank_code INTEGER,
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
 
@@ -106,6 +109,13 @@ CREATE TABLE rings (
     ring_name VARCHAR(100) NOT NULL,
     power_description TEXT,
     forged_by VARCHAR(100),
+    -- Numeric enum: DB stores the numeric code (100/200/300), GraphQL exposes
+    -- the string key via mapNumericEnum.
+    status INTEGER,
+    -- jsonb column surfaced as a JSON object via parseJson.
+    metadata JSONB,
+    -- Server-managed timestamp (excludeFromInput demo).
+    forged_date TIMESTAMP,
     bearer_id INTEGER UNIQUE REFERENCES persons(id),
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );

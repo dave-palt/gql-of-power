@@ -76,6 +76,7 @@ What the library does automatically:
 
 - Generates a `@FieldResolver` that converts the DB number → enum string key at serialization (uses TS reverse-mapping `RingStatus[100] === "Forged"`; falls back to iterating `Object.keys()` for string-valued enums).
 - Converts **filter values** back to numbers for SQL parameters (client sends `"Forged"`, query uses `100`).
+- This conversion applies at **every nesting level** — top-level filters, inline field-argument filters on nested relation selections (`rings { bearer(filter: { questState: InProgress }) { ... } }`), count-field filters (`bookCount(filter: { status: Active })`), and any depth of nested relation/custom-field filters. `_or` / `_and` arrays and operator-object shapes (`{ _eq: Active }`) are handled recursively.
 
 The DB column must exist in metadata: `status: { type: 'number', name: 'status', fieldNames: ['status'] }`.
 
@@ -118,8 +119,10 @@ createGQLTypes(Person, PersonFields, {
 });
 ```
 
-- `mapping` and `resolve`/`resolveDecorators` are **mutually exclusive** — pick one strategy per custom field.
+- `mapping` and `resolve`/`resolveDecorators` are **mutually exclusive** — pick one strategy per custom field. If both are set, only the resolver registers and the mapping filter **silently disappears** (the `as any` escape hatch bypasses the TS union that normally prevents this).
 - `generateFilter: true` on a mapping custom field produces `EXISTS (SELECT 1 FROM region WHERE fk_join AND nested_filter)` SQL and works inside `_or`/`_and`.
+- The filter key in the FilterInput is **PascalCase** (`HomeRegion: { name_eq: '...' }`), even though the field selection in the query is camelCase (`homeRegion { ... }`).
+- The referenced entity must have its FilterInput registered. `@GQLEntityClass` / `createGQLTypes()` do this automatically; `createGQLEntity()` requires a manual `.buildResolvers()` call. A missing registration throws `FilterInput for referenced entity "X" is not registered` at `buildSchema()` time.
 - Composite keys: pass arrays — `refFields: ['a','b']`, `fields: ['a','b']`.
 
 ## excludeFromInput — hide server-managed fields from the Input type
