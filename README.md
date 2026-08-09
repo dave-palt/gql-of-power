@@ -684,6 +684,24 @@ queryManager.getQueryResultsForInfo(provider, PersonGQL, info, {
 
 This is the library's own test-suite pattern.
 
+### `mapNumericEnum` filter values silently fail inside nested/inline filters
+
+If a `mapNumericEnum` field filters correctly at the **top level** but silently returns no results (or the wrong rows) when placed inside an inline field-argument filter on a nested relation — e.g.:
+
+```graphql
+# Works: top-level filter → 'InProgress' converted to 1
+bearers(filter: { questState: InProgress }) { name }
+
+# Silently failed before August 2026: inline filter → 'InProgress' passed as a string
+rings { bearer(filter: { questState: InProgress }) { name } }
+```
+
+**Cause:** enum conversion (`convertFilterEnumValues`) was historically applied only to top-level filters in `GQLQueryManager`. Inline field-argument filters (`books(filter: {...})`), count-field filters (`bookCount(filter: {...})`), and multi-level nested filters entered the SQL mapper through a different code path that bypassed conversion entirely. The `mapNumericEnum` string key went straight to SQL as a string instead of being converted to the numeric DB value, so the `WHERE` clause silently matched nothing.
+
+**Fix (August 2026):** `handleFieldArguments` and `mapCountField` in the SQL mapper now call `convertFilterEnumValues` on inline filter args before SQL generation. The conversion resolves the target entity's `mapNumericEnum` fields through the parent entity's relation-field registry and recurses to arbitrary depth. This means filters now behave identically at the top level, inside `relation(filter:)`, inside nested `relation(filter: { nested: {...} })`, inside count subqueries, and inside `_or`/`_and` arrays at any level.
+
+**If you still see this pattern:** ensure the target entity is decorator-registered (`@GQLEntityClass` / `createGQLTypes`) so its `mapNumericEnum` fields appear in the `MapEnumFieldsMap` registry — conversion silently passes values through for unregistered entities.
+
 ---
 
 ## Known Limitations
