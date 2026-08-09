@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it } from 'bun:test';
+import { afterEach, beforeEach, describe, expect, it } from 'bun:test';
 import { FieldSelection } from '../../src';
 import {
 	clearMapEnumFields,
@@ -207,12 +207,49 @@ describe('mapNumericEnum field registration', () => {
 	});
 });
 
-describe('mapNumericEnum SQL output (CASE WHEN)', () => {
+describe('mapNumericEnum SQL output modes', () => {
 	beforeEach(() => {
 		clearMapEnumFields();
+		setGlobalConfig({ mapEnumOutput: 'raw' });
 	});
 
-	it('should generate CASE WHEN expression for numeric enum fields', async () => {
+	afterEach(() => {
+		setGlobalConfig({ mapEnumOutput: 'raw' });
+	});
+
+	it('raw mode (default): should NOT generate CASE — raw column values pass through', async () => {
+		const capturedSQLs: string[] = [];
+		const provider = {
+			...createMockProvider(),
+			rawQuery: (sql: string) => sql,
+			executeQuery: async (sql: string) => {
+				capturedSQLs.push(sql);
+				return [{ id: 1, name: 'Frodo', status: 100, questState: 0 }];
+			},
+		};
+
+		const fields = defineFields(TestBearer, {
+			id: { type: () => String, generateFilter: true },
+			name: { type: () => String, generateFilter: true },
+			status: { type: () => RingBearerStatus, generateFilter: true, mapNumericEnum: true },
+			questState: { type: () => QuestState, generateFilter: true, mapNumericEnum: true },
+		});
+
+		@GQLEntityClass(TestBearer, fields)
+		class TestBearerRawGQL extends GQLEntityBase {}
+
+		const info = { id: {}, name: {}, status: {}, questState: {} } as FieldSelection<TestBearer>;
+		const queryManager = new GQLQueryManager();
+		await queryManager.getQueryResultsForFields(provider, TestBearer, info);
+
+		const sql = capturedSQLs.join(' ');
+		expect(sql).not.toContain('CASE ');
+		expect(sql).toMatch(/e_a1\.status/);
+		expect(sql).toMatch(/e_a1\.quest_state/);
+	});
+
+	it('key mode: should generate CASE WHEN expression for numeric enum fields', async () => {
+		setGlobalConfig({ mapEnumOutput: 'key' });
 		const capturedSQLs: string[] = [];
 		const provider = {
 			...createMockProvider(),
@@ -277,7 +314,8 @@ describe('mapNumericEnum SQL output (CASE WHEN)', () => {
 		expect(sql).not.toContain('CASE ');
 	});
 
-	it('should generate CASE for string-valued enums', async () => {
+	it('key mode: should generate CASE for string-valued enums', async () => {
+		setGlobalConfig({ mapEnumOutput: 'key' });
 		const capturedSQLs: string[] = [];
 		const provider = {
 			client: 'pg',

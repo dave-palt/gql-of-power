@@ -82,6 +82,33 @@ export type FieldBaseSettings = {
 	 */
 	mapNumericEnum?: boolean;
 	/**
+	 * Controls how enum field values are emitted in the SQL query for GraphQL
+	 * output serialization. Only takes effect when `mapNumericEnum` is also
+	 * `true`.
+	 *
+	 * - `'raw'` (default) — the raw DB value (e.g. `0`, `100`) flows through
+	 *   untouched. Use this when the schema is built **live** via type-graphql's
+	 *   `buildSchema()`, which preserves numeric enum values so graphql-js's
+	 *   `serialize(0)` resolves to `"ACTIVE"` natively.
+	 * - `'key'` — wraps the column in a `CASE WHEN ... THEN 'Active' END` SQL
+	 *   expression so the query returns the enum string key directly. Use this
+	 *   when the schema is **rebuilt from SDL** (e.g. `printSchema()` →
+	 *   `buildASTSchema()` / Apollo Server with a pre-generated `.graphql` file),
+	 *   because SDL strips numeric values and `serialize(0)` fails.
+	 *
+	 * Can also be set globally via `setGlobalConfig({ mapEnumOutput: 'key' })`
+	 * or the `GQL_OF_POWER_MAP_ENUM_OUTPUT=key` environment variable.
+	 *
+	 * @example
+	 * stateCode: {
+	 *   type: () => StateCode,
+	 *   mapNumericEnum: true,
+	 *   mapEnumOutput: 'key',
+	 *   generateFilter: true,
+	 * }
+	 */
+	mapEnumOutput?: 'raw' | 'key';
+	/**
 	 * When true, the SQL query wraps this field's column with a JSON parsing
 	 * expression so the value is returned as a JSON object instead of a raw
 	 * string. Handles both proper jsonb columns and stringified JSON stored as
