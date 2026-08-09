@@ -561,6 +561,7 @@ pagination: {
 | `D3GOP_LOG_TYPE`             | Logging level: `debug` or `disabled`                                                        |
 | `D3GOP_DEFAULT_QUERY_LIMIT`  | Default query limit when pagination is not specified (default: `3000`)                      |
 | `D3GOP_USE_STRING_FOR_JSONB` | Toggle between JSONB and string concatenation for JSON aggregation                          |
+| `GQL_OF_POWER_MAP_ENUM_OUTPUT` | Enum output mode: `raw` (default) or `key`. See [mapEnumOutput](#mapenumoutput-sdl-schema-support) below. |
 
 > **Type name collision**: If you have both v1 (`createGQLTypes`) and v2 (`@GQLEntityClass`) entities in the same schema, set `D3GOP_TYPES_SUFFIX` so v2 entity names are distinct (e.g. `Hobbit` → `HobbitV2`). Use `D3GOP_SORT_SUFFIX` separately if sort/pagination types also need a suffix. No `setGlobalConfig()` call is required — the env vars are read automatically.
 
@@ -574,6 +575,9 @@ setGlobalConfig({ gqlTypesSuffix: 'V2' });
 
 // Optionally set a separate suffix for sort/pagination types
 setGlobalConfig({ gqlTypesSuffix: 'V2', gqlSortSuffix: 'V2' });
+
+// Enum output mode for SDL-rebuilt schemas (Apollo Server + .graphql file)
+setGlobalConfig({ mapEnumOutput: 'key' });
 ```
 
 ---
@@ -736,6 +740,58 @@ rings { bearer(filter: { questState: InProgress }) { name } }
 **Fix (August 2026):** `handleFieldArguments` and `mapCountField` in the SQL mapper now call `convertFilterEnumValues` on inline filter args before SQL generation. The conversion resolves the target entity's `mapNumericEnum` fields through the parent entity's relation-field registry and recurses to arbitrary depth. This means filters now behave identically at the top level, inside `relation(filter:)`, inside nested `relation(filter: { nested: {...} })`, inside count subqueries, and inside `_or`/`_and` arrays at any level.
 
 **If you still see this pattern:** ensure the target entity is decorator-registered (`@GQLEntityClass` / `createGQLTypes`) so its `mapNumericEnum` fields appear in the `MapEnumFieldsMap` registry — conversion silently passes values through for unregistered entities.
+
+---
+
+### `mapEnumOutput` — SDL schema support
+
+#### The problem
+
+If your app builds the GraphQL schema from a **pre-generated SDL file** (e.g. Apollo Server + `buildASTSchema(parse(schemaSDL))`) instead of calling type-graphql's `buildSchema()` live, `mapNumericEnum` fields will throw:
+
+```
+GraphQLError: Enum "ScheduleOverrideLineStateCode" cannot represent value: 0
+```
+
+#### Why
+
+SDL has no syntax for numeric enum values. `enum StateCode { ACTIVE, INACTIVE }` is all SDL can express — there's no `= 0`. When graphql-js rebuilds the schema from SDL text, it defaults each enum value to its name string (`{ ACTIVE: { value: "ACTIVE" } }`) instead of the original number (`{ ACTIVE: { value: 0 } }`). So `serialize(0)` fails because `0` isn't in the lookup map — only `"ACTIVE"` is.
+
+Native `buildSchema()` preserves the in-memory TypeScript enum objects, so this only affects the SDL-rebuilt path.
+
+#### Fix
+
+Enable `mapEnumOutput: 'key'`. This wraps enum columns in a SQL `CASE WHEN 0 THEN 'ACTIVE' END` expression so the query returns the string key directly — which the SDL-rebuilt schema can serialize.
+
+```bash
+# Env var (recommended for Lambda/Apollo setups)
+GQL_OF_POWER_MAP_ENUM_OUTPUT=key
+```
+
+```typescript
+// Or programmatically
+import { setGlobalConfig } from '@dav3/gql-of-power';
+setGlobalConfig({ mapEnumOutput: 'key' });
+```
+
+```typescript
+// Or per-field
+const fields = defineFields(MyEntity, {
+  stateCode: {
+    type: () => StateCode,
+    mapNumericEnum: true,
+    mapEnumOutput: 'key',   // override per field
+    generateFilter: true,
+  },
+});
+```
+
+| Mode | SQL output | Works with |
+|------|-----------|------------|
+| `'raw'` (default) | `e_a1.state_code AS "stateCode"` | Live `buildSchema()` — graphql-js has `{ value: 0 }` |
+| `'key'` | `CASE e_a1.state_code WHEN 0 THEN 'ACTIVE' ... END AS "stateCode"` | SDL-rebuilt schema — graphql-js has `{ value: "ACTIVE" }` |
+
+Both modes produce identical JSON output: enum fields come back as string keys (`"ACTIVE"`).
 
 ---
 
