@@ -20,7 +20,11 @@ import {
 	RelatedFieldSettings,
 	RequireRelationConfig,
 } from '../types/sql-types';
-import { GQLEntityFilterInputFieldType, GQLEntityPaginationInputType } from '../types/gql-types';
+import {
+	GQLEntityFilterInputFieldType,
+	GQLEntityOrderByInputType,
+	GQLEntityPaginationInputType,
+} from '../types/gql-types';
 import { MappingsType, mappingsTypeToString } from '../types/gql-to-sql-types';
 import { keys } from '../utils/object';
 import { logger } from '../variables';
@@ -112,31 +116,79 @@ export class GQLtoSQLMapper {
 			{ select }
 		);
 
+		// Resolve orderBy fields, including nested-object related columns for m:1 relations
 		const orderByFields = (pagination?.orderBy ?? [])
 			.map((obs) =>
 				keys(obs)
 					.map((ob) => {
+						const value = obs[ob];
+						// Handle nested object for related m:1 columns (e.g. { author: { name: 'asc' } })
+						if (value !== null && typeof value === 'object' && !Array.isArray(value)) {
+							const nestedValue = value as Record<string, any>;
+							const subExprs = keys(nestedValue)
+								.map((subKey) => {
+									const resolved = this.resolveRelatedOrderBy(
+										entity.name,
+										metadata,
+										alias,
+										ob,
+										subKey
+									);
+									if (!resolved) return null;
+									return {
+										expr: resolved.sql,
+										isSubquery: true,
+										parentColumns: resolved.parentColumns,
+									};
+								})
+								.filter(Boolean) as {
+								expr: string;
+								isSubquery: true;
+								parentColumns: string[];
+							}[];
+							if (subExprs.length > 0) {
+								return subExprs;
+							}
+						}
 						const fieldName = getFieldByAlias(entity.name, ob);
-						return (
+						const expr =
 							metadata.properties[fieldName]?.fieldNames
-								?.map((fieldName) => `${alias.toString()}.${fieldName}`)
-								?.join(', ') ?? `${alias.toString()}.${fieldName}`
-						);
+								?.map((fn) => `${alias.toString()}.${fn}`)
+								?.join(', ') ?? `${alias.toString()}.${fieldName}`;
+						return [{ expr, isSubquery: false, parentColumns: [] }];
 					})
 					.flat()
 			)
 			.flat();
 
-		// Order-by fields must also be in the inner rawSelect subquery so the outer query can reference them
-		orderByFields.forEach((f) => rawSelect.add(f));
+		// Order-by fields must also be in the inner rawSelect subquery so the outer query can reference them.
+		// Correlated subqueries (related columns) reference parent columns (e.g. e_a1.fellowship_id)
+		// that may not be in the SELECT list — those parent columns must also be projected.
+		orderByFields.forEach((f) => {
+			if (!f.isSubquery) {
+				rawSelect.add(f.expr);
+			} else if (f.parentColumns) {
+				f.parentColumns.forEach((col) => rawSelect.add(col));
+			}
+		});
 		logger.log('orderByFields', orderByFields, 'select', select, 'orderBy');
-		const selectFields = [...new Set(orderByFields.concat(Array.from(select)).concat(json))];
+		// Only flat columns go into selectFields — subquery expressions are ORDER BY-only
+		const selectFields = [
+			...new Set(
+				orderByFields
+					.filter((f) => !f.isSubquery)
+					.map((f) => f.expr)
+					.concat(Array.from(select))
+					.concat(json)
+			),
+		];
 
 		const rawSelectArr = [...rawSelect];
 		const unionAllEntries = [..._or, ..._and];
 
+		// Build orderBy SQL — use a custom field mapper that handles related dot-notation
 		const orderBySQL = pagination?.orderBy
-			? SQLBuilder.buildOrderBySQL(pagination.orderBy, SQLBuilder.getFieldMapper(metadata, alias))
+			? this.buildOrderBySQLWithRelated(metadata, alias, pagination.orderBy)
 			: '';
 		const innerLimitSQL = pagination?.limit ? `limit ${this.namedParameterPrefix}limit` : '';
 		const innerOffsetSQL = pagination?.offset ? `offset ${this.namedParameterPrefix}offset` : '';
@@ -193,6 +245,122 @@ export class GQLtoSQLMapper {
 
 		logger.timeEnd(logName);
 		return { querySQL, bindings };
+	}
+
+	/**
+	 * Resolves a nested-object orderBy key (e.g. orderBy: [{ author: { name: 'asc' } }])
+	 * into a correlated subquery SQL expression for many-to-one relations.
+	 *
+	 * Generates: (SELECT e_rel.column FROM rel_table e_rel WHERE parent.fk = e_rel.pk)
+	 *
+	 * Returns { sql, parentColumns } where parentColumns are the parent-table columns
+	 * referenced in the WHERE clause (e.g. ['e_a1.fellowship_id']). The caller must
+	 * ensure these columns are projected by any wrapping subquery so the correlated
+	 * reference resolves in the outer query too.
+	 *
+	 * Returns null if the relation is not m:1 (caller falls back to flat resolution).
+	 */
+	private resolveRelatedOrderBy<T>(
+		entityName: string,
+		metadata: EntityMetadata<T>,
+		parentAlias: Alias,
+		relationName: string,
+		relatedFieldName: string
+	): { sql: string; parentColumns: string[] } | null {
+		// Look up the relation property on the current entity
+		const relProp = metadata.properties[relationName];
+		if (!relProp) return null;
+
+		// Only support m:1 relations (clean, unambiguous — exactly one related row)
+		if (relProp.reference !== ReferenceType.MANY_TO_ONE) {
+			logger.log(
+				'resolveRelatedOrderBy',
+				`Skipping orderBy on "${relationName}": relation is not m:1 (only m:1 supported for related orderBy)`
+			);
+			return null;
+		}
+
+		// Get the related entity metadata
+		const relEntityName = relProp.type;
+		if (!this.exists(relEntityName)) return null;
+		const relMetadata = this.getMetadata<any, EntityMetadata<any>>(relEntityName);
+		if (!relMetadata?.tableName) return null;
+
+		// Resolve the FK columns: parent.fieldNames → related.referencedColumnNames
+		const fkColumns = relProp.fieldNames; // e.g. ['author_id'] on the parent table
+		const refPkColumns =
+			relProp.referencedColumnNames.length > 0
+				? relProp.referencedColumnNames
+				: relMetadata.primaryKeys;
+		if (fkColumns.length === 0 || fkColumns.length !== refPkColumns.length) return null;
+
+		// Resolve the related field's actual column name(s)
+		const relFieldMeta = relMetadata.properties[relatedFieldName];
+		if (!relFieldMeta) return null;
+
+		// Generate correlated subquery
+		const relAlias = 'e_o'; // stable alias for orderBy subqueries
+		const parentColumns = fkColumns.map((fk) => parentAlias.toColumnName(fk));
+		const joinCondition = fkColumns
+			.map((fk, i) => `${parentAlias.toColumnName(fk)} = ${relAlias}.${refPkColumns[i]}`)
+			.join(' and ');
+
+		const relColumns = relFieldMeta.fieldNames.map((fn) => `${relAlias}.${fn}`).join(', ');
+
+		return {
+			sql: `(select ${relColumns} from "${relMetadata.tableName}" as ${relAlias} where ${joinCondition})`,
+			parentColumns,
+		};
+	}
+
+	/**
+	 * Builds ORDER BY SQL that handles both flat fields and nested-object related columns.
+	 * For nested objects (e.g. { author: { name: 'asc' } }), delegates to resolveRelatedOrderBy.
+	 * For flat fields (e.g. { title: 'asc' }), uses the standard field mapper.
+	 */
+	private buildOrderBySQLWithRelated<T>(
+		metadata: EntityMetadata<T>,
+		alias: Alias,
+		orderBy: GQLEntityOrderByInputType<any>[]
+	): string {
+		const entityName = metadata.name ?? '';
+		const fieldMapper = SQLBuilder.getFieldMapper(metadata, alias);
+
+		const orderClauses = orderBy
+			.map((obs) =>
+				keys(obs)
+					.map((ob) => {
+						const value = obs[ob];
+						if (value !== null && typeof value === 'object' && !Array.isArray(value)) {
+							// Nested object: { relationName: { fieldName: 'asc' } }
+							const subKeys = keys(value);
+							return subKeys
+								.map((subKey) => {
+									const direction = value[subKey];
+									const resolved = this.resolveRelatedOrderBy(
+										entityName,
+										metadata,
+										alias,
+										ob,
+										subKey
+									);
+									const columns = resolved ? [resolved.sql] : fieldMapper(ob);
+									return columns.map((fn) => `${fn} ${direction}`).join(', ');
+								})
+								.filter((o) => o.length > 0)
+								.join(', ');
+						}
+						// Flat field: { fieldName: 'asc' }
+						const columns = fieldMapper(ob);
+						return columns.map((fn) => `${fn} ${value}`).join(', ');
+					})
+					.filter((o) => o.length > 0)
+					.join(', ')
+			)
+			.filter((o) => o.length > 0)
+			.join(', ');
+
+		return orderClauses ? `order by ${orderClauses}` : '';
 	}
 
 	public recursiveMap = <T>({
