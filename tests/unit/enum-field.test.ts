@@ -207,19 +207,19 @@ describe('mapNumericEnum field registration', () => {
 	});
 });
 
-describe('mapNumericEnum SQL output (raw value passthrough)', () => {
+describe('mapNumericEnum SQL output (CASE WHEN)', () => {
 	beforeEach(() => {
 		clearMapEnumFields();
 	});
 
-	it('should NOT generate CASE expression — raw DB values flow through for graphql-js to serialize', async () => {
+	it('should generate CASE WHEN expression for numeric enum fields', async () => {
 		const capturedSQLs: string[] = [];
 		const provider = {
 			...createMockProvider(),
 			rawQuery: (sql: string) => sql,
 			executeQuery: async (sql: string) => {
 				capturedSQLs.push(sql);
-				return [{ id: 1, name: 'Frodo', status: 100, questState: 0 }];
+				return [{ id: 1, name: 'Frodo', status: 'Worthy', questState: 'NotStarted' }];
 			},
 		};
 
@@ -238,41 +238,84 @@ describe('mapNumericEnum SQL output (raw value passthrough)', () => {
 		await queryManager.getQueryResultsForFields(provider, TestBearer, info);
 
 		const sql = capturedSQLs.join(' ');
-		// Raw column references, no CASE wrapping
-		expect(sql).not.toContain('CASE ');
-		// The raw columns should be selected directly
-		expect(sql).toMatch(/e_a1\.status/);
-		expect(sql).toMatch(/e_a1\.quest_state/);
+		// CASE expressions wrapping the raw column
+		expect(sql).toContain('CASE ');
+		expect(sql).toContain('WHEN 100 THEN \'Worthy\'');
+		expect(sql).toContain('WHEN 200 THEN \'Corrupted\'');
+		expect(sql).toContain('WHEN 0 THEN \'NotStarted\'');
+		expect(sql).toContain('WHEN 1 THEN \'InProgress\'');
+		// Should be aliased as the GQL field name
+		expect(sql).toContain('AS "status"');
+		expect(sql).toContain('AS "questState"');
 	});
 
-	it('should return raw numeric values that graphql-js serializes to enum names', async () => {
+	it('should NOT generate CASE for non-mapNumericEnum fields', async () => {
+		const capturedSQLs: string[] = [];
 		const provider = {
 			...createMockProvider(),
-			executeQuery: async () => [{ id: 1, name: 'Frodo', status: 100, questState: 0 }],
+			rawQuery: (sql: string) => sql,
+			executeQuery: async (sql: string) => {
+				capturedSQLs.push(sql);
+				return [{ id: 1, name: 'Frodo', allegiance: 'GOOD' }];
+			},
 		};
 
 		const fields = defineFields(TestBearer, {
 			id: { type: () => String, generateFilter: true },
 			name: { type: () => String, generateFilter: true },
-			status: { type: () => RingBearerStatus, generateFilter: true, mapNumericEnum: true },
-			questState: { type: () => QuestState, generateFilter: true, mapNumericEnum: true },
+			allegiance: { type: () => Allegiance, generateFilter: true },
 		});
 
 		@GQLEntityClass(TestBearer, fields)
-		class TestBearerRawGQL extends GQLEntityBase {}
+		class TestBearerNoCaseGQL extends GQLEntityBase {}
 
-		const info = { id: {}, name: {}, status: {}, questState: {} } as FieldSelection<TestBearer>;
+		const info = { id: {}, name: {}, allegiance: {} } as FieldSelection<TestBearer>;
 		const queryManager = new GQLQueryManager();
-		const result = await queryManager.getQueryResultsForFields<TestBearer & { _____name: string }>(
-			provider,
-			TestBearer,
-			info
-		);
+		await queryManager.getQueryResultsForFields(provider, TestBearer, info);
 
-		// Raw DB values come back as-is — graphql-js serializes 100→'Worthy' at resolve time
-		expect(result[0].status).toBe(100);
-		expect(result[0].questState).toBe(0);
+		const sql = capturedSQLs.join(' ');
+		expect(sql).not.toContain('CASE ');
 	});
+
+	it('should generate CASE for string-valued enums', async () => {
+		const capturedSQLs: string[] = [];
+		const provider = {
+			client: 'pg',
+			exists: (name: string) => name === 'TestQuest',
+			getMetadata: <T, K>(entityName: string): K => {
+				if (entityName === 'TestQuest') return TestQuestMetadata as K;
+				throw new Error(`Unknown entity: ${entityName}`);
+			},
+			rawQuery: (sql: string) => sql,
+			executeQuery: async (sql: string) => {
+				capturedSQLs.push(sql);
+				return [{ id: 1, name: 'Frodo', frequency: 'Weekly' }];
+			},
+		};
+
+		const fields = defineFields(TestQuest, {
+			id: { type: () => String, generateFilter: true },
+			name: { type: () => String, generateFilter: true },
+			frequency: {
+				type: () => QuestFrequency,
+				generateFilter: true,
+				mapNumericEnum: true,
+			},
+		});
+
+		@GQLEntityClass(TestQuest, fields)
+		class TestQuestCaseGQL extends GQLEntityBase {}
+
+		const info = { id: {}, name: {}, frequency: {} } as FieldSelection<TestQuest>;
+		const queryManager = new GQLQueryManager();
+		await queryManager.getQueryResultsForFields(provider, TestQuest, info);
+
+		const sql = capturedSQLs.join(' ');
+		expect(sql).toContain('CASE ');
+		expect(sql).toContain("WHEN '1' THEN 'Weekly'");
+		expect(sql).toContain('AS "frequency"');
+	});
+
 });
 
 describe('mapNumericEnum filter conversion', () => {

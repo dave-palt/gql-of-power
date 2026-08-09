@@ -252,6 +252,7 @@ export class GQLtoSQLMapper {
 			) ?? definedFields;
 
 		const parseJsonFields = getParseJsonFieldsFor(getGQLEntityNameFor(entityMetadata.name ?? ''));
+		const enumFields = getMapEnumFieldsFor(getGQLEntityNameFor(entityMetadata.name ?? ''));
 
 		let res = keys(allFields).reduce(
 			({ mappings }, gqlFieldNameKey) => {
@@ -343,7 +344,8 @@ export class GQLtoSQLMapper {
 						fieldsByTypeName,
 						gqlFieldName,
 						primaryKeys,
-						parseJsonFields
+						parseJsonFields,
+						enumFields
 					);
 					// gqlFieldName === 'battles' &&
 					logger.log(
@@ -927,7 +929,8 @@ export class GQLtoSQLMapper {
 		fields: any,
 		gqlFieldName: string,
 		primaryKeys: string[],
-		parseJsonFields: Set<string> = new Set()
+		parseJsonFields: Set<string> = new Set(),
+		enumFields: Record<string, any> = {}
 	) {
 		const referenceField =
 			this.exists(fieldProps.type) && this.getMetadata<any, EntityMetadata<any>>(fieldProps.type);
@@ -1137,7 +1140,8 @@ export class GQLtoSQLMapper {
 				fieldProps.fieldNames,
 				mapping,
 				gqlFieldName,
-				parseJsonFields.has(gqlFieldName)
+				parseJsonFields.has(gqlFieldName),
+				enumFields
 			);
 		} else {
 			logger.log('reference type', fieldProps.reference, 'not handled for field', gqlFieldName);
@@ -1221,7 +1225,8 @@ export class GQLtoSQLMapper {
 		fieldNames: string[],
 		mapping: MappingsType,
 		gqlFieldName: string,
-		parseJson: boolean = false
+		parseJson: boolean = false,
+		enumFields: Record<string, any> = {}
 	) {
 		logger.info('GQLtoSQLMapper - processFieldNames', fieldNames, gqlFieldName);
 		if (fieldNames.length <= 0) {
@@ -1242,6 +1247,13 @@ export class GQLtoSQLMapper {
 		if (parseJson) {
 			const jsonExpr = `REPLACE(TRIM(BOTH '"' FROM ${fieldNameWithAlias}::text), '${'\\"'}','"')::jsonb`;
 			aliasedField = `${jsonExpr} AS "${gqlFieldName}"`;
+		} else if (gqlFieldName in enumFields) {
+			const caseExpr = SQLBuilder.buildEnumCaseSQL(fieldNameWithAlias, enumFields[gqlFieldName]);
+			aliasedField = caseExpr
+				? `${caseExpr} AS "${gqlFieldName}"`
+				: gqlFieldName !== fieldNames[0]
+					? `${fieldNameWithAlias} AS "${gqlFieldName}"`
+					: fieldNameWithAlias;
 		} else {
 			aliasedField =
 				gqlFieldName !== fieldNames[0]
