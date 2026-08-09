@@ -1,7 +1,7 @@
 {
 	"name": "@dav3/gql-of-power",
 	"version": "1.7.0-dev",
-	"description": "Generate a single optimized SQL query from GraphQL operations — eliminate N+1 with recursive field-to-SQL mapping.",
+	"description": "Generate a single optimized SQL query from GraphQL operations — eliminate N+1 with recursive field-to-SQL mapping. Ships with agent skill for AI coding assistants.",
 	"main": "dist/index.js",
 	"types": "dist/index.d.ts",
 	"module": "esnext",
@@ -30,7 +30,7 @@
 		"audit:health": "fallow health",
 		"audit:fix": "fallow fix"
 	},
-	"keywords": [],
+	"keywords": ["graphql", "sql", "type-graphql", "n-plus-1", "agent-skill", "claude-code", "cursor", "orm"],
 	"author": "",
 	"license": "MIT NON-AI License",
 	"devDependencies": {
