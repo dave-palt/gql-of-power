@@ -1,10 +1,13 @@
 import {
-	getCountFieldsFor,
 	getCustomFieldsFor,
+	getCountFieldsFor,
+	getMapEnumFieldsFor,
+	getMapEnumOutputFieldsFor,
+	getMapEnumOutputGlobal,
+	getParseJsonFieldsFor,
+	getFieldsOptionsFor,
 	getFieldByAlias,
 	getGQLEntityNameFor,
-	getMapEnumFieldsFor,
-	getParseJsonFieldsFor,
 	getRelationFieldsFor,
 } from '../entities/gql-entity';
 import {
@@ -253,6 +256,18 @@ export class GQLtoSQLMapper {
 
 		const parseJsonFields = getParseJsonFieldsFor(getGQLEntityNameFor(entityMetadata.name ?? ''));
 		const enumFields = getMapEnumFieldsFor(getGQLEntityNameFor(entityMetadata.name ?? ''));
+		const enumOutputOverrides = getMapEnumOutputFieldsFor(
+			getGQLEntityNameFor(entityMetadata.name ?? '')
+		);
+		// Build a set of field names that should use CASE WHEN (key mode).
+		// A field uses 'key' mode if: per-field override is 'key', OR no override
+		// and the global default is 'key'.
+		const globalEnumOutput = getMapEnumOutputGlobal();
+		const enumKeyFields = new Set<string>();
+		for (const fieldName of Object.keys(enumFields)) {
+			const mode = enumOutputOverrides[fieldName] ?? globalEnumOutput;
+			if (mode === 'key') enumKeyFields.add(fieldName);
+		}
 
 		let res = keys(allFields).reduce(
 			({ mappings }, gqlFieldNameKey) => {
@@ -345,7 +360,8 @@ export class GQLtoSQLMapper {
 						gqlFieldName,
 						primaryKeys,
 						parseJsonFields,
-						enumFields
+						enumFields,
+						enumKeyFields
 					);
 					// gqlFieldName === 'battles' &&
 					logger.log(
@@ -930,7 +946,8 @@ export class GQLtoSQLMapper {
 		gqlFieldName: string,
 		primaryKeys: string[],
 		parseJsonFields: Set<string> = new Set(),
-		enumFields: Record<string, any> = {}
+		enumFields: Record<string, any> = {},
+		enumKeyFields: Set<string> = new Set()
 	) {
 		const referenceField =
 			this.exists(fieldProps.type) && this.getMetadata<any, EntityMetadata<any>>(fieldProps.type);
@@ -1141,7 +1158,8 @@ export class GQLtoSQLMapper {
 				mapping,
 				gqlFieldName,
 				parseJsonFields.has(gqlFieldName),
-				enumFields
+				enumFields,
+				enumKeyFields
 			);
 		} else {
 			logger.log('reference type', fieldProps.reference, 'not handled for field', gqlFieldName);
@@ -1226,7 +1244,8 @@ export class GQLtoSQLMapper {
 		mapping: MappingsType,
 		gqlFieldName: string,
 		parseJson: boolean = false,
-		enumFields: Record<string, any> = {}
+		enumFields: Record<string, any> = {},
+		enumKeyFields: Set<string> = new Set()
 	) {
 		logger.info('GQLtoSQLMapper - processFieldNames', fieldNames, gqlFieldName);
 		if (fieldNames.length <= 0) {
@@ -1247,7 +1266,11 @@ export class GQLtoSQLMapper {
 		if (parseJson) {
 			const jsonExpr = `REPLACE(TRIM(BOTH '"' FROM ${fieldNameWithAlias}::text), '${'\\"'}','"')::jsonb`;
 			aliasedField = `${jsonExpr} AS "${gqlFieldName}"`;
-		} else if (gqlFieldName in enumFields) {
+		} else if (gqlFieldName in enumFields && enumKeyFields.has(gqlFieldName)) {
+			// CASE WHEN mode: SQL returns the enum string key directly.
+			// Used when the schema is rebuilt from SDL (Apollo Server with
+			// pre-generated schema file), where graphql-js enum values default
+			// to the name string instead of the numeric value.
 			const caseExpr = SQLBuilder.buildEnumCaseSQL(fieldNameWithAlias, enumFields[gqlFieldName]);
 			aliasedField = caseExpr
 				? `${caseExpr} AS "${gqlFieldName}"`
