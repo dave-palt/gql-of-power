@@ -834,7 +834,17 @@ function _registerMappingFieldFilter<T>(
 		target: GQLEntityFilterInput,
 		name: UppercasedFieldName,
 		schemaName: UppercasedFieldName,
-		getType: () => TypeMap[refFilterTypeName] ?? GQLEntityFilterInput,
+		getType: () => {
+			const type = TypeMap[refFilterTypeName];
+			if (!type) {
+				throw new Error(
+					`gql-of-power: FilterInput for referenced entity "${refGqlEntityName}" (${refFilterTypeName}) ` +
+						`is not registered. Make sure ${refGqlEntityName}'s buildResolvers() is called ` +
+						`(or use createGQLTypes / @GQLEntityClass) before building the schema.`
+				);
+			}
+			return type;
+		},
 		typeOptions: { nullable: true },
 		complexity: undefined,
 		description: `Filter by ${fieldNameToUse} fields`,
@@ -1066,7 +1076,17 @@ function _registerExistsFilters<T>(
 				target: GQLEntityExistsFilterInput,
 				name: relFieldName,
 				schemaName: relFieldName,
-				getType: () => TypeMap[relFilterTypeName] ?? GQLEntityFilterInput,
+				getType: () => {
+					const type = TypeMap[relFilterTypeName];
+					if (!type) {
+						throw new Error(
+							`gql-of-power: FilterInput for related entity "${relGQLEntityName}" (${relFilterTypeName}) ` +
+								`is not registered. Make sure ${relGQLEntityName}'s buildResolvers() is called ` +
+								`(or use createGQLTypes / @GQLEntityClass) before building the schema.`
+						);
+					}
+					return type;
+				},
 				typeOptions: { nullable: true },
 				complexity: undefined,
 				description: `Filter ${relFieldName} by their fields for existence check`,
