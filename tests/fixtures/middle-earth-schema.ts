@@ -18,6 +18,8 @@ export class Person {
 	age?: number;
 	race!: string; // Hobbit, Elf, Dwarf, Human, Wizard, etc.
 	home?: string;
+	// Numeric enum column: DB stores 1/2/3 (mapNumericEnum demo for inline filters)
+	rank?: number;
 	// 1:1 inverse side relationship (mappedBy: 'bearer' → Ring.bearer)
 	ring?: Ring;
 	// 1:1 owning side — FK signature_weapon_id on persons table, no mappedBy
@@ -204,6 +206,7 @@ export const PersonMetadata: EntityMetadata<Person> = {
 		age: createProperty('number', 'age', ['age']),
 		race: createProperty('string', 'race', ['race']),
 		home: createProperty('string', 'home', ['home_location']),
+		rank: createProperty('number', 'rank', ['rank_code']),
 		ring: createProperty('Ring', 'ring', [], {
 			referenceType: ReferenceType.ONE_TO_ONE,
 			mappedBy: 'bearer',
