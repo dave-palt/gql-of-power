@@ -252,7 +252,6 @@ export class GQLtoSQLMapper {
 			) ?? definedFields;
 
 		const parseJsonFields = getParseJsonFieldsFor(getGQLEntityNameFor(entityMetadata.name ?? ''));
-		const enumFields = getMapEnumFieldsFor(getGQLEntityNameFor(entityMetadata.name ?? ''));
 
 		let res = keys(allFields).reduce(
 			({ mappings }, gqlFieldNameKey) => {
@@ -344,8 +343,7 @@ export class GQLtoSQLMapper {
 						fieldsByTypeName,
 						gqlFieldName,
 						primaryKeys,
-						parseJsonFields,
-						enumFields
+						parseJsonFields
 					);
 					// gqlFieldName === 'battles' &&
 					logger.log(
@@ -929,8 +927,7 @@ export class GQLtoSQLMapper {
 		fields: any,
 		gqlFieldName: string,
 		primaryKeys: string[],
-		parseJsonFields: Set<string> = new Set(),
-		enumFields: Record<string, any> = {}
+		parseJsonFields: Set<string> = new Set()
 	) {
 		const referenceField =
 			this.exists(fieldProps.type) && this.getMetadata<any, EntityMetadata<any>>(fieldProps.type);
@@ -1140,8 +1137,7 @@ export class GQLtoSQLMapper {
 				fieldProps.fieldNames,
 				mapping,
 				gqlFieldName,
-				parseJsonFields.has(gqlFieldName),
-				enumFields
+				parseJsonFields.has(gqlFieldName)
 			);
 		} else {
 			logger.log('reference type', fieldProps.reference, 'not handled for field', gqlFieldName);
@@ -1225,8 +1221,7 @@ export class GQLtoSQLMapper {
 		fieldNames: string[],
 		mapping: MappingsType,
 		gqlFieldName: string,
-		parseJson: boolean = false,
-		enumFields: Record<string, any> = {}
+		parseJson: boolean = false
 	) {
 		logger.info('GQLtoSQLMapper - processFieldNames', fieldNames, gqlFieldName);
 		if (fieldNames.length <= 0) {
@@ -1247,15 +1242,6 @@ export class GQLtoSQLMapper {
 		if (parseJson) {
 			const jsonExpr = `REPLACE(TRIM(BOTH '"' FROM ${fieldNameWithAlias}::text), '${'\\"'}','"')::jsonb`;
 			aliasedField = `${jsonExpr} AS "${gqlFieldName}"`;
-		} else if (gqlFieldName in enumFields) {
-			// mapNumericEnum: wrap the raw DB column in a CASE expression so the
-			// query returns the enum string key directly. No post-query JS needed.
-			const caseExpr = SQLBuilder.buildEnumCaseSQL(fieldNameWithAlias, enumFields[gqlFieldName]);
-			aliasedField = caseExpr
-				? `${caseExpr} AS "${gqlFieldName}"`
-				: gqlFieldName !== fieldNames[0]
-					? `${fieldNameWithAlias} AS "${gqlFieldName}"`
-					: fieldNameWithAlias;
 		} else {
 			aliasedField =
 				gqlFieldName !== fieldNames[0]

@@ -380,8 +380,8 @@ describe('Filter Operators Integration Tests (PR #23)', () => {
 		});
 
 		describe('Inline filter operators on NESTED relation fields', () => {
-		// These tests exercise the path: requiresRelations → recursiveMap →
-		// filterProcessor.mapFilter(). The new operators must work as inline
+			// These tests exercise the path: requiresRelations → recursiveMap →
+			// filterProcessor.mapFilter(). The new operators must work as inline
 			// filters on nested relations, not just at the root level.
 
 			it(
@@ -464,10 +464,7 @@ describe('Filter Operators Integration Tests (PR #23)', () => {
 										as: '_fb',
 										fields: { id: {}, title: {}, pages: {} },
 										filter: {
-											_and: [
-												{ title_startsWith: 'The' },
-												{ pages_nbetween: [1000, 2000] },
-											],
+											_and: [{ title_startsWith: 'The' }, { pages_nbetween: [1000, 2000] }],
 										},
 									},
 								},
@@ -503,10 +500,7 @@ describe('Filter Operators Integration Tests (PR #23)', () => {
 										as: '_fb',
 										fields: { id: {}, title: {} },
 										filter: {
-											_or: [
-												{ title_startsWith: 'The' },
-												{ title_endsWith: 'Rings' },
-											],
+											_or: [{ title_startsWith: 'The' }, { title_endsWith: 'Rings' }],
 										},
 									},
 								},
@@ -527,37 +521,36 @@ describe('Filter Operators Integration Tests (PR #23)', () => {
 				TEST_TIMEOUT
 			);
 		});
-		});
+	});
 
-		// ── Helper ─────────────────────────────────────────────────────────
+	// ── Helper ─────────────────────────────────────────────────────────
 
-		async function insertTestData(): Promise<void> {
-			const insertOrder = [
-				{ table: 'regions', data: AllSampleData.regions || [] },
-				{ table: 'quests', data: AllSampleData.quests || [] },
-				{ table: 'fellowships', data: AllSampleData.fellowships || [] },
-				{ table: 'weapons', data: AllSampleData.weapons || [] },
-				{ table: 'artifacts', data: AllSampleData.artifacts || [] },
-				{ table: 'persons', data: AllSampleData.persons || [] },
-				{ table: 'rings', data: AllSampleData.rings || [] },
-				{ table: 'authors', data: AllSampleData.authors || [] },
-				{ table: 'genres', data: AllSampleData.genres || [] },
-				{ table: 'books', data: AllSampleData.books || [] },
-				{ table: 'locations', data: AllSampleData.locations || [] },
-				{ table: 'battles', data: AllSampleData.battles || [] },
-				{ table: 'armies', data: AllSampleData.armies || [] },
-				{ table: 'person_battles', data: AllSampleData.person_battles || [] },
-				{ table: 'army_battles', data: AllSampleData.army_battles || [] },
-				{ table: 'book_characters', data: AllSampleData.book_characters || [] },
-				{ table: 'book_genres', data: AllSampleData.book_genres || [] },
-				{ table: 'quest_locations', data: AllSampleData.quest_locations || [] },
-			];
+	async function insertTestData(): Promise<void> {
+		const insertOrder = [
+			{ table: 'regions', data: AllSampleData.regions || [] },
+			{ table: 'quests', data: AllSampleData.quests || [] },
+			{ table: 'fellowships', data: AllSampleData.fellowships || [] },
+			{ table: 'weapons', data: AllSampleData.weapons || [] },
+			{ table: 'artifacts', data: AllSampleData.artifacts || [] },
+			{ table: 'persons', data: AllSampleData.persons || [] },
+			{ table: 'rings', data: AllSampleData.rings || [] },
+			{ table: 'authors', data: AllSampleData.authors || [] },
+			{ table: 'genres', data: AllSampleData.genres || [] },
+			{ table: 'books', data: AllSampleData.books || [] },
+			{ table: 'locations', data: AllSampleData.locations || [] },
+			{ table: 'battles', data: AllSampleData.battles || [] },
+			{ table: 'armies', data: AllSampleData.armies || [] },
+			{ table: 'person_battles', data: AllSampleData.person_battles || [] },
+			{ table: 'army_battles', data: AllSampleData.army_battles || [] },
+			{ table: 'book_characters', data: AllSampleData.book_characters || [] },
+			{ table: 'book_genres', data: AllSampleData.book_genres || [] },
+			{ table: 'quest_locations', data: AllSampleData.quest_locations || [] },
+		];
 
-			for (const { table, data } of insertOrder) {
-				if (data.length > 0) {
-					await sql`INSERT INTO ${sql.unsafe(table)} ${sql(data)}`;
-				}
+		for (const { table, data } of insertOrder) {
+			if (data.length > 0) {
+				await sql`INSERT INTO ${sql.unsafe(table)} ${sql(data)}`;
 			}
 		}
-	});
+	}
 });

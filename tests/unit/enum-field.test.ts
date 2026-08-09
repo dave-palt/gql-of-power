@@ -1,4 +1,3 @@
-import { SQLBuilder } from '../../src/queries/sql-builder';
 import { beforeEach, describe, expect, it } from 'bun:test';
 import { FieldSelection } from '../../src';
 import {
@@ -43,12 +42,6 @@ enum QuestFrequency {
 	Other = '7',
 }
 
-enum RuneInscription {
-	Alpha = 'ABC123',
-	Beta = 'XYZ789',
-	Gamma = '1A2B3C',
-}
-
 class TestBearer {
 	id!: number;
 	name!: string;
@@ -67,12 +60,6 @@ class TestQuest {
 	id!: number;
 	name!: string;
 	frequency!: string;
-}
-
-class TestRune {
-	id!: number;
-	name!: string;
-	inscription!: string;
 }
 
 const createProperty = (
@@ -127,17 +114,6 @@ const TestQuestMetadata: EntityMetadata<TestQuest> = {
 		id: createProperty('number', 'id', ['id']),
 		name: createProperty('string', 'name', ['quest_name']),
 		frequency: createProperty('string', 'frequency', ['frequency']),
-	},
-};
-
-const TestRuneMetadata: EntityMetadata<TestRune> = {
-	name: 'TestRune',
-	tableName: 'test_runes',
-	primaryKeys: ['id'],
-	properties: {
-		id: createProperty('number', 'id', ['id']),
-		name: createProperty('string', 'name', ['rune_name']),
-		inscription: createProperty('string', 'inscription', ['inscription']),
 	},
 };
 
@@ -231,66 +207,19 @@ describe('mapNumericEnum field registration', () => {
 	});
 });
 
-describe('buildEnumCaseSQL', () => {
-	it('should generate CASE WHEN for numeric enums', () => {
-		const sql = SQLBuilder.buildEnumCaseSQL('"a1"."state"', QuestState);
-		expect(sql).not.toBeNull();
-		expect(sql!).toContain('CASE "a1"."state"');
-		expect(sql!).toContain("WHEN 0 THEN 'NotStarted'");
-		expect(sql!).toContain("WHEN 1 THEN 'InProgress'");
-		expect(sql!).toContain("WHEN 2 THEN 'Completed'");
-		expect(sql!).toContain("WHEN 3 THEN 'Failed'");
-		expect(sql!).toContain('ELSE NULL END');
-		// Should NOT contain TS reverse-mapping entries (numeric keys)
-		expect(sql!).not.toContain("WHEN 'NotStarted'");
-	});
-
-	it('should generate CASE WHEN for string-valued enums', () => {
-		const sql = SQLBuilder.buildEnumCaseSQL('"a1"."frequency"', QuestFrequency);
-		expect(sql).not.toBeNull();
-		expect(sql!).toContain("WHEN '1' THEN 'Weekly'");
-		expect(sql!).toContain("WHEN '6' THEN 'OnCall'");
-		expect(sql!).toContain("WHEN '11' THEN 'Every6Weeks'");
-	});
-
-	it('should generate CASE WHEN for numeric enums with non-zero start', () => {
-		const sql = SQLBuilder.buildEnumCaseSQL('"a1"."status"', RingBearerStatus);
-		expect(sql).not.toBeNull();
-		expect(sql!).toContain("WHEN 100 THEN 'Worthy'");
-		expect(sql!).toContain("WHEN 200 THEN 'Corrupted'");
-		expect(sql!).toContain("WHEN 300 THEN 'Undefined'");
-	});
-
-	it('should escape single quotes in string-valued enum values', () => {
-		enum QuotedEnum {
-			Simple = 'hello',
-			Quoted = "it's",
-		}
-		const sql = SQLBuilder.buildEnumCaseSQL('"a1"."val"', QuotedEnum);
-		expect(sql!).toContain("WHEN 'it''s' THEN 'Quoted'");
-	});
-
-	it('should return null for empty enum object', () => {
-		// Simulate an enum with only numeric reverse-map entries after filtering
-		const fakeEnum: Record<string, any> = { 0: 'A', 1: 'B' };
-		const sql = SQLBuilder.buildEnumCaseSQL('"a1"."val"', fakeEnum);
-		expect(sql).toBeNull();
-	});
-});
-
-describe('mapNumericEnum SQL CASE generation', () => {
+describe('mapNumericEnum SQL output (raw value passthrough)', () => {
 	beforeEach(() => {
 		clearMapEnumFields();
 	});
 
-	it('should embed CASE expression in the generated SQL for mapNumericEnum fields', async () => {
+	it('should NOT generate CASE expression — raw DB values flow through for graphql-js to serialize', async () => {
 		const capturedSQLs: string[] = [];
 		const provider = {
 			...createMockProvider(),
 			rawQuery: (sql: string) => sql,
 			executeQuery: async (sql: string) => {
 				capturedSQLs.push(sql);
-				return [{ id: 1, name: 'Frodo', status: 'Worthy', questState: 'NotStarted' }];
+				return [{ id: 1, name: 'Frodo', status: 100, questState: 0 }];
 			},
 		};
 
@@ -309,77 +238,40 @@ describe('mapNumericEnum SQL CASE generation', () => {
 		await queryManager.getQueryResultsForFields(provider, TestBearer, info);
 
 		const sql = capturedSQLs.join(' ');
-		// status column should be wrapped in a CASE expression
-		expect(sql).toContain('CASE ');
-		expect(sql).toContain("WHEN 100 THEN 'Worthy'");
-		expect(sql).toContain("WHEN 0 THEN 'NotStarted'");
-		// The alias must be applied so the result key matches the GQL field name
-		expect(sql).toMatch(/END AS "status"/);
-		expect(sql).toMatch(/END AS "questState"/);
+		// Raw column references, no CASE wrapping
+		expect(sql).not.toContain('CASE ');
+		// The raw columns should be selected directly
+		expect(sql).toMatch(/e_a1\.status/);
+		expect(sql).toMatch(/e_a1\.quest_state/);
 	});
 
-	it('should NOT generate CASE for non-mapNumericEnum enum fields', async () => {
-		const capturedSQLs: string[] = [];
+	it('should return raw numeric values that graphql-js serializes to enum names', async () => {
 		const provider = {
 			...createMockProvider(),
-			executeQuery: async (sql: string) => {
-				capturedSQLs.push(sql);
-				return [{ id: 1, name: 'Frodo', allegiance: 'GOOD' }];
-			},
+			executeQuery: async () => [{ id: 1, name: 'Frodo', status: 100, questState: 0 }],
 		};
 
 		const fields = defineFields(TestBearer, {
 			id: { type: () => String, generateFilter: true },
 			name: { type: () => String, generateFilter: true },
-			allegiance: { type: () => Allegiance, generateFilter: true },
+			status: { type: () => RingBearerStatus, generateFilter: true, mapNumericEnum: true },
+			questState: { type: () => QuestState, generateFilter: true, mapNumericEnum: true },
 		});
 
 		@GQLEntityClass(TestBearer, fields)
-		class TestBearerNoCaseGQL extends GQLEntityBase {}
+		class TestBearerRawGQL extends GQLEntityBase {}
 
-		const info = { id: {}, name: {}, allegiance: {} } as FieldSelection<TestBearer>;
+		const info = { id: {}, name: {}, status: {}, questState: {} } as FieldSelection<TestBearer>;
 		const queryManager = new GQLQueryManager();
-		await queryManager.getQueryResultsForFields(provider, TestBearer, info);
+		const result = await queryManager.getQueryResultsForFields<TestBearer & { _____name: string }>(
+			provider,
+			TestBearer,
+			info
+		);
 
-		const sql = capturedSQLs.join(' ');
-		expect(sql).not.toContain('CASE ');
-	});
-
-	it('should generate CASE for string-valued enum fields in SQL', async () => {
-		const capturedSQLs: string[] = [];
-		const provider = {
-			client: 'pg',
-			exists: (name: string) => name === 'TestQuest',
-			getMetadata: <T, K>(entityName: string): K => TestQuestMetadata as K,
-			rawQuery: (sql: string) => sql,
-			executeQuery: async (sql: string) => {
-				capturedSQLs.push(sql);
-				return [{ id: 1, name: 'Quest', frequency: 'Weekly' }];
-			},
-		};
-
-		const fields = defineFields(TestQuest, {
-			id: { type: () => String, generateFilter: true },
-			name: { type: () => String, generateFilter: true },
-			frequency: {
-				type: () => QuestFrequency,
-				generateFilter: true,
-				mapNumericEnum: true,
-			},
-		});
-
-		@GQLEntityClass(TestQuest, fields)
-		class TestQuestSQLGQL extends GQLEntityBase {}
-
-		const info = { id: {}, name: {}, frequency: {} } as FieldSelection<TestQuest>;
-		const queryManager = new GQLQueryManager();
-		await queryManager.getQueryResultsForFields(provider, TestQuest, info);
-
-		const sql = capturedSQLs.join(' ');
-		expect(sql).toContain('CASE ');
-		expect(sql).toContain("WHEN '1' THEN 'Weekly'");
-		expect(sql).toContain("WHEN '6' THEN 'OnCall'");
-		expect(sql).toMatch(/END AS "frequency"/);
+		// Raw DB values come back as-is — graphql-js serializes 100→'Worthy' at resolve time
+		expect(result[0].status).toBe(100);
+		expect(result[0].questState).toBe(0);
 	});
 });
 
@@ -544,30 +436,9 @@ describe('mapNumericEnum filter conversion', () => {
 	});
 });
 
-describe('mapNumericEnum SQL CASE for string-valued enums', () => {
+describe('mapNumericEnum string-valued enum registration', () => {
 	beforeEach(() => {
 		clearMapEnumFields();
-	});
-
-	it('should generate CASE WHEN for QuestFrequency (string values)', () => {
-		const sql = SQLBuilder.buildEnumCaseSQL('"a1"."frequency"', QuestFrequency);
-		expect(sql).not.toBeNull();
-		expect(sql!).toContain("WHEN '1' THEN 'Weekly'");
-		expect(sql!).toContain("WHEN '2' THEN 'Fortnightly'");
-		expect(sql!).toContain("WHEN '3' THEN 'Every3Weeks'");
-		expect(sql!).toContain("WHEN '4' THEN 'Every4Weeks'");
-		expect(sql!).toContain("WHEN '5' THEN 'MonthlyFirstWeek'");
-		expect(sql!).toContain("WHEN '6' THEN 'OnCall'");
-		expect(sql!).toContain("WHEN '7' THEN 'Other'");
-		expect(sql!).toContain("WHEN '11' THEN 'Every6Weeks'");
-	});
-
-	it('should generate CASE WHEN for alphanumeric string-valued enums', () => {
-		const sql = SQLBuilder.buildEnumCaseSQL('"a1"."inscription"', RuneInscription);
-		expect(sql).not.toBeNull();
-		expect(sql!).toContain("WHEN 'ABC123' THEN 'Alpha'");
-		expect(sql!).toContain("WHEN 'XYZ789' THEN 'Beta'");
-		expect(sql!).toContain("WHEN '1A2B3C' THEN 'Gamma'");
 	});
 
 	it('should register string-valued enum fields in MapEnumFieldsMap', () => {
