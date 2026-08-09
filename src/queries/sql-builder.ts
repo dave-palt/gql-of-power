@@ -128,6 +128,39 @@ export class SQLBuilder {
 		);
 	}
 
+	/**
+	 * Builds a SQL CASE expression that maps a raw DB enum column value to its
+	 * enum string key (name). Used for `mapNumericEnum` fields so the query
+	 * returns the GraphQL-ready string directly — no post-query conversion.
+	 *
+	 * Iterates the enum object's keys. Numeric-valued keys produce a numeric
+	 * WHEN branch; string-valued keys produce a quoted-string WHEN branch.
+	 *
+	 * Example output:
+	 *   CASE "a1"."state"
+	 *     WHEN 0 THEN 'NotStarted'
+	 *     WHEN 1 THEN 'InProgress'
+	 *     ELSE NULL
+	 *   END
+	 *
+	 * @param columnExpr Raw SQL column expression (e.g. `"a1"."state"`)
+	 * @param enumObj   The TypeScript enum object (e.g. `QuestState`)
+	 * @returns CASE WHEN ... THEN ... END expression, or null if no values
+	 */
+	public static buildEnumCaseSQL(columnExpr: string, enumObj: Record<string, any>): string | null {
+		const branches: string[] = [];
+		for (const key of Object.keys(enumObj)) {
+			// Skip TypeScript's numeric reverse-mapping entries
+			if (/^\d+$/.test(key)) continue;
+
+			const val = enumObj[key];
+			const sqlVal = typeof val === 'number' ? val : `'${String(val).replace(/'/g, "''")}'`;
+			branches.push(`WHEN ${sqlVal} THEN '${key}'`);
+		}
+		if (branches.length === 0) return null;
+		return `CASE ${columnExpr} ${branches.join(' ')} ELSE NULL END`;
+	}
+
 	public static getFieldMapper =
 		<T>(metadata: EntityMetadata<T>, alias: Alias) =>
 		(ob: string) => {

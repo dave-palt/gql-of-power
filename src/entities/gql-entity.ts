@@ -33,6 +33,13 @@ const FieldsOptionsMap: Record<string, Record<string, string>> = {};
 const CustomFieldsMap: Record<string, CustomFieldsSettings<any>> = {};
 const CountFieldsMap: Record<string, Record<string, CountFieldMeta>> = {};
 const MapEnumFieldsMap: Record<string, Record<string, any>> = {};
+
+/**
+ * Per-field enum output mode override.
+ * Keyed by gqlEntityName → fieldName → 'raw' | 'key'.
+ * When a field is not in this map, the global `mapEnumOutputGlobal` is used.
+ */
+const MapEnumOutputFieldsMap: Record<string, Record<string, 'raw' | 'key'>> = {};
 const ParseJsonFieldsMap: Record<string, Set<string>> = {};
 /**
  * Relation fields declared via the plain `defineFields` pattern (not via
@@ -73,6 +80,11 @@ function registerFieldMetadata(
 			const enumObj = fieldOptions.type();
 			MapEnumFieldsMap[gqlEntityName] = MapEnumFieldsMap[gqlEntityName] || {};
 			MapEnumFieldsMap[gqlEntityName][fieldNameToUse] = enumObj;
+			// Store per-field output mode override (if provided)
+			if (fieldOptions.mapEnumOutput) {
+				MapEnumOutputFieldsMap[gqlEntityName] = MapEnumOutputFieldsMap[gqlEntityName] || {};
+				MapEnumOutputFieldsMap[gqlEntityName][fieldNameToUse] = fieldOptions.mapEnumOutput;
+			}
 		} catch {
 			// type thunk may throw for forward refs — safe to skip
 		}
@@ -143,10 +155,29 @@ let gqlTypesSuffix = '';
 let gqlSortSuffix = '';
 let sortEnumRegistered = false;
 
-export const setGlobalConfig = (config: { gqlTypesSuffix?: string; gqlSortSuffix?: string }) => {
+/**
+ * Global enum output mode.
+ *
+ * Resolved at module load from the `GQL_OF_POWER_MAP_ENUM_OUTPUT` env var.
+ * Per-field `mapEnumOutput` takes precedence, then this global, then `'raw'`.
+ *
+ * - `'raw'` — raw DB values pass through (native `buildSchema()` path).
+ * - `'key'` — SQL `CASE WHEN` returns enum string keys (SDL-rebuilt schema path).
+ */
+let mapEnumOutputGlobal: 'raw' | 'key' =
+	(process.env.GQL_OF_POWER_MAP_ENUM_OUTPUT as 'raw' | 'key') || 'raw';
+
+export const setGlobalConfig = (config: {
+	gqlTypesSuffix?: string;
+	gqlSortSuffix?: string;
+	mapEnumOutput?: 'raw' | 'key';
+}) => {
 	if (config.gqlTypesSuffix !== undefined) gqlTypesSuffix = config.gqlTypesSuffix;
 	if (config.gqlSortSuffix !== undefined) gqlSortSuffix = config.gqlSortSuffix;
+	if (config.mapEnumOutput !== undefined) mapEnumOutputGlobal = config.mapEnumOutput;
 };
+
+export const getMapEnumOutputGlobal = () => mapEnumOutputGlobal;
 
 // ─── Public accessors ────────────────────────────────────────────────────────
 
@@ -193,9 +224,19 @@ export const clearCountFields = (): void => {
 export const getMapEnumFieldsFor = (name: string): Record<string, any> =>
 	MapEnumFieldsMap[name] ?? {};
 
+/**
+ * Returns the per-field enum output mode overrides for an entity.
+ * Fields not in this map use the global `getMapEnumOutputGlobal()` setting.
+ */
+export const getMapEnumOutputFieldsFor = (name: string): Record<string, 'raw' | 'key'> =>
+	MapEnumOutputFieldsMap[name] ?? {};
+
 export const clearMapEnumFields = (): void => {
 	for (const key of Object.keys(MapEnumFieldsMap)) {
 		delete MapEnumFieldsMap[key];
+	}
+	for (const key of Object.keys(MapEnumOutputFieldsMap)) {
+		delete MapEnumOutputFieldsMap[key];
 	}
 };
 

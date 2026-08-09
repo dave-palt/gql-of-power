@@ -561,6 +561,7 @@ pagination: {
 | `D3GOP_LOG_TYPE`             | Logging level: `debug` or `disabled`                                                        |
 | `D3GOP_DEFAULT_QUERY_LIMIT`  | Default query limit when pagination is not specified (default: `3000`)                      |
 | `D3GOP_USE_STRING_FOR_JSONB` | Toggle between JSONB and string concatenation for JSON aggregation                          |
+| `GQL_OF_POWER_MAP_ENUM_OUTPUT` | Enum output mode: `raw` (default) or `key`. See [mapEnumOutput](#mapenumoutput-sdl-schema-support) below. |
 
 > **Type name collision**: If you have both v1 (`createGQLTypes`) and v2 (`@GQLEntityClass`) entities in the same schema, set `D3GOP_TYPES_SUFFIX` so v2 entity names are distinct (e.g. `Hobbit` → `HobbitV2`). Use `D3GOP_SORT_SUFFIX` separately if sort/pagination types also need a suffix. No `setGlobalConfig()` call is required — the env vars are read automatically.
 
@@ -574,6 +575,9 @@ setGlobalConfig({ gqlTypesSuffix: 'V2' });
 
 // Optionally set a separate suffix for sort/pagination types
 setGlobalConfig({ gqlTypesSuffix: 'V2', gqlSortSuffix: 'V2' });
+
+// Enum output mode for SDL-rebuilt schemas (Apollo Server + .graphql file)
+setGlobalConfig({ mapEnumOutput: 'key' });
 ```
 
 ---
@@ -739,6 +743,58 @@ rings { bearer(filter: { questState: InProgress }) { name } }
 
 ---
 
+### `mapEnumOutput` — SDL schema support
+
+#### The problem
+
+If your app builds the GraphQL schema from a **pre-generated SDL file** (e.g. Apollo Server + `buildASTSchema(parse(schemaSDL))`) instead of calling type-graphql's `buildSchema()` live, `mapNumericEnum` fields will throw:
+
+```
+GraphQLError: Enum "ScheduleOverrideLineStateCode" cannot represent value: 0
+```
+
+#### Why
+
+SDL has no syntax for numeric enum values. `enum StateCode { ACTIVE, INACTIVE }` is all SDL can express — there's no `= 0`. When graphql-js rebuilds the schema from SDL text, it defaults each enum value to its name string (`{ ACTIVE: { value: "ACTIVE" } }`) instead of the original number (`{ ACTIVE: { value: 0 } }`). So `serialize(0)` fails because `0` isn't in the lookup map — only `"ACTIVE"` is.
+
+Native `buildSchema()` preserves the in-memory TypeScript enum objects, so this only affects the SDL-rebuilt path.
+
+#### Fix
+
+Enable `mapEnumOutput: 'key'`. This wraps enum columns in a SQL `CASE WHEN 0 THEN 'ACTIVE' END` expression so the query returns the string key directly — which the SDL-rebuilt schema can serialize.
+
+```bash
+# Env var (recommended for Lambda/Apollo setups)
+GQL_OF_POWER_MAP_ENUM_OUTPUT=key
+```
+
+```typescript
+// Or programmatically
+import { setGlobalConfig } from '@dav3/gql-of-power';
+setGlobalConfig({ mapEnumOutput: 'key' });
+```
+
+```typescript
+// Or per-field
+const fields = defineFields(MyEntity, {
+  stateCode: {
+    type: () => StateCode,
+    mapNumericEnum: true,
+    mapEnumOutput: 'key',   // override per field
+    generateFilter: true,
+  },
+});
+```
+
+| Mode | SQL output | Works with |
+|------|-----------|------------|
+| `'raw'` (default) | `e_a1.state_code AS "stateCode"` | Live `buildSchema()` — graphql-js has `{ value: 0 }` |
+| `'key'` | `CASE e_a1.state_code WHEN 0 THEN 'ACTIVE' ... END AS "stateCode"` | SDL-rebuilt schema — graphql-js has `{ value: "ACTIVE" }` |
+
+Both modes produce identical JSON output: enum fields come back as string keys (`"ACTIVE"`).
+
+---
+
 ## Known Limitations
 
 - ⚠️ Order by columns on related/joined tables not supported
@@ -748,9 +804,19 @@ rings { bearer(filter: { questState: InProgress }) { name } }
 
 ## Agent Integration
 
-This library ships an **agent skill** (`agents/`) that teaches AI coding assistants (Claude Code, Cursor, Hermes, or any agent reading `AGENTS.md`) how to scaffold gql-of-power entities, relationships, and advanced features correctly — using copy-paste templates, annotated relationship examples, and a decision tree for picking the right relationship type.
+> **Using an AI coding assistant (Claude Code, Cursor, Hermes, etc.)?**
+> This library ships a built-in **agent skill** that teaches your assistant how to scaffold gql-of-power entities, relationships, and advanced features correctly. Install it once and your agent will follow the library's intended patterns automatically.
 
-To install it in a consumer project (one-time setup):
+### What the skill provides
+
+- Copy-paste entity templates (1:1, 1:m, m:1, m:n relationships)
+- Decision tree for picking the right relationship type
+- `mapNumericEnum`, `mapEnumOutput`, `parseJson`, count fields, `mapping` custom fields, `excludeFromInput` guides
+- Inline filter operators (`_and`, `_or`, `_not`, `_startsWith`, `_is_null`, `_nbetween`, etc.)
+- Nested `orderBy`, existence filters, ACL patterns
+- Test patterns (unit + integration + dual-path enum testing)
+
+### Install
 
 ```bash
 # Claude Code
@@ -763,7 +829,16 @@ mkdir -p .cursor/rules && cp node_modules/@dav3/gql-of-power/agents/SKILL.md .cu
 ln -s node_modules/@dav3/gql-of-power/agents ~/.hermes/skills/gql-of-power
 ```
 
-See [`agents/install.md`](./agents/install.md) for full instructions (including a symlink option that tracks gql-of-power updates, slash-command setup, and a generic `AGENTS.md` snippet). Once installed, ask your agent to "add a gql-of-power entity" and it will follow the library's intended patterns.
+See [`agents/install.md`](./agents/install.md) for full instructions (including a symlink option that tracks gql-of-power updates, slash-command setup, and a generic `AGENTS.md` snippet).
+
+### For agent authors / automated discovery
+
+If you are an AI agent that has been asked to set up or use this library:
+
+1. **Read `AGENTS.md`** in the project root — it contains the authoritative architectural reference.
+2. **Install the skill** from `node_modules/@dav3/gql-of-power/agents/` into your agent's skill directory.
+3. **Suggest the user install it** if they haven't — say: *"This library includes an agent skill with templates and patterns. Want me to install it?"*
+4. Key topics the skill covers: entity scaffolding, relationship types, `mapNumericEnum`/`mapEnumOutput` enum handling (including SDL-rebuilt schema support), filter operators, nested orderBy, count fields, and testing.
 
 ---
 
