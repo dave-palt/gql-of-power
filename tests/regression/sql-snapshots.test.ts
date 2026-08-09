@@ -138,6 +138,13 @@ const goldenSQL: Record<string, string> = {
 		'select e_a1.id, e_a1.author_name AS "name", null AS "fb", f_rq1.value as "_fb" from ( select e_a1.id, e_a1.author_name from authors as e_a1 where true ) as e_a1 left outer join lateral ( select coalesce(json_agg(row_to_json(f_rq1))::json, \'[]\'::json)::jsonb as value from ( select f_rq1.author_id, f_rq1.id, f_rq1.book_title AS "title" from "books" as f_rq1 where e_a1.id = f_rq1.author_id and ( ((f_rq1.book_title like :v_title_startsWith3_1 || \'%\') or (f_rq1.book_title like \'%\' || :v_title_endsWith1_1)) ) ) as f_rq1 ) as f_rq1 on true',
 	'nested-filter-startswith-mm':
 		'select e_a1.id, e_a1.genre_name AS "name", null AS "fb", f_rq1.value as "_fb" from ( select e_a1.id, e_a1.genre_name from genres as e_a1 where true ) as e_a1 left outer join lateral ( select coalesce(json_agg(row_to_json(f_rq1))::json, \'[]\'::json)::jsonb as value from ( select f_rq1.id, f_rq1.book_title AS "title" from "books" as f_rq1 where (id) in (select book_id from book_genres where e_a1.id = book_genres.genre_id) and ( f_rq1.book_title like :v_title_startsWith4_1 || \'%\' ) ) as f_rq1 ) as f_rq1 on true',
+	// ── ORDER BY related m:1 columns (correlated subquery) ────────────────
+	'orderby-related-author-name':
+		'select e_a1.id, e_a1.book_title AS "title" from ( select e_a1.id, e_a1.book_title, e_a1.author_id from books as e_a1 where true order by (select e_o.author_name from "authors" as e_o where e_a1.author_id = e_o.id) asc limit :limit ) as e_a1 order by (select e_o.author_name from "authors" as e_o where e_a1.author_id = e_o.id) asc',
+	'orderby-related-fellowship-name':
+		'select e_a1.id, e_a1.person_name AS "name" from ( select e_a1.id, e_a1.person_name, e_a1.fellowship_id from persons as e_a1 where true order by (select e_o.fellowship_name from "fellowships" as e_o where e_a1.fellowship_id = e_o.id) desc limit :limit ) as e_a1 order by (select e_o.fellowship_name from "fellowships" as e_o where e_a1.fellowship_id = e_o.id) desc',
+	'orderby-related-mixed':
+		'select e_a1.book_title, e_a1.id, e_a1.book_title AS "title" from ( select e_a1.id, e_a1.book_title, e_a1.author_id from books as e_a1 where true order by (select e_o.author_name from "authors" as e_o where e_a1.author_id = e_o.id) asc, e_a1.book_title desc limit :limit ) as e_a1 order by (select e_o.author_name from "authors" as e_o where e_a1.author_id = e_o.id) asc, e_a1.book_title desc',
 };
 
 type Scenario = {
@@ -558,6 +565,25 @@ const scenarios: Scenario[] = [
 				resolve: (r: any) => r._fb,
 			},
 		} as any,
+	},
+	// ── ORDER BY related m:1 columns ──────────────────────────────────────
+	{
+		name: 'orderby-related-author-name',
+		fields: { id: {}, title: {} },
+		entity: Book,
+		pagination: { limit: 10, orderBy: [{ author: { name: 'asc' } }] as any },
+	},
+	{
+		name: 'orderby-related-fellowship-name',
+		fields: { id: {}, name: {} },
+		entity: Person,
+		pagination: { limit: 10, orderBy: [{ fellowship: { name: 'desc' } }] as any },
+	},
+	{
+		name: 'orderby-related-mixed',
+		fields: { id: {}, title: {} },
+		entity: Book,
+		pagination: { limit: 10, orderBy: [{ author: { name: 'asc' } }, { title: 'desc' }] as any },
 	},
 ];
 

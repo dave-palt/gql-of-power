@@ -123,7 +123,20 @@ export type GQLEntityFilterInputFieldValueType<T> = Partial<
 	GQLEntityFilterInputFieldType<T>[keyof GQLEntityFilterInputFieldType<T>]
 >;
 
-export type GQLEntityOrderByInputType<T> = Partial<Record<string & keyof T, 'asc' | 'desc'>>;
+/**
+ * ORDER BY input type. Scalar fields map to 'asc' | 'desc'.
+ * Relationship fields (m:1, 1:m, m:m) accept a nested object so TypeScript
+ * provides autocomplete at every level, e.g.:
+ *   orderBy: [{ fellowship: { name: 'asc' } }]
+ *
+ * The recursion is bounded by the entity's own relationship properties —
+ * at the leaf level the value is always 'asc' | 'desc'.
+ */
+export type GQLEntityOrderByInputType<T> = Partial<{
+	[K in keyof T]: T[K] extends object
+		? GQLEntityOrderByInputType<T[K]> | 'asc' | 'desc'
+		: 'asc' | 'desc';
+}>;
 
 export type GQLEntityPaginationInputType<T> = {
 	limit?: number;
