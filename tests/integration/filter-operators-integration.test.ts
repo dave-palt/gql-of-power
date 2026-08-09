@@ -17,7 +17,7 @@ import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it } from
 import { join } from 'path';
 import knex from 'knex';
 import { GQLtoSQLMapper } from '../../src/queries/gql-to-sql-mapper';
-import { Person, Ring } from '../fixtures/middle-earth-schema';
+import { Person, Ring, Author, Book, Genre } from '../fixtures/middle-earth-schema';
 import { DatabaseMetadataProvider } from '../fixtures/database-metadata-provider';
 import { AllSampleData } from '../fixtures/test-data';
 import { getTestDBConfig } from '../fixtures/test-db-config';
@@ -377,6 +377,156 @@ describe('Filter Operators Integration Tests (PR #23)', () => {
 				},
 				TEST_TIMEOUT
 			);
+		});
+
+		describe('Inline filter operators on NESTED relation fields', () => {
+		// These tests exercise the path: requiresRelations → recursiveMap →
+		// filterProcessor.mapFilter(). The new operators must work as inline
+			// filters on nested relations, not just at the root level.
+
+			it(
+				'should apply _startsWith as inline filter on nested 1:m books',
+				async () => {
+					const result = mapper.buildQueryAndBindingsFor({
+						fields: { id: {}, name: {}, fb: {} } as any,
+						entity: Author,
+						customFields: {
+							fb: {
+								type: () => Book,
+								requiresRelations: {
+									books: {
+										as: '_fb',
+										fields: { id: {}, title: {} },
+										filter: { title_startsWith: 'The' },
+									},
+								},
+								resolve: (r: any) => r._fb,
+							},
+						} as any,
+					});
+
+					expect(result.querySQL).toContain('like');
+
+					const dbResults = await metadataProvider.executeQuery(
+						k.raw(result.querySQL, result.bindings).toString()
+					);
+
+					expect(dbResults).toBeDefined();
+					expect(Array.isArray(dbResults)).toBe(true);
+				},
+				TEST_TIMEOUT
+			);
+
+			it(
+				'should apply _not as inline filter on nested 1:m books',
+				async () => {
+					const result = mapper.buildQueryAndBindingsFor({
+						fields: { id: {}, name: {}, fb: {} } as any,
+						entity: Author,
+						customFields: {
+							fb: {
+								type: () => Book,
+								requiresRelations: {
+									books: {
+										as: '_fb',
+										fields: { id: {}, title: {} },
+										filter: { _not: [{ title_eq: 'Silmarillion' }] },
+									},
+								},
+								resolve: (r: any) => r._fb,
+							},
+						} as any,
+					});
+
+					expect(result.querySQL).toContain('not (');
+
+					const dbResults = await metadataProvider.executeQuery(
+						k.raw(result.querySQL, result.bindings).toString()
+					);
+
+					expect(dbResults).toBeDefined();
+					expect(Array.isArray(dbResults)).toBe(true);
+				},
+				TEST_TIMEOUT
+			);
+
+			it(
+				'should apply _and with multiple operators as inline filter on nested 1:m',
+				async () => {
+					const result = mapper.buildQueryAndBindingsFor({
+						fields: { id: {}, name: {}, fb: {} } as any,
+						entity: Author,
+						customFields: {
+							fb: {
+								type: () => Book,
+								requiresRelations: {
+									books: {
+										as: '_fb',
+										fields: { id: {}, title: {}, pages: {} },
+										filter: {
+											_and: [
+												{ title_startsWith: 'The' },
+												{ pages_nbetween: [1000, 2000] },
+											],
+										},
+									},
+								},
+								resolve: (r: any) => r._fb,
+							},
+						} as any,
+					});
+
+					expect(result.querySQL).toContain('like');
+					expect(result.querySQL).toContain('not between');
+
+					const dbResults = await metadataProvider.executeQuery(
+						k.raw(result.querySQL, result.bindings).toString()
+					);
+
+					expect(dbResults).toBeDefined();
+					expect(Array.isArray(dbResults)).toBe(true);
+				},
+				TEST_TIMEOUT
+			);
+
+			it(
+				'should apply _or as inline filter on nested m:m books',
+				async () => {
+					const result = mapper.buildQueryAndBindingsFor({
+						fields: { id: {}, name: {}, fb: {} } as any,
+						entity: Genre,
+						customFields: {
+							fb: {
+								type: () => Book,
+								requiresRelations: {
+									books: {
+										as: '_fb',
+										fields: { id: {}, title: {} },
+										filter: {
+											_or: [
+												{ title_startsWith: 'The' },
+												{ title_endsWith: 'Rings' },
+											],
+										},
+									},
+								},
+								resolve: (r: any) => r._fb,
+							},
+						} as any,
+					});
+
+					expect(result.querySQL).toContain('or');
+
+					const dbResults = await metadataProvider.executeQuery(
+						k.raw(result.querySQL, result.bindings).toString()
+					);
+
+					expect(dbResults).toBeDefined();
+					expect(Array.isArray(dbResults)).toBe(true);
+				},
+				TEST_TIMEOUT
+			);
+		});
 		});
 
 		// ── Helper ─────────────────────────────────────────────────────────

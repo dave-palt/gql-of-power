@@ -14,7 +14,15 @@
 import { describe, expect, it } from 'bun:test';
 import { GQLtoSQLMapper } from '../../src/queries/gql-to-sql-mapper';
 import { createMockMetadataProvider } from '../fixtures/test-data';
-import { Author, Battle, Book, Fellowship, Person, Ring } from '../fixtures/middle-earth-schema';
+import {
+	Author,
+	Battle,
+	Book,
+	Fellowship,
+	Genre,
+	Person,
+	Ring,
+} from '../fixtures/middle-earth-schema';
 import '../setup';
 
 const normalize = (sql: string) => sql.replace(/\s+/g, ' ').trim();
@@ -119,6 +127,17 @@ const goldenSQL: Record<string, string> = {
 		'select e_a1.id, e_a1.book_title AS "title", null AS "[object Object]" from ( select e_a1.id, e_a1.book_title from books as e_a1 where true ) as e_a1',
 	'rel-m1-book-to-author':
 		'select e_a1.id, e_a1.book_title AS "title", null AS "[object Object]" from ( select e_a1.id, e_a1.book_title from books as e_a1 where true ) as e_a1',
+	// ── Inline/nested filter operators on relation fields (PR #23) ─────────
+	'nested-filter-startswith':
+		'select e_a1.id, e_a1.author_name AS "name", null AS "fb", f_rq1.value as "_fb" from ( select e_a1.id, e_a1.author_name from authors as e_a1 where true ) as e_a1 left outer join lateral ( select coalesce(json_agg(row_to_json(f_rq1))::json, \'[]\'::json)::jsonb as value from ( select f_rq1.author_id, f_rq1.id, f_rq1.book_title AS "title" from "books" as f_rq1 where e_a1.id = f_rq1.author_id and ( f_rq1.book_title like :v_title_startsWith1_1 || \'%\' ) ) as f_rq1 ) as f_rq1 on true',
+	'nested-filter-not':
+		'select e_a1.id, e_a1.author_name AS "name", null AS "fb", f_rq1.value as "_fb" from ( select e_a1.id, e_a1.author_name from authors as e_a1 where true ) as e_a1 left outer join lateral ( select coalesce(json_agg(row_to_json(f_rq1))::json, \'[]\'::json)::jsonb as value from ( select f_rq1.author_id, f_rq1.id, f_rq1.book_title AS "title" from "books" as f_rq1 where e_a1.id = f_rq1.author_id and ( not (f_rq1.book_title = :v_title_eq1_1) ) ) as f_rq1 ) as f_rq1 on true',
+	'nested-filter-and':
+		'select e_a1.id, e_a1.author_name AS "name", null AS "fb", f_rq1.value as "_fb" from ( select e_a1.id, e_a1.author_name from authors as e_a1 where true ) as e_a1 left outer join lateral ( select coalesce(json_agg(row_to_json(f_rq1))::json, \'[]\'::json)::jsonb as value from ( select f_rq1.author_id, f_rq1.id, f_rq1.book_title AS "title", f_rq1.page_count AS "pages" from "books" as f_rq1 where e_a1.id = f_rq1.author_id and ( f_rq1.book_title like :v_title_startsWith2_1 || \'%\' and f_rq1.page_count not between :v_page_count1_0 and :v_page_count2_1 ) ) as f_rq1 ) as f_rq1 on true',
+	'nested-filter-or':
+		'select e_a1.id, e_a1.author_name AS "name", null AS "fb", f_rq1.value as "_fb" from ( select e_a1.id, e_a1.author_name from authors as e_a1 where true ) as e_a1 left outer join lateral ( select coalesce(json_agg(row_to_json(f_rq1))::json, \'[]\'::json)::jsonb as value from ( select f_rq1.author_id, f_rq1.id, f_rq1.book_title AS "title" from "books" as f_rq1 where e_a1.id = f_rq1.author_id and ( ((f_rq1.book_title like :v_title_startsWith3_1 || \'%\') or (f_rq1.book_title like \'%\' || :v_title_endsWith1_1)) ) ) as f_rq1 ) as f_rq1 on true',
+	'nested-filter-startswith-mm':
+		'select e_a1.id, e_a1.genre_name AS "name", null AS "fb", f_rq1.value as "_fb" from ( select e_a1.id, e_a1.genre_name from genres as e_a1 where true ) as e_a1 left outer join lateral ( select coalesce(json_agg(row_to_json(f_rq1))::json, \'[]\'::json)::jsonb as value from ( select f_rq1.id, f_rq1.book_title AS "title" from "books" as f_rq1 where (id) in (select book_id from book_genres where e_a1.id = book_genres.genre_id) and ( f_rq1.book_title like :v_title_startsWith4_1 || \'%\' ) ) as f_rq1 ) as f_rq1 on true',
 };
 
 type Scenario = {
@@ -444,6 +463,101 @@ const scenarios: Scenario[] = [
 		name: 'rel-m1-book-to-author',
 		fields: { id: {}, title: {}, author: { id: {}, name: {} } },
 		entity: Book,
+	},
+	// ── Inline/nested filter operators on relation fields (PR #23) ─────────
+	{
+		name: 'nested-filter-startswith',
+		fields: { id: {}, name: {}, fb: {} },
+		entity: Author,
+		customFields: {
+			fb: {
+				type: () => Book,
+				requiresRelations: {
+					books: {
+						as: '_fb',
+						fields: { id: {}, title: {} },
+						filter: { title_startsWith: 'The' },
+					},
+				},
+				resolve: (r: any) => r._fb,
+			},
+		} as any,
+	},
+	{
+		name: 'nested-filter-not',
+		fields: { id: {}, name: {}, fb: {} },
+		entity: Author,
+		customFields: {
+			fb: {
+				type: () => Book,
+				requiresRelations: {
+					books: {
+						as: '_fb',
+						fields: { id: {}, title: {} },
+						filter: { _not: [{ title_eq: 'Silmarillion' }] },
+					},
+				},
+				resolve: (r: any) => r._fb,
+			},
+		} as any,
+	},
+	{
+		name: 'nested-filter-and',
+		fields: { id: {}, name: {}, fb: {} },
+		entity: Author,
+		customFields: {
+			fb: {
+				type: () => Book,
+				requiresRelations: {
+					books: {
+						as: '_fb',
+						fields: { id: {}, title: {}, pages: {} },
+						filter: {
+							_and: [{ title_startsWith: 'The' }, { pages_nbetween: [1000, 2000] }],
+						},
+					},
+				},
+				resolve: (r: any) => r._fb,
+			},
+		} as any,
+	},
+	{
+		name: 'nested-filter-or',
+		fields: { id: {}, name: {}, fb: {} },
+		entity: Author,
+		customFields: {
+			fb: {
+				type: () => Book,
+				requiresRelations: {
+					books: {
+						as: '_fb',
+						fields: { id: {}, title: {} },
+						filter: {
+							_or: [{ title_startsWith: 'The' }, { title_endsWith: 'Rings' }],
+						},
+					},
+				},
+				resolve: (r: any) => r._fb,
+			},
+		} as any,
+	},
+	{
+		name: 'nested-filter-startswith-mm',
+		fields: { id: {}, name: {}, fb: {} },
+		entity: Genre,
+		customFields: {
+			fb: {
+				type: () => Book,
+				requiresRelations: {
+					books: {
+						as: '_fb',
+						fields: { id: {}, title: {} },
+						filter: { title_startsWith: 'The' },
+					},
+				},
+				resolve: (r: any) => r._fb,
+			},
+		} as any,
 	},
 ];
 
