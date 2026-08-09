@@ -127,7 +127,11 @@ For each new entity, verify:
 
 2. **Relationship-field filters need `as any`.** Filters like `{ fellowship: { id_in: [1,2] } }` work at runtime but `GQLEntityFilterInputFieldType<T>` doesn't statically surface relation sub-filters. Cast the filter object to `any` (the library's own tests do this).
 
-3. **`mapNumericEnum` value direction.** DB stores the number (e.g. `100`); GraphQL exposes the enum string key (`"Forged"`). The library auto-generates the FieldResolver for the read direction and converts filter values back to numbers for SQL. You must still `registerEnumType(MyEnum)` with type-graphql.
+3. **`mapNumericEnum` value direction + `mapEnumOutput` output mode.** DB stores the number (e.g. `100`); GraphQL exposes the enum string key (`"Forged"`). The library converts filter values to numbers for SQL (via `enum-filter-converter.ts`). On the output side, `mapEnumOutput` controls the SQL:
+   - `'raw'` (default) — raw DB values pass through. Works when the schema is built live via type-graphql's `buildSchema()`.
+   - `'key'` — SQL `CASE WHEN` returns the enum string key. Required when the schema is rebuilt from SDL (Apollo Server + `.graphql` file), because SDL strips numeric values and `serialize(0)` fails.
+   - Set via per-field `mapEnumOutput`, global `setGlobalConfig({ mapEnumOutput: 'key' })`, or env `GQL_OF_POWER_MAP_ENUM_OUTPUT=key`.
+   - You must still `registerEnumType(MyEnum)` with type-graphql.
 
 4. **`_exists` / `_not_exists` are class-level, not field settings.** They work on relationship fields automatically — no schema change needed. Use them in filters: `persons(filter: { _exists: { Ring: { forgedBy: "Sauron" } } })`. Multiple keys are AND-combined.
 
