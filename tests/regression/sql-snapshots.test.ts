@@ -14,7 +14,15 @@
 import { describe, expect, it } from 'bun:test';
 import { GQLtoSQLMapper } from '../../src/queries/gql-to-sql-mapper';
 import { createMockMetadataProvider } from '../fixtures/test-data';
-import { Author, Battle, Book, Fellowship, Person, Ring } from '../fixtures/middle-earth-schema';
+import {
+	Author,
+	Battle,
+	Book,
+	Fellowship,
+	Genre,
+	Person,
+	Ring,
+} from '../fixtures/middle-earth-schema';
 import '../setup';
 
 const normalize = (sql: string) => sql.replace(/\s+/g, ' ').trim();
@@ -84,6 +92,27 @@ const goldenSQL: Record<string, string> = {
 	// _contains filter — ARRAY @> ARRAY
 	'filter-contains-race':
 		'select e_a1.id, e_a1.person_name AS "name" from ( select e_a1.id, e_a1.person_name from persons as e_a1 where true and ( ARRAY[e_a1.race] @> ARRAY[:v_race_contains1_1__0] ) ) as e_a1',
+	// New string operators — _startsWith, _endsWith, _nlike, _nre
+	'filter-startsWith':
+		'select e_a1.id, e_a1.person_name AS "name" from ( select e_a1.id, e_a1.person_name from persons as e_a1 where true and ( e_a1.person_name like :v_name_startsWith1_1 || \'%\' ) ) as e_a1',
+	'filter-endsWith':
+		'select e_a1.id, e_a1.person_name AS "name" from ( select e_a1.id, e_a1.person_name from persons as e_a1 where true and ( e_a1.person_name like \'%\' || :v_name_endsWith1_1 ) ) as e_a1',
+	'filter-nlike':
+		'select e_a1.id, e_a1.person_name AS "name" from ( select e_a1.id, e_a1.person_name from persons as e_a1 where true and ( e_a1.person_name not like :v_name_nlike1_1 ) ) as e_a1',
+	'filter-nre':
+		'select e_a1.id, e_a1.person_name AS "name" from ( select e_a1.id, e_a1.person_name from persons as e_a1 where true and ( e_a1.person_name !~ :v_name_nre1_1 ) ) as e_a1',
+	// New range/null operators — _nbetween, _is_null
+	'filter-nbetween':
+		'select e_a1.id, e_a1.person_name AS "name" from ( select e_a1.id, e_a1.person_name from persons as e_a1 where true and ( e_a1.age not between :v_age3_0 and :v_age4_1 ) ) as e_a1',
+	'filter-is-null':
+		'select e_a1.id, e_a1.person_name AS "name" from ( select e_a1.id, e_a1.person_name from persons as e_a1 where true and ( e_a1.age is null ) ) as e_a1',
+	// _not class operation — negates a conjunction of conditions
+	'filter-not-simple':
+		'select e_a1.id, e_a1.person_name AS "name" from ( select e_a1.id, e_a1.person_name from persons as e_a1 where true and ( not (e_a1.person_name = :e_person_name2_person_name) ) ) as e_a1',
+	'filter-not-multi':
+		'select e_a1.id, e_a1.person_name AS "name" from ( select e_a1.id, e_a1.person_name from persons as e_a1 where true and ( not (e_a1.person_name = :e_person_name3_person_name and e_a1.race = :e_race6_race) ) ) as e_a1',
+	'filter-not-with-other':
+		'select e_a1.id, e_a1.person_name AS "name" from ( select e_a1.id, e_a1.person_name from persons as e_a1 where true and ( e_a1.age > :v_age_gt5_1 and not (e_a1.race = :e_race7_race) ) ) as e_a1',
 	'filter-exists-ring':
 		'select e_a1.id, e_a1.person_name AS "name" from ( select e_a1.id, e_a1.person_name from persons as e_a1 where true ) as e_a1',
 	'filter-not-exists-battle':
@@ -98,6 +127,17 @@ const goldenSQL: Record<string, string> = {
 		'select e_a1.id, e_a1.book_title AS "title", null AS "[object Object]" from ( select e_a1.id, e_a1.book_title from books as e_a1 where true ) as e_a1',
 	'rel-m1-book-to-author':
 		'select e_a1.id, e_a1.book_title AS "title", null AS "[object Object]" from ( select e_a1.id, e_a1.book_title from books as e_a1 where true ) as e_a1',
+	// ── Inline/nested filter operators on relation fields (PR #23) ─────────
+	'nested-filter-startswith':
+		'select e_a1.id, e_a1.author_name AS "name", null AS "fb", f_rq1.value as "_fb" from ( select e_a1.id, e_a1.author_name from authors as e_a1 where true ) as e_a1 left outer join lateral ( select coalesce(json_agg(row_to_json(f_rq1))::json, \'[]\'::json)::jsonb as value from ( select f_rq1.author_id, f_rq1.id, f_rq1.book_title AS "title" from "books" as f_rq1 where e_a1.id = f_rq1.author_id and ( f_rq1.book_title like :v_title_startsWith1_1 || \'%\' ) ) as f_rq1 ) as f_rq1 on true',
+	'nested-filter-not':
+		'select e_a1.id, e_a1.author_name AS "name", null AS "fb", f_rq1.value as "_fb" from ( select e_a1.id, e_a1.author_name from authors as e_a1 where true ) as e_a1 left outer join lateral ( select coalesce(json_agg(row_to_json(f_rq1))::json, \'[]\'::json)::jsonb as value from ( select f_rq1.author_id, f_rq1.id, f_rq1.book_title AS "title" from "books" as f_rq1 where e_a1.id = f_rq1.author_id and ( not (f_rq1.book_title = :v_title_eq1_1) ) ) as f_rq1 ) as f_rq1 on true',
+	'nested-filter-and':
+		'select e_a1.id, e_a1.author_name AS "name", null AS "fb", f_rq1.value as "_fb" from ( select e_a1.id, e_a1.author_name from authors as e_a1 where true ) as e_a1 left outer join lateral ( select coalesce(json_agg(row_to_json(f_rq1))::json, \'[]\'::json)::jsonb as value from ( select f_rq1.author_id, f_rq1.id, f_rq1.book_title AS "title", f_rq1.page_count AS "pages" from "books" as f_rq1 where e_a1.id = f_rq1.author_id and ( f_rq1.book_title like :v_title_startsWith2_1 || \'%\' and f_rq1.page_count not between :v_page_count1_0 and :v_page_count2_1 ) ) as f_rq1 ) as f_rq1 on true',
+	'nested-filter-or':
+		'select e_a1.id, e_a1.author_name AS "name", null AS "fb", f_rq1.value as "_fb" from ( select e_a1.id, e_a1.author_name from authors as e_a1 where true ) as e_a1 left outer join lateral ( select coalesce(json_agg(row_to_json(f_rq1))::json, \'[]\'::json)::jsonb as value from ( select f_rq1.author_id, f_rq1.id, f_rq1.book_title AS "title" from "books" as f_rq1 where e_a1.id = f_rq1.author_id and ( ((f_rq1.book_title like :v_title_startsWith3_1 || \'%\') or (f_rq1.book_title like \'%\' || :v_title_endsWith1_1)) ) ) as f_rq1 ) as f_rq1 on true',
+	'nested-filter-startswith-mm':
+		'select e_a1.id, e_a1.genre_name AS "name", null AS "fb", f_rq1.value as "_fb" from ( select e_a1.id, e_a1.genre_name from genres as e_a1 where true ) as e_a1 left outer join lateral ( select coalesce(json_agg(row_to_json(f_rq1))::json, \'[]\'::json)::jsonb as value from ( select f_rq1.id, f_rq1.book_title AS "title" from "books" as f_rq1 where (id) in (select book_id from book_genres where e_a1.id = book_genres.genre_id) and ( f_rq1.book_title like :v_title_startsWith4_1 || \'%\' ) ) as f_rq1 ) as f_rq1 on true',
 };
 
 type Scenario = {
@@ -313,6 +353,68 @@ const scenarios: Scenario[] = [
 		filter: { race_contains: 'Elf' } as any,
 	},
 
+	// ── New string operators ──────────────────────────────────────────────
+	{
+		name: 'filter-startsWith',
+		fields: { id: {}, name: {} },
+		entity: Person,
+		filter: { name_startsWith: 'Saur' } as any,
+	},
+	{
+		name: 'filter-endsWith',
+		fields: { id: {}, name: {} },
+		entity: Person,
+		filter: { name_endsWith: 'don' } as any,
+	},
+	{
+		name: 'filter-nlike',
+		fields: { id: {}, name: {} },
+		entity: Person,
+		filter: { name_nlike: '%Baggins%' } as any,
+	},
+	{
+		name: 'filter-nre',
+		fields: { id: {}, name: {} },
+		entity: Person,
+		filter: { name_nre: '^Sauron$' } as any,
+	},
+	// New range/null operators
+	{
+		name: 'filter-nbetween',
+		fields: { id: {}, name: {} },
+		entity: Person,
+		filter: { age_nbetween: [30, 200] } as any,
+	},
+	{
+		name: 'filter-is-null',
+		fields: { id: {}, name: {} },
+		entity: Person,
+		filter: { age_is_null: true } as any,
+	},
+
+	// ── _not class operation ──────────────────────────────────────────────
+	// Simple _not — negate a single condition
+	{
+		name: 'filter-not-simple',
+		fields: { id: {}, name: {} },
+		entity: Person,
+		filter: { _not: [{ name: 'Frodo' }] } as any,
+	},
+	// _not with multiple conditions — NOT (cond1 AND cond2)
+	{
+		name: 'filter-not-multi',
+		fields: { id: {}, name: {} },
+		entity: Person,
+		filter: { _not: [{ name: 'Frodo' }, { race: 'Hobbit' }] } as any,
+	},
+	// _not combined with a regular field filter
+	{
+		name: 'filter-not-with-other',
+		fields: { id: {}, name: {} },
+		entity: Person,
+		filter: { age_gt: 50, _not: [{ race: 'Orc' }] } as any,
+	},
+
 	// ── Exists filters ────────────────────────────────────────────────────
 	{
 		name: 'filter-exists-ring',
@@ -361,6 +463,101 @@ const scenarios: Scenario[] = [
 		name: 'rel-m1-book-to-author',
 		fields: { id: {}, title: {}, author: { id: {}, name: {} } },
 		entity: Book,
+	},
+	// ── Inline/nested filter operators on relation fields (PR #23) ─────────
+	{
+		name: 'nested-filter-startswith',
+		fields: { id: {}, name: {}, fb: {} },
+		entity: Author,
+		customFields: {
+			fb: {
+				type: () => Book,
+				requiresRelations: {
+					books: {
+						as: '_fb',
+						fields: { id: {}, title: {} },
+						filter: { title_startsWith: 'The' },
+					},
+				},
+				resolve: (r: any) => r._fb,
+			},
+		} as any,
+	},
+	{
+		name: 'nested-filter-not',
+		fields: { id: {}, name: {}, fb: {} },
+		entity: Author,
+		customFields: {
+			fb: {
+				type: () => Book,
+				requiresRelations: {
+					books: {
+						as: '_fb',
+						fields: { id: {}, title: {} },
+						filter: { _not: [{ title_eq: 'Silmarillion' }] },
+					},
+				},
+				resolve: (r: any) => r._fb,
+			},
+		} as any,
+	},
+	{
+		name: 'nested-filter-and',
+		fields: { id: {}, name: {}, fb: {} },
+		entity: Author,
+		customFields: {
+			fb: {
+				type: () => Book,
+				requiresRelations: {
+					books: {
+						as: '_fb',
+						fields: { id: {}, title: {}, pages: {} },
+						filter: {
+							_and: [{ title_startsWith: 'The' }, { pages_nbetween: [1000, 2000] }],
+						},
+					},
+				},
+				resolve: (r: any) => r._fb,
+			},
+		} as any,
+	},
+	{
+		name: 'nested-filter-or',
+		fields: { id: {}, name: {}, fb: {} },
+		entity: Author,
+		customFields: {
+			fb: {
+				type: () => Book,
+				requiresRelations: {
+					books: {
+						as: '_fb',
+						fields: { id: {}, title: {} },
+						filter: {
+							_or: [{ title_startsWith: 'The' }, { title_endsWith: 'Rings' }],
+						},
+					},
+				},
+				resolve: (r: any) => r._fb,
+			},
+		} as any,
+	},
+	{
+		name: 'nested-filter-startswith-mm',
+		fields: { id: {}, name: {}, fb: {} },
+		entity: Genre,
+		customFields: {
+			fb: {
+				type: () => Book,
+				requiresRelations: {
+					books: {
+						as: '_fb',
+						fields: { id: {}, title: {} },
+						filter: { title_startsWith: 'The' },
+					},
+				},
+				resolve: (r: any) => r._fb,
+			},
+		} as any,
 	},
 ];
 

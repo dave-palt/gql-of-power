@@ -591,51 +591,6 @@ function _buildInputType<T>(
 
 // ─── Shared resolver builder ─────────────────────────────────────────────────
 
-/**
- * Phase 2: attach @FieldResolver methods for fields with `mapNumericEnum`.
- *
- * The resolver returns the raw DB value unchanged. graphql-js's
- * `GraphQLEnumType.serialize()` performs the value→name conversion itself
- * (e.g. 100 → "Forged") using the internal values registered by
- * `registerEnumType`. Returning the string key here would cause
- * "Enum cannot represent value" errors at serialization time.
- */
-function _registerMapNumericEnumResolvers<T>(
-	rawFields: Partial<FieldsSettings<T>>,
-	FieldsResolver: any
-) {
-	for (const fieldName of Object.keys(rawFields)) {
-		const fieldOpts = (rawFields as any)[fieldName];
-		if (!fieldOpts?.mapNumericEnum) continue;
-
-		const fieldNameToUse = fieldOpts.alias ?? fieldName;
-		const enumTypeThunk = fieldOpts.type;
-
-		const resolveFn = (root: any) => {
-			const value = root[fieldNameToUse];
-			if (value === null || value === undefined) return null;
-			return value;
-		};
-
-		Object.defineProperty(FieldsResolver.prototype, fieldNameToUse, {
-			value: resolveFn,
-			writable: true,
-			configurable: true,
-		});
-
-		FieldResolver(enumTypeThunk, {
-			...fieldOpts.options,
-			name: fieldNameToUse,
-		})(
-			FieldsResolver.prototype,
-			fieldNameToUse,
-			Object.getOwnPropertyDescriptor(FieldsResolver.prototype, fieldNameToUse)!
-		);
-
-		Root()(FieldsResolver.prototype, fieldNameToUse, 0);
-	}
-}
-
 /** Phase 3: process custom fields — alias registration, metadata, resolve/mapping/requiresRelations strategies. */
 function _processCustomFields<T>(
 	customFields: CustomFieldsSettings<T>,
@@ -1157,10 +1112,7 @@ function _buildResolversForEntity<T>(
 	@Resolver(() => GQLEntity)
 	class FieldsResolver {}
 
-	// ─── Phases 2-6: delegate to focused helpers ────────────────────────────
-	if (rawFields) {
-		_registerMapNumericEnumResolvers(rawFields, FieldsResolver);
-	}
+	// ─── Phases 3-6: delegate to focused helpers ────────────────────────────
 
 	if (customFields) {
 		_processCustomFields(
