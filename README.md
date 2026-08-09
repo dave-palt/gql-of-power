@@ -293,6 +293,68 @@ Returns `null` when the FK column is null (LEFT JOIN).
 
 ---
 
+## Three Ways to Define an Entity
+
+There are three APIs for registering a GQL entity. They differ in **when** the generated types (FilterInput, PaginationInput, FieldsResolver, etc.) are registered — that difference matters for filter-type resolution (see [Troubleshooting](#troubleshooting)).
+
+### Quick comparison
+
+| API                 | When to use                                                                                              | Calls `buildResolvers()`?                                    | FilterInput registered   |
+| ------------------- | -------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------ | ------------------------ |
+| `@GQLEntityClass`   | **Default.** No circular imports between entity files.                                                   | ✅ Automatically (at decoration time)                        | ✅ Yes                   |
+| `createGQLTypes()`  | Same as `@GQLEntityClass` but as a function call (can't decorate a class, or prefer the explicit style). | ✅ Automatically (internally)                                | ✅ Yes                   |
+| `createGQLEntity()` | **Circular imports** between entity definitions — you need to defer resolver registration.               | ❌ **Deferred** — you must call `.buildResolvers()` yourself | ❌ No, until you call it |
+
+### `@GQLEntityClass` — the default (recommended)
+
+The decorator registers the entity **and** its FilterInput/FieldsResolver immediately at decoration time. All generated statics (`FilterInput`, `PaginationInput`, `FieldsResolver`) are available on the class.
+
+```typescript
+@GQLEntityClass(Book, bookFields)
+export class BookGQL extends GQLEntityBase {}
+// BookGQL.FilterInput is ready. Done.
+```
+
+### `createGQLTypes()` — function-call equivalent
+
+Same behaviour as the decorator — it calls `createGQLEntity().buildResolvers()` internally (see `gql-entity.ts:1221-1222`). Use it when you can't or don't want to decorate a class.
+
+```typescript
+export const BookGQL = createGQLTypes(Book, bookFields);
+// BookGQL.FilterInput is ready. Done.
+```
+
+### `createGQLEntity()` — for circular imports (advanced)
+
+Returns the entity definition **without** registering the FilterInput or FieldsResolver. You must call `.buildResolvers()` yourself before `buildSchema()` runs. This split exists so two entity files can reference each other's `GQLEntity` type thunks without a circular-import deadlock at module-load time.
+
+```typescript
+// book.entity.ts
+export const BookEntity = createGQLEntity(Book, bookFields);
+//   ↑ FilterInput NOT registered yet
+
+// author.entity.ts — can import BookEntity for the thunk even if Book imports Author
+export const AuthorEntity = createGQLEntity(Author, authorFields, {
+	customFields: {/* ... uses () => BookEntity.GQLEntity ... */},
+});
+
+// schema/index.ts — YOU must call buildResolvers() on EVERY entity
+export const BookGQL = BookEntity.buildResolvers(); // ← registers BookFilterInput
+export const AuthorGQL = AuthorEntity.buildResolvers(); // ← registers AuthorFilterInput
+```
+
+> ⚠️ **If you forget a `.buildResolvers()` call**, any filter that references that entity (relationship fields, mapping custom-field filters, `_exists` filters) will throw at schema-build time:
+>
+> ```
+> gql-of-power: FilterInput for referenced entity "Book" (BookFilterInput) is not registered.
+> Make sure Book's buildResolvers() is called (or use createGQLTypes / @GQLEntityClass)
+> before building the schema.
+> ```
+>
+> The error names the missing entity so you know exactly which file to fix.
+
+---
+
 ## Filtering
 
 Filter at any nesting level:
@@ -557,6 +619,70 @@ No `limit` or `offset` parameters are accepted — `LIMIT 1` is always applied.
 3. **Aggregate** – JSON aggregation (`row_to_json`, `json_agg`) combines nested results
 4. **Bind** – Named parameters are bound via knex raw
 5. **Execute** – Single SQL sent to the database
+
+---
+
+## Troubleshooting
+
+### `FilterInput for referenced entity "X" is not registered`
+
+This error fires at `buildSchema()` time when a relationship field, mapping custom-field filter, or `_exists` filter references an entity whose FilterInput was never registered.
+
+**Cause:** You used `createGQLEntity()` (the deferred API) for entity `X` but forgot to call `X.buildResolvers()` before building the schema. The entity's ObjectType is registered, but its FilterInput is not.
+
+**Fix:** Either switch the entity to `@GQLEntityClass` / `createGQLTypes()` (which call `buildResolvers()` automatically), or add the missing call:
+
+```typescript
+// schema/index.ts — collect ALL entities and call buildResolvers()
+const BookGQL = BookEntity.buildResolvers();
+const AuthorGQL = AuthorEntity.buildResolvers();
+```
+
+Before August 2026 this was a **silent wrong-type bug**: the missing FilterInput fell back to the parent entity's FilterInput, so `Author.books` would generate `AuthorFilterInput` instead of `BookFilterInput`. The library now throws with the message above.
+
+### Mapping custom-field filter is missing from the schema
+
+If a `customFields` entry with `mapping` doesn't produce its nested filter (e.g. `HomeRegion: { name_eq: '...' }` is absent), check whether `resolve` was **also** set on the same field:
+
+```typescript
+customFields: {
+	homeRegion: {
+		type: () => RegionGQL.GQLEntity,
+		mapping: { refEntity: Region, refFields: 'id', fields: 'homeRegionId' },
+		generateFilter: true,
+		resolve: (root) => ...,  // ← THIS makes the filter silently disappear
+	},
+},
+```
+
+`resolve` and `mapping` are **mutually exclusive** on the same custom field. When both are set, only the resolver registers — the mapping filter is skipped. TypeScript's `CustomFieldSettings<T>` union enforces this at the type level, but `as any` bypasses it. Remove `resolve` (and `resolveDecorators`/`requires`) from a mapping-strategy field.
+
+### Filter key is PascalCase, not camelCase
+
+Mapping custom-field filters appear in the FilterInput under a **capitalized** key:
+
+```graphql
+# ✅ Correct — PascalCase filter key
+persons(filter: { HomeRegion: { name_eq: 'Gondor' } }) { ... }
+
+# ❌ Wrong — camelCase doesn't exist on the FilterInput
+persons(filter: { homeRegion: { name_eq: 'Gondor' } })
+# Field "homeRegion" is not defined by type "PersonFilterInput". Did you mean "HomeRegion"?
+```
+
+The field **selection** in the query stays camelCase (`homeRegion { ... }`); only the filter key is capitalized. Count-field nested filters follow the same rule (`BookCount: { _gte: 2 }`).
+
+### Relationship-field filters aren't statically typed
+
+`GQLEntityFilterInputFieldType<T>` surfaces filter operators for scalar fields but does **not** statically include nested relationship sub-filters (they're generated at runtime). Cast the filter object `as any` when using relationship filters:
+
+```typescript
+queryManager.getQueryResultsForInfo(provider, PersonGQL, info, {
+	fellowship: { id_in: [1, 2] }, // works at runtime, not statically typed
+} as any);
+```
+
+This is the library's own test-suite pattern.
 
 ---
 

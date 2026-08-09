@@ -131,11 +131,13 @@ For each new entity, verify:
 
 4. **`_exists` / `_not_exists` are class-level, not field settings.** They work on relationship fields automatically — no schema change needed. Use them in filters: `persons(filter: { _exists: { Ring: { forgedBy: "Sauron" } } })`. Multiple keys are AND-combined.
 
-5. **`mapping` strategy vs `resolve` strategy custom fields are mutually exclusive.** A `customField` (a field NOT on the ORM class) uses exactly one: `mapping` (library generates the JOIN, no resolver function) OR `resolve` + `resolveDecorators` (you provide a FieldResolver). See `references/advanced-features.md`.
+5. **`mapping` strategy vs `resolve` strategy custom fields are mutually exclusive.** A `customField` (a field NOT on the ORM class) uses exactly one: `mapping` (library generates the JOIN, no resolver function) OR `resolve` + `resolveDecorators` (you provide a FieldResolver). If both are set on the same field, only the resolver registers — the mapping filter silently disappears. See `references/advanced-features.md`.
 
-6. **`requires` fetches columns silently.** Fields listed in `requires` are added to the SQL SELECT even if the client didn't request them — needed when your resolver reads a FK the query didn't ask for.
+6. **`createGQLEntity()` requires a manual `buildResolvers()` call.** This is the deferred API (for circular imports between entity files). Unlike `@GQLEntityClass` / `createGQLTypes()`, it does **not** register the FilterInput until you call `.buildResolvers()`. If you forget, any filter referencing that entity (relationship fields, mapping custom-field filters, `_exists`) throws at `buildSchema()` time: `FilterInput for referenced entity "X" (XFilterInput) is not registered`. The fix is to call `.buildResolvers()` on **every** entity before building the schema. See the README's "Three Ways to Define an Entity" section.
 
-7. **`fieldNames` in metadata are SQL columns, not JS props.** `properties.name.fieldNames: ['person_name']` means the SQL column is `person_name`. Getting this wrong produces wrong SQL that may silently return nulls.
+7. **`requires` fetches columns silently.** Fields listed in `requires` are added to the SQL SELECT even if the client didn't request them — needed when your resolver reads a FK the query didn't ask for.
+
+8. **`fieldNames` in metadata are SQL columns, not JS props.** `properties.name.fieldNames: ['person_name']` means the SQL column is `person_name`. Getting this wrong produces wrong SQL that may silently return nulls.
 
 ## Verification
 
