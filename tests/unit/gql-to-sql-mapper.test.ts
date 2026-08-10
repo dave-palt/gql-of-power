@@ -19,6 +19,7 @@ import {
 	Author,
 	Book,
 	Genre,
+	Battle,
 } from '../fixtures/middle-earth-schema';
 import { createMockMetadataProvider } from '../fixtures/test-data';
 import '../setup';
@@ -2014,6 +2015,132 @@ describe('GQLtoSQLMapper - Unit Tests', () => {
 
 			expect(result.querySQL).toContain('like');
 			expect(result.querySQL).toContain("|| '%'");
+		});
+	});
+
+	describe('Inline filter on relation fields — child-row filtering (not parent EXISTS)', () => {
+		// These tests verify that an inline filter arg like
+		//   fellowships { members(filter: { name_eq: "X" }) { ... } }
+		// adds a WHERE clause INSIDE the child's lateral join subquery,
+		// filtering which child rows appear — NOT generating an EXISTS that
+		// filters which parents are returned.
+
+		it('1:m: inline filter scopes children (WHERE in lateral join), not parent EXISTS', () => {
+			const result = mapper.buildQueryAndBindingsFor({
+				fields: {
+					id: {},
+					name: {},
+					members: {
+						args: { filter: { name_eq: 'Frodo' } },
+						fieldsByTypeName: {
+							Person: { id: {}, name: {} },
+						},
+					},
+				} as any,
+				entity: Fellowship,
+				customFields: {} as any,
+			});
+
+			// The filter value should appear as a SQL binding.
+			expect(result.bindings).toBeDefined();
+			expect(Object.values(result.bindings)).toContain('Frodo');
+			// No EXISTS on the parent query — that would mean the parent is filtered.
+			expect(result.querySQL.toLowerCase()).not.toContain('exists');
+			// The WHERE clause should be inside the lateral join (child subquery).
+			expect(result.querySQL.toLowerCase()).toContain('lateral');
+		});
+
+		it('1:m: inline filter does NOT filter the parent (no EXISTS even with no match)', () => {
+			const result = mapper.buildQueryAndBindingsFor({
+				fields: {
+					id: {},
+					name: {},
+					members: {
+						args: { filter: { name_eq: 'NobodyHasThisName' } },
+						fieldsByTypeName: {
+							Person: { id: {}, name: {} },
+						},
+					},
+				} as any,
+				entity: Fellowship,
+				customFields: {} as any,
+			});
+
+			expect(result.querySQL.toLowerCase()).not.toContain('exists');
+		});
+
+		it('m:m: inline filter scopes children through pivot table', () => {
+			const result = mapper.buildQueryAndBindingsFor({
+				fields: {
+					id: {},
+					name: {},
+					warriors: {
+						args: { filter: { name_eq: 'Aragorn' } },
+						fieldsByTypeName: {
+							Person: { id: {}, name: {} },
+						},
+					},
+				} as any,
+				entity: Battle,
+				customFields: {} as any,
+			});
+
+			expect(Object.values(result.bindings)).toContain('Aragorn');
+			// No EXISTS on parent.
+			expect(result.querySQL.toLowerCase()).not.toContain('exists');
+			// Pivot table should still be in the query.
+			expect(result.querySQL).toContain('person_battles');
+		});
+
+		it('inline filter + pagination work together on child', () => {
+			const result = mapper.buildQueryAndBindingsFor({
+				fields: {
+					id: {},
+					name: {},
+					members: {
+						args: { filter: { name_eq: 'Frodo' }, pagination: { limit: 5 } },
+						fieldsByTypeName: {
+							Person: { id: {}, name: {} },
+						},
+					},
+				} as any,
+				entity: Fellowship,
+				customFields: {} as any,
+			});
+
+			// Both the filter and limit should be present, no EXISTS.
+			expect(Object.values(result.bindings)).toContain('Frodo');
+			expect(result.querySQL.toLowerCase()).not.toContain('exists');
+
+			// The child's limit (5) should be INSIDE the lateral join subquery,
+			// not on the parent. The parent uses its own default limit (3000).
+			// We verify by checking that 'limit 5' appears after 'lateral' in the SQL.
+			const sqlLower = result.querySQL.toLowerCase();
+			const lateralIdx = sqlLower.indexOf('lateral');
+			expect(lateralIdx).toBeGreaterThan(-1);
+			const afterLateral = sqlLower.slice(lateralIdx);
+			expect(afterLateral).toContain('limit 5');
+			// The root-level limit should NOT be 5 — it uses the default.
+			expect(result.bindings.limit).not.toBe(5);
+		});
+
+		it('top-level relation filter still generates EXISTS (unchanged)', () => {
+			// Regression guard: top-level filters on relation fields should
+			// STILL generate EXISTS to filter the parent. The fix only changes
+			// INLINE (field-argument) filters.
+			const result = mapper.buildQueryAndBindingsFor({
+				fields: {
+					id: {},
+					name: {},
+				} as any,
+				entity: Fellowship,
+				customFields: {} as any,
+				filter: {
+					members: { name_eq: 'Frodo' },
+				} as any,
+			});
+
+			expect(result.querySQL.toLowerCase()).toContain('exists');
 		});
 	});
 });
