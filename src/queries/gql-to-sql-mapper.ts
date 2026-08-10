@@ -998,6 +998,10 @@ export class GQLtoSQLMapper {
 				parentAlias: alias,
 				alias: childAlias,
 				parentGqlFieldNameKey: parentGqlFieldNameKey,
+				// Pass the inline filter (from `books(filter: {...})`) to the
+				// CHILD's recursiveMap so the WHERE lands inside the child's
+				// lateral join subquery — child-row filtering, NOT EXISTS on parent.
+				gqlFilters: mapping.inlineFilter ? [mapping.inlineFilter] : undefined,
 			});
 
 			logger.log(
@@ -1182,49 +1186,35 @@ export class GQLtoSQLMapper {
 
 		logger.log(prefix, 'args', parentGqlFieldNameKey, { ...filter }, JSON.stringify(pagination));
 		if (filter || pagination) {
-			// Convert mapNumericEnum string keys → raw DB values for inline field
-			// filter args. The top-level filter goes through convertFilterEnumValues
-			// in GQLQueryManager, but inline filter args (e.g. `books(filter: {...})`)
-			// enter here and would otherwise bypass enum conversion, causing
-			// mapNumericEnum fields in sub-entity filters to fail silently.
-			//
-			// The filter keys belong to the TARGET entity (e.g. Book), not the parent
-			// (e.g. Author). We WRAP the filter under the field name and convert using
-			// the PARENT entity's registries — convertRelationField /
-			// convertMappedCustomField then resolve the target entity and recurse into
-			// its enum fields, handling arbitrary nesting depth.
-			const gqlEntityName = getGQLEntityNameFor(entityMetadata.name ?? '');
-			const parentEnumFields = getMapEnumFieldsFor(gqlEntityName);
-			const parentCustomFields = getCustomFieldsFor(gqlEntityName);
-			const parentRelationFields = getRelationFieldsFor(gqlEntityName);
-			const wrappedConverted = convertFilterEnumValues(
-				{ [parentGqlFieldNameKey]: filter },
-				parentEnumFields,
-				parentCustomFields,
-				parentRelationFields
-			);
-			const convertedFilter = wrappedConverted[parentGqlFieldNameKey] ?? filter;
+			if (filter) {
+				// Convert mapNumericEnum string keys → raw DB values for inline
+				// field filter args. The filter keys belong to the TARGET entity
+				// (e.g. Book), not the parent (e.g. Author). We WRAP the filter
+				// under the field name and convert using the PARENT entity's
+				// registries — convertRelationField / convertMappedCustomField
+				// then resolve the target entity and recurse into its enum
+				// fields, handling arbitrary nesting depth.
+				const gqlEntityName = getGQLEntityNameFor(entityMetadata.name ?? '');
+				const parentEnumFields = getMapEnumFieldsFor(gqlEntityName);
+				const parentCustomFields = getCustomFieldsFor(gqlEntityName);
+				const parentRelationFields = getRelationFieldsFor(gqlEntityName);
+				const wrappedConverted = convertFilterEnumValues(
+					{ [parentGqlFieldNameKey]: filter },
+					parentEnumFields,
+					parentCustomFields,
+					parentRelationFields
+				);
+				const convertedFilter = wrappedConverted[parentGqlFieldNameKey] ?? filter;
 
-			const mapped = this.recursiveMap({
-				entityMetadata,
-				parentAlias: alias,
-				alias,
-				gqlFilters: [
-					{ [parentGqlFieldNameKey]: { ...convertedFilter } } as GQLEntityFilterInputFieldType<T>,
-				],
-				isFieldFilter: true,
-			});
+				// Store the converted filter for mapField to pass to the child's
+				// recursiveMap. This ensures the WHERE clause lands inside the
+				// child's lateral join subquery (child-row filtering), NOT as an
+				// EXISTS on the parent.
+				mapping.inlineFilter = convertedFilter;
+			}
 
-			const { innerJoin, where: w, values, _or, _and, _not } = QueriesUtils.mappingsReducer(mapped);
-
-			mapping.innerJoin.push(...innerJoin);
-			mapping.where.push(...w);
-			mapping.values = { ...mapping.values, ...values };
 			mapping.limit = pagination?.limit;
 			mapping.offset = pagination?.offset;
-			mapping._or.push(..._or);
-			mapping._and.push(..._and);
-			mapping._not.push(..._not);
 			mapping.orderBy.push(...(pagination?.orderBy ?? []));
 			logger.log(
 				'GQLtoSQLMapper - handleFieldArguments - processed',

@@ -19,6 +19,15 @@ export type MappingsType = {
 	_or: MappingsType[];
 	_and: MappingsType[];
 	_not: MappingsType[];
+	/**
+	 * Converted inline filter args from a relation field's `filter` argument
+	 * (e.g. `books(filter: { title_eq: "X" })`). Stored by
+	 * `handleFieldArguments` and consumed by `mapField`, which passes it to the
+	 * child entity's `recursiveMap` as `gqlFilters` so the WHERE lands inside
+	 * the child's lateral join subquery (child-row filtering), NOT as an EXISTS
+	 * on the parent.
+	 */
+	inlineFilter?: any;
 };
 
 export const mappingsTypeToString = (m: MappingsType, full = false) => {

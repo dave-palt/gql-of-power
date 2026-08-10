@@ -1667,10 +1667,12 @@ query GetMixedData {
 				expect(names).toContain('Samwise Gamgee');
 			});
 
-			it('should filter fellowships by inline rank_eq on members (EXISTS path)', async () => {
-				// Inline filter on 1:m relation generates EXISTS.
-				// Fellowship 1 (FotR) has Frodo (Leader) → qualifies.
-				// Fellowship 2 (White Council) has no members → does NOT qualify.
+			it('should scope members by inline rank_eq (child-row filtering, not parent EXISTS)', async () => {
+				// Inline filter on 1:m relation filters the CHILD collection — only
+				// matching children appear in the `members` array. ALL parents are
+				// still returned.
+				// Fellowship 1 (FotR) has 9 members, only 1 is a Leader (Frodo).
+				// Fellowship 2 (White Council) has 0 members → empty array.
 				const query = `
 					query InlineFilterRankEq {
 						fellowships {
@@ -1695,15 +1697,24 @@ query GetMixedData {
 				const result = await response.json();
 				expect(result.errors).toBeUndefined();
 				expect(result.data.fellowships).toBeArray();
-				// Only Fellowship 1 qualifies (has a Leader). White Council has no members.
-				const fellowshipNames = result.data.fellowships.map((f: any) => f.name);
-				expect(fellowshipNames).toContain('Fellowship of the Ring');
-				expect(fellowshipNames).not.toContain('The White Council');
+				// ALL fellowships are returned (inline filter scopes children, not parents).
+				expect(result.data.fellowships.length).toBe(2);
+				const fotr = result.data.fellowships.find((f: any) => f.name === 'Fellowship of the Ring');
+				const white = result.data.fellowships.find((f: any) => f.name === 'The White Council');
+				// Fellowship 1: only Frodo (Leader) in the filtered members array.
+				expect(fotr).toBeDefined();
+				expect(fotr.members.length).toBe(1);
+				expect(fotr.members[0].name).toBe('Frodo Baggins');
+				expect(fotr.members[0].rank).toBe('Leader');
+				// Fellowship 2: no members at all → empty array, but parent IS returned.
+				expect(white).toBeDefined();
+				expect(white.members.length).toBe(0);
 			});
 
-			it('should filter fellowships by inline rank_in with multiple enum keys', async () => {
-				// Officers + Leaders via inline _in: same fellowships qualify as _eq
-				// because Fellowship 1 has both Officers and Leaders.
+			it('should scope members by inline rank_in with multiple enum keys', async () => {
+				// Inline _in filters children: Officers + Leaders only.
+				// Fellowship 1 has Frodo (Leader) + Gandalf, Aragorn, Boromir (Officers) = 4.
+				// ALL fellowships are still returned.
 				const query = `
 					query InlineFilterRankIn {
 						fellowships {
@@ -1728,8 +1739,50 @@ query GetMixedData {
 				const result = await response.json();
 				expect(result.errors).toBeUndefined();
 				expect(result.data.fellowships).toBeArray();
-				expect(result.data.fellowships.length).toBe(1);
-				expect(result.data.fellowships[0].name).toBe('Fellowship of the Ring');
+				// ALL fellowships returned.
+				expect(result.data.fellowships.length).toBe(2);
+				const fotr = result.data.fellowships.find((f: any) => f.name === 'Fellowship of the Ring');
+				// Only Officers + Leaders (4 total: Frodo, Gandalf, Aragorn, Boromir).
+				expect(fotr.members.length).toBe(4);
+				const ranks = fotr.members.map((m: any) => m.rank);
+				expect(ranks.sort()).toEqual(['Leader', 'Officer', 'Officer', 'Officer']);
+			});
+
+			it('should return all parents even when no children match the inline filter', async () => {
+				// Inline filter that matches NO children: all parents are still
+				// returned, each with an empty members array. This verifies the
+				// filter scopes children (WHERE inside the lateral join) and does
+				// NOT filter parents (no EXISTS on the parent).
+				// No member has race "Dragon" → all member arrays should be empty.
+				const query = `
+					query InlineFilterNoMatch {
+						fellowships {
+							id
+							name
+							members(filter: { race_eq: "Dragon" }) {
+								id
+								name
+							}
+						}
+					}
+				`;
+
+				const response = await fetch(TEST_URL, {
+					method: 'POST',
+					headers: { 'Content-Type': 'application/json' },
+					body: JSON.stringify({ query }),
+				});
+
+				expect(response.status).toBe(200);
+				const result = await response.json();
+				expect(result.errors).toBeUndefined();
+				expect(result.data.fellowships).toBeArray();
+				// ALL fellowships returned, including Fellowship 1 which HAS members
+				// (none match) and Fellowship 2 which has no members at all.
+				expect(result.data.fellowships.length).toBe(2);
+				for (const f of result.data.fellowships) {
+					expect(f.members.length).toBe(0);
+				}
 			});
 
 			it('should serialize rank output as string key (not numeric code)', async () => {
