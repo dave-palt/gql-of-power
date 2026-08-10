@@ -1,0 +1,536 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+	<meta charset="UTF-8" />
+	<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+	<title>gql-of-power — GraphQL to SQL Live Demo</title>
+	<meta name="description" content="Watch GraphQL queries compile to optimized SQL in real time. 100% client-side." />
+	<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>⚡</text></svg>" />
+	<!-- CodeMirror 5 (CSS + JS + addons) -->
+	<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/codemirror@5.65.16/lib/codemirror.css" />
+	<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/codemirror@5.65.16/addon/hint/show-hint.css" />
+	<script src="https://cdn.jsdelivr.net/npm/codemirror@5.65.16/lib/codemirror.js"></script>
+	<script src="https://cdn.jsdelivr.net/npm/codemirror@5.65.16/mode/sql/sql.js"></script>
+	<script src="https://cdn.jsdelivr.net/npm/codemirror@5.65.16/addon/hint/show-hint.js"></script>
+	<!-- SQL formatter -->
+	<script src="https://cdn.jsdelivr.net/npm/sql-formatter@15.6.6/dist/sql-formatter.min.js"></script>
+	<style>
+		:root {
+			--bg: #0d1117;
+			--panel: #161b22;
+			--border: #30363d;
+			--accent: #bc8cff;
+			--accent-dim: #8957e5;
+			--text: #e6edf3;
+			--text-dim: #7d8590;
+			--sql-keyword: #ff7b72;
+			--sql-string: #a5d6ff;
+			--sql-number: #d2a8ff;
+			--sql-comment: #7d8590;
+			--sql-punct: #7d8590;
+			--ok: #3fb950;
+			--err: #f85149;
+		}
+		* { margin: 0; padding: 0; box-sizing: border-box; }
+		body {
+			font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+			background: var(--bg);
+			color: var(--text);
+			height: 100vh;
+			display: flex;
+			flex-direction: column;
+			overflow: hidden;
+		}
+		header {
+			padding: 10px 20px;
+			background: var(--panel);
+			border-bottom: 1px solid var(--border);
+			display: flex;
+			align-items: center;
+			justify-content: space-between;
+			flex-shrink: 0;
+		}
+		header h1 {
+			font-size: 16px;
+			font-weight: 700;
+		}
+		header h1 a {
+			color: var(--text);
+			text-decoration: none;
+		}
+		header h1 a:hover { color: var(--accent); }
+		header .links { font-size: 12px; color: var(--text-dim); display: flex; gap: 16px; }
+		header .links a { color: var(--text-dim); text-decoration: none; }
+		header .links a:hover { color: var(--accent); }
+		.toolbar {
+			padding: 8px 20px;
+			background: var(--panel);
+			border-bottom: 1px solid var(--border);
+			display: flex;
+			gap: 10px;
+			align-items: center;
+			flex-shrink: 0;
+			flex-wrap: wrap;
+		}
+		.toolbar label { font-size: 12px; color: var(--text-dim); }
+		.toolbar select {
+			background: var(--bg);
+			color: var(--text);
+			border: 1px solid var(--border);
+			padding: 5px 8px;
+			border-radius: 6px;
+			font-size: 13px;
+		}
+		.toolbar .status {
+			margin-left: auto;
+			font-size: 12px;
+			color: var(--text-dim);
+		}
+		.toolbar .status.error { color: var(--err); }
+		.toolbar .status.ok { color: var(--ok); }
+		.main {
+			display: flex;
+			flex: 1;
+			overflow: hidden;
+		}
+		.pane {
+			flex: 1;
+			display: flex;
+			flex-direction: column;
+			overflow: hidden;
+			min-width: 200px;
+		}
+		.pane-header {
+			padding: 6px 14px;
+			background: var(--panel);
+			border-bottom: 1px solid var(--border);
+			font-size: 11px;
+			font-weight: 700;
+			text-transform: uppercase;
+			letter-spacing: 0.06em;
+			color: var(--text-dim);
+			display: flex;
+			align-items: center;
+			gap: 8px;
+			flex-shrink: 0;
+		}
+		.pane-header .dot {
+			width: 7px; height: 7px; border-radius: 50%;
+		}
+		.pane.gql .dot { background: #79c0ff; }
+		.pane.sql .dot { background: var(--ok); }
+		.divider {
+			width: 4px;
+			background: var(--border);
+			cursor: col-resize;
+			flex-shrink: 0;
+		}
+		.divider:hover { background: var(--accent); }
+		.editor-wrap {
+			flex: 1;
+			overflow: hidden;
+			position: relative;
+		}
+		.bindings {
+			padding: 8px 14px;
+			background: var(--panel);
+			border-top: 1px solid var(--border);
+			font-size: 12px;
+			color: var(--text-dim);
+			max-height: 140px;
+			overflow-y: auto;
+			flex-shrink: 0;
+		}
+		.bindings summary { cursor: pointer; font-weight: 600; color: var(--text); }
+		.bindings pre { margin-top: 6px; white-space: pre-wrap; word-break: break-all; font-family: 'SF Mono', 'Fira Code', monospace; }
+		/* CodeMirror theme overrides */
+		.CodeMirror {
+			height: 100% !important;
+			background: var(--bg) !important;
+			color: var(--text) !important;
+			font-size: 13px;
+			font-family: 'SF Mono', 'Fira Code', 'JetBrains Mono', 'Menlo', monospace !important;
+			line-height: 1.6;
+		}
+		.CodeMirror-gutters { background: var(--bg) !important; border-right: 1px solid var(--border) !important; }
+		.CodeMirror-cursor { border-left: 2px solid var(--accent) !important; }
+		.CodeMirror-selected { background: rgba(137, 87, 229, 0.25) !important; }
+		.cm-s-default .cm-keyword { color: var(--sql-keyword) !important; }
+		.cm-s-default .cm-string { color: var(--sql-string) !important; }
+		.cm-s-default .cm-string-2 { color: var(--sql-string) !important; }
+		.cm-s-default .cm-number { color: var(--sql-number) !important; }
+		.cm-s-default .cm-comment { color: var(--sql-comment) !important; font-style: italic; }
+		.cm-s-default .cm-punctuation { color: var(--sql-punct) !important; }
+		.cm-s-default .cm-operator { color: var(--sql-keyword) !important; }
+		.cm-s-default .cm-variable { color: var(--text) !important; }
+		.cm-s-default .cm-variable-2 { color: var(--accent) !important; }
+		/* Autocomplete dropdown */
+		.CodeMirror-hints {
+			background: var(--panel) !important;
+			border: 1px solid var(--border) !important;
+			border-radius: 6px !important;
+			box-shadow: 0 4px 12px rgba(0,0,0,0.4) !important;
+			font-family: 'SF Mono', 'Fira Code', monospace !important;
+			font-size: 12px !important;
+			max-height: 200px !important;
+		}
+		.CodeMirror-hint { color: var(--text) !important; padding: 4px 10px !important; }
+		li.CodeMirror-hint-active { background: var(--accent-dim) !important; color: #fff !important; }
+		.loading-overlay {
+			position: fixed; inset: 0; background: var(--bg);
+			display: flex; align-items: center; justify-content: center;
+			z-index: 100; flex-direction: column; gap: 12px;
+		}
+		.loading-overlay .spinner {
+			width: 32px; height: 32px; border-radius: 50%;
+			border: 3px solid var(--border); border-top-color: var(--accent);
+			animation: spin 0.8s linear infinite;
+		}
+		.loading-overlay p { color: var(--text-dim); font-size: 13px; }
+		@keyframes spin { to { transform: rotate(360deg); } }
+	</style>
+</head>
+<body>
+	<div class="loading-overlay" id="loading">
+		<div class="spinner"></div>
+		<p>Loading gql-of-power engine…</p>
+	</div>
+
+	<header>
+		<h1><a href="https://github.com/dave-palt/gql-of-power" target="_blank">gql-of-power</a> — GraphQL to SQL Live Demo</h1>
+		<div class="links">
+			<span>100% client-side · no server · no DB</span>
+			<a href="https://github.com/dave-palt/gql-of-power" target="_blank">GitHub ↗</a>
+		</div>
+	</header>
+
+	<div class="toolbar">
+		<label>Example:</label>
+		<select id="exampleSelect">
+			<option value="0">Simple fields</option>
+			<option value="1" selected>1:m relationship + count</option>
+			<option value="2">Nested 3 levels deep</option>
+			<option value="3">m:m relationship</option>
+			<option value="4">Filter + orderBy + limit</option>
+			<option value="5">Inline filter on child collection</option>
+			<option value="6">_exists filter</option>
+		</select>
+		<span class="status" id="status">Ready</span>
+	</div>
+
+	<div class="main" id="main">
+		<div class="pane gql" id="gqlPane">
+			<div class="pane-header"><span class="dot"></span> GraphQL Query <span style="margin-left:auto;font-weight:400;text-transform:none;letter-spacing:0;">Ctrl+Space for suggestions</span></div>
+			<div class="editor-wrap"><textarea id="gqlEditor"></textarea></div>
+		</div>
+		<div class="divider" id="divider"></div>
+		<div class="pane sql">
+			<div class="pane-header"><span class="dot"></span> Generated SQL (PostgreSQL)</div>
+			<div class="editor-wrap"><textarea id="sqlEditor"></textarea></div>
+			<details class="bindings" id="bindingsPanel" style="display:none;">
+				<summary>Parameter Bindings</summary>
+				<pre id="bindingsPre"></pre>
+			</details>
+		</div>
+	</div>
+
+	<script>
+		// Polyfill Node globals for browser — the library and its transitive deps
+		// (type-graphql, class-validator, semver, pg) reference these at runtime.
+		window.global = window.global || window;
+		window.process = window.process || { env: { D3GOP_LOG_TYPE: 'disabled' } };
+		window.Buffer = window.Buffer || { from: (x) => x, isBuffer: () => false };
+		window.setImmediate = window.setImmediate || ((fn) => setTimeout(fn, 0));
+		window.clearImmediate = window.clearImmediate || ((id) => clearTimeout(id));
+		// Suppress the library's console noise
+		console.time = () => {};
+		console.timeLog = () => {};
+		console.timeEnd = () => {};
+		console.warn = () => {};
+	</script>
+	<script src="./dist/main.js"></script>
+	<script>
+		// ─── Example queries ─────────────────────────────────────────────────────
+		const EXAMPLES = [
+			`query {
+  persons {
+    id
+    name
+    race
+  }
+}`,
+			`query {
+  fellowships {
+    id
+    name
+    memberCount
+    members {
+      id
+      name
+      race
+    }
+  }
+}`,
+			`query {
+  quests {
+    id
+    name
+    fellowships {
+      id
+      name
+      members {
+        id
+        name
+        ring {
+          name
+          power
+        }
+      }
+    }
+  }
+}`,
+			`query {
+  battles {
+    id
+    name
+    outcome
+    warriors {
+      id
+      name
+      race
+    }
+  }
+}`,
+			`query {
+  persons(
+    filter: { race_eq: "Hobbit" }
+    pagination: { limit: 10, orderBy: [{ name: "asc" }] }
+  ) {
+    id
+    name
+    age
+  }
+}`,
+			`query {
+  fellowships {
+    id
+    name
+    members(filter: { race_eq: "Elf" }) {
+      id
+      name
+      race
+    }
+  }
+}`,
+			`query {
+  persons(filter: { _exists: { battles: {} } }) {
+    id
+    name
+    battles {
+      name
+      outcome
+    }
+  }
+}`,
+		];
+
+		// ─── Setup editors ───────────────────────────────────────────────────────
+		const gqlEditor = CodeMirror.fromTextArea(document.getElementById('gqlEditor'), {
+			mode: 'text/plain',
+			lineNumbers: true,
+			tabSize: 2,
+			indentUnit: 2,
+			smartIndent: true,
+			extraKeys: { 'Ctrl-Space': 'autocomplete' },
+		});
+		const sqlEditor = CodeMirror.fromTextArea(document.getElementById('sqlEditor'), {
+			mode: 'text/x-pgsql',
+			lineNumbers: true,
+			readOnly: true,
+		});
+		sqlEditor.setValue('-- Start typing a query…');
+
+		const statusEl = document.getElementById('status');
+		const selectEl = document.getElementById('exampleSelect');
+		const bindingsPanel = document.getElementById('bindingsPanel');
+		const bindingsPre = document.getElementById('bindingsPre');
+
+		// ─── Schema autocomplete ─────────────────────────────────────────────────
+		// Simple context-aware hint: at the top level suggest root fields, inside
+		// a `{ }` block suggest fields of the enclosing entity.
+		let schemaHints = { rootFields: [], entityFields: {} };
+		if (window.gqlOfPower?.getSchemaHints) {
+			schemaHints = window.gqlOfPower.getSchemaHints();
+		}
+
+		// Map root field name → entity name (e.g. "persons" → "Person")
+		const ROOT_TO_ENTITY = {
+			persons: 'Person', rings: 'Ring', fellowships: 'Fellowship',
+			quests: 'Quest', locations: 'Location', regions: 'Region',
+			battles: 'Battle', armies: 'Army', authors: 'Author',
+			books: 'Book', genres: 'Genre',
+		};
+
+		CodeMirror.registerHelper('hint', 'text/plain', function (cm) {
+			const cur = cm.getCursor();
+			const token = cm.getTokenAt(cur);
+			const word = token.string;
+			const start = token.start;
+			const end = token.ch;
+
+			// Walk backward to find what context we're in
+			const lineText = cm.getLine(cur.line);
+			const fullText = cm.getValue();
+			// Find the nearest enclosing root field
+			const lines = fullText.split('\n');
+			let contextEntity = null;
+			let contextDepth = 0;
+			let depth = 0;
+			for (const line of lines) {
+				const trimmed = line.trim();
+				// Track depth by counting braces
+				const opens = (line.match(/{/g) || []).length;
+				const closes = (line.match(/}/g) || []).length;
+				depth += opens - closes;
+				// Check if this line defines a root field
+				for (const [root, entity] of Object.entries(ROOT_TO_ENTITY)) {
+					if (trimmed.startsWith(root)) {
+						contextEntity = entity;
+						contextDepth = depth;
+					}
+				}
+			}
+
+			// Determine what to suggest
+			let list = [];
+			const isTopLevel = depth <= 1 || !contextEntity;
+
+			// GraphQL keywords always available
+			const keywords = ['query', 'mutation', 'filter', 'pagination', 'orderBy', 'limit', 'offset'];
+
+			if (!contextEntity || isTopLevel) {
+				// Top level — suggest root fields + keywords
+				list = [...schemaHints.rootFields, ...keywords];
+			} else {
+				// Inside an entity — suggest its fields
+				const info = schemaHints.entityFields[contextEntity];
+				if (info) {
+					list = [...info.scalars, ...info.relations];
+				}
+			}
+
+			// Add GraphQL filter operators when inside a filter block
+			if (lineText.includes('filter') || lineText.includes('_eq') || lineText.includes('_in')) {
+				const ops = [
+					'_eq', '_ne', '_in', '_nin', '_gt', '_gte', '_lt', '_lte',
+					'_like', '_ilike', '_between', '_is_null', '_exists', '_and', '_or',
+				];
+				list = [...list, ...ops];
+			}
+
+			const filtered = word.length > 0
+				? list.filter((s) => s.toLowerCase().includes(word.toLowerCase()))
+				: list;
+
+			return {
+				list: filtered.sort(),
+				from: CodeMirror.Pos(cur.line, start),
+				to: CodeMirror.Pos(cur.line, end),
+			};
+		});
+
+		// ─── Live SQL generation (debounced) ─────────────────────────────────────
+		let debounceTimer = null;
+
+		function updateSQL() {
+			const query = gqlEditor.getValue().trim();
+			if (!query) {
+				sqlEditor.setValue('-- Empty query');
+				bindingsPanel.style.display = 'none';
+				statusEl.textContent = 'Ready';
+				statusEl.className = 'status';
+				return;
+			}
+			if (!window.gqlOfPower) {
+				statusEl.textContent = 'Engine not loaded yet';
+				statusEl.className = 'status error';
+				return;
+			}
+
+			const result = window.gqlOfPower.generateSQL(query);
+
+			if (result.error) {
+				statusEl.textContent = '✗ ' + result.error.slice(0, 80);
+				statusEl.className = 'status error';
+				// Don't overwrite the SQL panel on error — keep last good output
+				return;
+			}
+
+			// Format with sql-formatter if available
+			let formatted = result.sql;
+			if (typeof sqlFormatter !== 'undefined' && sqlFormatter.format) {
+				try {
+					formatted = sqlFormatter.format(result.sql, { language: 'postgresql' });
+				} catch (e) {
+					// Fall back to raw SQL if formatter fails
+				}
+			}
+
+			sqlEditor.setValue(formatted);
+
+			// Show bindings (filter out default limit)
+			if (result.bindings && Object.keys(result.bindings).length > 0) {
+				bindingsPre.textContent = JSON.stringify(result.bindings, null, 2);
+				bindingsPanel.style.display = 'block';
+			} else {
+				bindingsPanel.style.display = 'none';
+			}
+
+			statusEl.textContent = '✓ Generated';
+			statusEl.className = 'status ok';
+		}
+
+		function scheduleUpdate() {
+			if (debounceTimer) clearTimeout(debounceTimer);
+			debounceTimer = setTimeout(updateSQL, 200);
+		}
+
+		gqlEditor.on('change', scheduleUpdate);
+
+		// ─── Example selector ────────────────────────────────────────────────────
+		function loadExample(i) {
+			gqlEditor.setValue(EXAMPLES[i].trim());
+			// updateSQL fires via the change listener
+		}
+		selectEl.addEventListener('change', (e) => loadExample(parseInt(e.target.value)));
+
+		// ─── Divider drag ────────────────────────────────────────────────────────
+		const divider = document.getElementById('divider');
+		const main = document.getElementById('main');
+		let dragging = false;
+		divider.addEventListener('mousedown', () => {
+			dragging = true;
+			document.body.style.cursor = 'col-resize';
+			document.body.style.userSelect = 'none';
+		});
+		document.addEventListener('mousemove', (e) => {
+			if (!dragging) return;
+			const rect = main.getBoundingClientRect();
+			const pct = ((e.clientX - rect.left) / rect.width) * 100;
+			if (pct > 15 && pct < 85) {
+				document.getElementById('gqlPane').style.flex = pct;
+				document.querySelector('.pane.sql').style.flex = 100 - pct;
+			}
+		});
+		document.addEventListener('mouseup', () => {
+			dragging = false;
+			document.body.style.cursor = '';
+			document.body.style.userSelect = '';
+		});
+
+		// ─── Init ────────────────────────────────────────────────────────────────
+		loadExample(1);
+		document.getElementById('loading').style.display = 'none';
+	</script>
+</body>
+</html>
