@@ -220,7 +220,7 @@
 
 	<div class="main" id="main">
 		<div class="pane gql" id="gqlPane">
-			<div class="pane-header"><span class="dot"></span> GraphQL Query <span style="margin-left:auto;font-weight:400;text-transform:none;letter-spacing:0;">Ctrl+Space for suggestions</span></div>
+			<div class="pane-header"><span class="dot"></span> GraphQL Query <span style="margin-left:auto;font-weight:400;text-transform:none;letter-spacing:0;">Type to autocomplete</span></div>
 			<div class="editor-wrap"><textarea id="gqlEditor"></textarea></div>
 		</div>
 		<div class="divider" id="divider"></div>
@@ -341,7 +341,6 @@
 			tabSize: 2,
 			indentUnit: 2,
 			smartIndent: true,
-			extraKeys: { 'Ctrl-Space': 'autocomplete' },
 		});
 		const sqlEditor = CodeMirror.fromTextArea(document.getElementById('sqlEditor'), {
 			mode: 'text/x-pgsql',
@@ -494,6 +493,13 @@
 			if (debounceTimer) clearTimeout(debounceTimer);
 			debounceTimer = setTimeout(updateSQL, 200);
 		}
+
+		// Trigger autocomplete on every keystroke (alphabetic + underscore)
+		gqlEditor.on('inputRead', function (cm, change) {
+			if (change.text[0] && /[a-zA-Z_]/.test(change.text[0])) {
+				cm.showHint({ hint: CodeMirror.hint.text, completeSingle: false });
+			}
+		});
 
 		gqlEditor.on('change', scheduleUpdate);
 
