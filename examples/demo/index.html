@@ -558,7 +558,7 @@
 					if (t === '(') {
 						inArgs = true;
 						argKeyword = null;
-						// Push entity scope for the field whose args we're entering
+						// Push args scope for the field whose args we're entering
 						if (pendingField) {
 							const parent = stack[stack.length - 1];
 							let entity = ROOT_TO_ENTITY[pendingField];
@@ -572,12 +572,12 @@
 								else entity = parent.entity;
 							}
 							if (!entity) entity = parent.entity;
-							stack.push({ type: 'entity', entity });
+							stack.push({ type: 'args', entity });
 						}
 					} else if (t === ')') {
 						inArgs = false;
 						argKeyword = null;
-						if (stack.length > 1 && stack[stack.length - 1].type === 'entity') stack.pop();
+						if (stack.length > 1 && stack[stack.length - 1].type === 'args') stack.pop();
 					} else if (t === '{') {
 						const parent = stack[stack.length - 1];
 						let scopeType = 'entity';
@@ -644,6 +644,9 @@
 					list = ['query'];
 				} else if (ctx.type === 'root') {
 					list = [...schemaHints.rootFields];
+				} else if (ctx.type === 'args') {
+					// Inside field arguments ( ) — suggest argument names
+					list = ['filter', 'pagination'];
 				} else if (ctx.type === 'entity') {
 					const info = schemaHints.entityFields[ctx.entity];
 					if (info) list = [...info.scalars, ...info.relations];
@@ -735,7 +738,21 @@
 				if (hintTimer) clearTimeout(hintTimer);
 				hintTimer = setTimeout(() => {
 					try {
-						cm.showHint({ hint: gqlHint, completeSingle: false });
+						cm.showHint({
+							hint: gqlHint,
+							completeSingle: false,
+							extraKeys: {
+								Space: (cm) => {
+									const activeHint = document.querySelector('.CodeMirror-hint-active');
+									if (activeHint) {
+										activeHint.click();
+									} else {
+										cm.replaceSelection(' ');
+										cm.closeHint();
+									}
+								},
+							},
+						});
 					} catch (e) {
 						// Silently ignore hint errors
 					}
