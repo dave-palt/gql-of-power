@@ -539,7 +539,12 @@
 			function gqlHint(cm) {
 				const cur = cm.getCursor();
 				const token = cm.getTokenAt(cur);
-				const word = token.string.replace(/[^a-zA-Z0-9_]/g, '');
+				// Extract just the partial word being typed (alphanumeric + underscore).
+				// When the token spans field + args like "persons(filter:", we only want
+				// the trailing partial word after the last non-word char.
+				const tokenStr = token.string || '';
+				const partialWordMatch = tokenStr.match(/[a-zA-Z_][a-zA-Z0-9_]*$/);
+				const word = partialWordMatch ? partialWordMatch[0] : '';
 
 				// Build the text up to cursor and tokenize it
 				let text = cm.getRange({ line: 0, ch: 0 }, cur);
@@ -666,10 +671,12 @@
 						? list.filter((s) => s.toLowerCase().startsWith(word.toLowerCase()))
 						: list;
 
+				// Position the hint at the start of the partial word being typed
+				const fromCh = word ? cur.ch - word.length : cur.ch;
 				return {
 					list: [...new Set(filtered)].sort(),
-					from: CodeMirror.Pos(cur.line, token.start),
-					to: CodeMirror.Pos(cur.line, token.ch),
+					from: CodeMirror.Pos(cur.line, fromCh),
+					to: CodeMirror.Pos(cur.line, cur.ch),
 				};
 			}
 
@@ -759,7 +766,8 @@
 				}, 50);
 			}
 			gqlEditor.on('inputRead', function (cm, change) {
-				if (change.text[0] && /[a-zA-Z_]/.test(change.text[0])) {
+				// Trigger on any printable character, not just a-zA-Z
+				if (change.origin === '+input' || change.text[0]?.trim()) {
 					triggerHint(cm);
 				}
 			});
