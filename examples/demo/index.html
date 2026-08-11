@@ -709,11 +709,18 @@
 					return;
 				}
 
-				// Format with sql-formatter if available
+				// Format with sql-formatter if available.
+				// paramTypes.named: [':'] is required because the SQLBuilder emits
+				// named params like :v_name3_1 / :limit, which sql-formatter's
+				// postgresql dialect doesn't recognize by default — without it the
+				// parser throws and we silently fall back to raw unformatted SQL.
 				let formatted = result.sql;
 				if (typeof sqlFormatter !== 'undefined' && sqlFormatter.format) {
 					try {
-						formatted = sqlFormatter.format(result.sql, { language: 'postgresql' });
+						formatted = sqlFormatter.format(result.sql, {
+							language: 'postgresql',
+							paramTypes: { named: [':'] },
+						});
 					} catch (e) {
 						// Fall back to raw SQL if formatter fails
 					}
