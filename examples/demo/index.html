@@ -581,6 +581,14 @@
 				const tokenStr = token.string || '';
 				const partialWordMatch = tokenStr.match(/[a-zA-Z_][a-zA-Z0-9_]*$/);
 				const word = partialWordMatch ? partialWordMatch[0] : '';
+				// Compute the hint replacement range from the token + word position, NOT
+				// from cur.ch - word.length. When the token spans mixed chars like
+				// "fellowships(fi", the cursor ch doesn't line up with the word start
+				// (the '(' throws off the subtraction). Using token.start + the offset
+				// of the matched word within the token string is reliable in all cases.
+				const wordOffsetInToken = partialWordMatch ? tokenStr.lastIndexOf(word) : tokenStr.length;
+				const fromCh = token.start + wordOffsetInToken;
+				const toCh = token.end;
 
 				// Build the text up to cursor and tokenize it
 				let text = cm.getRange({ line: 0, ch: 0 }, cur);
@@ -707,12 +715,10 @@
 						? list.filter((s) => s.toLowerCase().startsWith(word.toLowerCase()))
 						: list;
 
-				// Position the hint at the start of the partial word being typed
-				const fromCh = word ? cur.ch - word.length : cur.ch;
 				return {
 					list: [...new Set(filtered)].sort(),
 					from: CodeMirror.Pos(cur.line, fromCh),
-					to: CodeMirror.Pos(cur.line, cur.ch),
+					to: CodeMirror.Pos(cur.line, toCh),
 				};
 			}
 
