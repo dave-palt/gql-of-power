@@ -26,6 +26,9 @@
 		<script src="https://cdn.jsdelivr.net/npm/codemirror@5.65.16/addon/hint/show-hint.js"></script>
 		<!-- SQL formatter -->
 		<script src="https://cdn.jsdelivr.net/npm/sql-formatter@15.6.6/dist/sql-formatter.min.js"></script>
+		<!-- GraphQL formatter (prettier standalone + graphql plugin) -->
+		<script src="https://cdn.jsdelivr.net/npm/prettier@3.3.3/standalone.js"></script>
+		<script src="https://cdn.jsdelivr.net/npm/prettier@3.3.3/plugins/graphql.js"></script>
 		<style>
 			:root {
 				--bg: #0d1117;
@@ -122,6 +125,32 @@
 			}
 			.toolbar .status.ok {
 				color: var(--ok);
+			}
+			.auto-format-toggle {
+				display: flex;
+				align-items: center;
+				gap: 5px;
+				cursor: pointer;
+				user-select: none;
+			}
+			.auto-format-toggle input {
+				accent-color: var(--accent);
+			}
+			.format-btn {
+				margin-left: 10px;
+				background: transparent;
+				color: var(--accent);
+				border: 1px solid var(--accent-dim);
+				border-radius: 6px;
+				padding: 2px 10px;
+				font-size: 11px;
+				cursor: pointer;
+				text-transform: none;
+				letter-spacing: 0;
+			}
+			.format-btn:hover {
+				background: var(--accent-dim);
+				color: #fff;
 			}
 			.main {
 				display: flex;
@@ -318,6 +347,10 @@
 				<option value="5">Inline filter on child collection</option>
 				<option value="6">_exists filter</option>
 			</select>
+			<label class="auto-format-toggle">
+				<input type="checkbox" id="autoFormatToggle" checked />
+				Auto-format GraphQL
+			</label>
 			<span class="status" id="status">Ready</span>
 		</div>
 
@@ -325,6 +358,9 @@
 			<div class="pane gql" id="gqlPane">
 				<div class="pane-header">
 					<span class="dot"></span> GraphQL Query
+					<button class="format-btn" id="formatBtn" title="Format query (Ctrl-Enter)">
+						Format
+					</button>
 					<span style="margin-left: auto; font-weight: 400; text-transform: none; letter-spacing: 0"
 						>Type to autocomplete</span
 					>
@@ -682,6 +718,77 @@
 
 			CodeMirror.registerHelper('hint', 'text/plain', gqlHint);
 
+			// ─── GraphQL formatting (prettier standalone + graphql plugin) ───────────
+			// prettier.formatWithCursor preserves the cursor position during auto-format
+			// so it doesn't jump to the start while typing. Returns null on parse error
+			// (e.g. mid-typing), which callers should treat as "don't touch the editor".
+			const autoFormatToggle = document.getElementById('autoFormatToggle');
+			const formatBtn = document.getElementById('formatBtn');
+
+			function gqlPrettierAvailable() {
+				return typeof prettier !== 'undefined' && typeof prettierPlugins !== 'undefined';
+			}
+
+			async function formatGQLDoc() {
+				if (!gqlPrettierAvailable()) return false;
+				const cm = gqlEditor;
+				const code = cm.getValue();
+				if (!code.trim()) return false;
+				try {
+					// Convert CodeMirror cursor → character offset
+					const cursor = cm.getCursor();
+					const offset = cm.indexFromPos(cursor);
+					const result = await prettier.formatWithCursor(code, {
+						parser: 'graphql',
+						plugins: prettierPlugins,
+						cursorOffset: offset,
+					});
+					// Only replace if content actually changed (avoid resetting cursor/scroll
+					// and clobbering an open autocomplete popup unnecessarily)
+					if (result.formatted === code) return true;
+					// Suppress the change-triggered auto-format + SQL regen to avoid a loop:
+					// setValue fires 'change', which would re-trigger scheduleUpdate → fine,
+					// but we don't want it to also re-trigger auto-format.
+					const scrollInfo = cm.getScrollInfo();
+					cm.setValue(result.formatted);
+					cm.scrollTo(scrollInfo.left, scrollInfo.top);
+					// Restore cursor from returned offset
+					if (typeof result.cursorOffset === 'number') {
+						cm.setCursor(cm.posFromIndex(result.cursorOffset));
+					}
+					return true;
+				} catch (e) {
+					// Parse error (mid-typing, invalid syntax) — leave the editor untouched
+					return false;
+				}
+			}
+
+			// Manual Format button
+			formatBtn.addEventListener('click', () => {
+				formatGQLDoc();
+			});
+
+			// Ctrl-Enter → format (Cmd-Enter on macOS)
+			gqlEditor.setOption('extraKeys', {
+				'Ctrl-Enter': () => formatGQLDoc(),
+				'Cmd-Enter': () => formatGQLDoc(),
+			});
+
+			// Auto-format: debounced after the user stops typing.
+			// Skips if the autocomplete popup is open mid-typing (would fight the user);
+			// closes it and proceeds when triggered after a paste.
+			let autoFormatTimer = null;
+			function scheduleAutoFormat() {
+				if (!autoFormatToggle.checked) return;
+				if (autoFormatTimer) clearTimeout(autoFormatTimer);
+				autoFormatTimer = setTimeout(() => {
+					// If the autocomplete dropdown is open, skip this cycle — the user
+					// is actively choosing a suggestion.
+					if (document.querySelector('.CodeMirror-hints')) return;
+					formatGQLDoc();
+				}, 600);
+			}
+
 			// ─── Live SQL generation (debounced) ─────────────────────────────────────
 			let debounceTimer = null;
 
@@ -773,13 +880,19 @@
 				}, 50);
 			}
 			gqlEditor.on('inputRead', function (cm, change) {
+				// Don't trigger autocomplete on paste — it's a bulk insert, not
+				// incremental typing, and an open popup would block auto-format.
+				if (change.origin === 'paste') return;
 				// Trigger on any printable character, not just a-zA-Z
 				if (change.origin === '+input' || change.text[0]?.trim()) {
 					triggerHint(cm);
 				}
 			});
 
-			gqlEditor.on('change', scheduleUpdate);
+			gqlEditor.on('change', () => {
+				scheduleUpdate();
+				scheduleAutoFormat();
+			});
 
 			// ─── Example selector ────────────────────────────────────────────────────
 			function loadExample(i) {
