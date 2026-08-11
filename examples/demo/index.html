@@ -889,8 +889,14 @@
 				// Don't trigger autocomplete on paste — it's a bulk insert, not
 				// incremental typing, and an open popup would block auto-format.
 				if (change.origin === 'paste') return;
-				// Trigger on any printable character, not just a-zA-Z
-				if (change.origin === '+input' || change.text[0]?.trim()) {
+				// Only trigger on word characters (alphanumeric + underscore).
+				// Non-word chars like { } ( ) : are structural delimiters that close
+				// the current completion context — re-triggering the popup on them
+				// opens a fresh hint at the wrong position (after the delimiter),
+				// so picking a suggestion inserts it at cursor instead of replacing
+				// the partial word typed before the delimiter.
+				const ch = change.text[0];
+				if (ch && /^[a-zA-Z0-9_]$/.test(ch)) {
 					triggerHint(cm);
 				}
 			});
