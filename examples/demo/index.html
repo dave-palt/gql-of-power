@@ -1,0 +1,945 @@
+<!doctype html>
+<html lang="en">
+	<head>
+		<meta charset="UTF-8" />
+		<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+		<title>gql-of-power — GraphQL to SQL Live Demo</title>
+		<meta
+			name="description"
+			content="Watch GraphQL queries compile to optimized SQL in real time. 100% client-side."
+		/>
+		<link
+			rel="icon"
+			href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>⚡</text></svg>"
+		/>
+		<!-- CodeMirror 5 (CSS + JS + addons) -->
+		<link
+			rel="stylesheet"
+			href="https://cdn.jsdelivr.net/npm/codemirror@5.65.16/lib/codemirror.css"
+		/>
+		<link
+			rel="stylesheet"
+			href="https://cdn.jsdelivr.net/npm/codemirror@5.65.16/addon/hint/show-hint.css"
+		/>
+		<script src="https://cdn.jsdelivr.net/npm/codemirror@5.65.16/lib/codemirror.js"></script>
+		<script src="https://cdn.jsdelivr.net/npm/codemirror@5.65.16/mode/sql/sql.js"></script>
+		<script src="https://cdn.jsdelivr.net/npm/codemirror@5.65.16/addon/hint/show-hint.js"></script>
+		<!-- SQL formatter -->
+		<script src="https://cdn.jsdelivr.net/npm/sql-formatter@15.6.6/dist/sql-formatter.min.js"></script>
+		<!-- GraphQL formatter (prettier standalone + graphql plugin) -->
+		<script src="https://cdn.jsdelivr.net/npm/prettier@3.3.3/standalone.js"></script>
+		<script src="https://cdn.jsdelivr.net/npm/prettier@3.3.3/plugins/graphql.js"></script>
+		<style>
+			:root {
+				--bg: #0d1117;
+				--panel: #161b22;
+				--border: #30363d;
+				--accent: #bc8cff;
+				--accent-dim: #8957e5;
+				--text: #e6edf3;
+				--text-dim: #7d8590;
+				--sql-keyword: #ff7b72;
+				--sql-string: #a5d6ff;
+				--sql-number: #d2a8ff;
+				--sql-comment: #7d8590;
+				--sql-punct: #7d8590;
+				--ok: #3fb950;
+				--err: #f85149;
+			}
+			* {
+				margin: 0;
+				padding: 0;
+				box-sizing: border-box;
+			}
+			body {
+				font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+				background: var(--bg);
+				color: var(--text);
+				height: 100vh;
+				display: flex;
+				flex-direction: column;
+				overflow: hidden;
+			}
+			header {
+				padding: 10px 20px;
+				background: var(--panel);
+				border-bottom: 1px solid var(--border);
+				display: flex;
+				align-items: center;
+				justify-content: space-between;
+				flex-shrink: 0;
+			}
+			header h1 {
+				font-size: 16px;
+				font-weight: 700;
+			}
+			header h1 a {
+				color: var(--text);
+				text-decoration: none;
+			}
+			header h1 a:hover {
+				color: var(--accent);
+			}
+			header .links {
+				font-size: 12px;
+				color: var(--text-dim);
+				display: flex;
+				gap: 16px;
+			}
+			header .links a {
+				color: var(--text-dim);
+				text-decoration: none;
+			}
+			header .links a:hover {
+				color: var(--accent);
+			}
+			.toolbar {
+				padding: 8px 20px;
+				background: var(--panel);
+				border-bottom: 1px solid var(--border);
+				display: flex;
+				gap: 10px;
+				align-items: center;
+				flex-shrink: 0;
+				flex-wrap: wrap;
+			}
+			.toolbar label {
+				font-size: 12px;
+				color: var(--text-dim);
+			}
+			.toolbar select {
+				background: var(--bg);
+				color: var(--text);
+				border: 1px solid var(--border);
+				padding: 5px 8px;
+				border-radius: 6px;
+				font-size: 13px;
+			}
+			.toolbar .status {
+				margin-left: auto;
+				font-size: 12px;
+				color: var(--text-dim);
+			}
+			.toolbar .status.error {
+				color: var(--err);
+			}
+			.toolbar .status.ok {
+				color: var(--ok);
+			}
+			.auto-format-toggle {
+				display: flex;
+				align-items: center;
+				gap: 5px;
+				cursor: pointer;
+				user-select: none;
+			}
+			.auto-format-toggle input {
+				accent-color: var(--accent);
+			}
+			.format-btn {
+				margin-left: 10px;
+				background: transparent;
+				color: var(--accent);
+				border: 1px solid var(--accent-dim);
+				border-radius: 6px;
+				padding: 2px 10px;
+				font-size: 11px;
+				cursor: pointer;
+				text-transform: none;
+				letter-spacing: 0;
+			}
+			.format-btn:hover {
+				background: var(--accent-dim);
+				color: #fff;
+			}
+			.main {
+				display: flex;
+				flex: 1;
+				overflow: hidden;
+			}
+			.pane {
+				flex: 1;
+				display: flex;
+				flex-direction: column;
+				overflow: hidden;
+				min-width: 200px;
+			}
+			.pane-header {
+				padding: 6px 14px;
+				background: var(--panel);
+				border-bottom: 1px solid var(--border);
+				font-size: 11px;
+				font-weight: 700;
+				text-transform: uppercase;
+				letter-spacing: 0.06em;
+				color: var(--text-dim);
+				display: flex;
+				align-items: center;
+				gap: 8px;
+				flex-shrink: 0;
+			}
+			.pane-header .dot {
+				width: 7px;
+				height: 7px;
+				border-radius: 50%;
+			}
+			.pane.gql .dot {
+				background: #79c0ff;
+			}
+			.pane.sql .dot {
+				background: var(--ok);
+			}
+			.divider {
+				width: 4px;
+				background: var(--border);
+				cursor: col-resize;
+				flex-shrink: 0;
+			}
+			.divider:hover {
+				background: var(--accent);
+			}
+			.editor-wrap {
+				flex: 1;
+				overflow: hidden;
+				position: relative;
+			}
+			.bindings {
+				padding: 8px 14px;
+				background: var(--panel);
+				border-top: 1px solid var(--border);
+				font-size: 12px;
+				color: var(--text-dim);
+				max-height: 140px;
+				overflow-y: auto;
+				flex-shrink: 0;
+			}
+			.bindings summary {
+				cursor: pointer;
+				font-weight: 600;
+				color: var(--text);
+			}
+			.bindings pre {
+				margin-top: 6px;
+				white-space: pre-wrap;
+				word-break: break-all;
+				font-family: 'SF Mono', 'Fira Code', monospace;
+			}
+			/* CodeMirror theme overrides */
+			.CodeMirror {
+				height: 100% !important;
+				background: var(--bg) !important;
+				color: var(--text) !important;
+				font-size: 13px;
+				font-family: 'SF Mono', 'Fira Code', 'JetBrains Mono', 'Menlo', monospace !important;
+				line-height: 1.6;
+			}
+			.CodeMirror-gutters {
+				background: var(--bg) !important;
+				border-right: 1px solid var(--border) !important;
+			}
+			.CodeMirror-cursor {
+				border-left: 2px solid var(--accent) !important;
+			}
+			.CodeMirror-selected {
+				background: rgba(137, 87, 229, 0.25) !important;
+			}
+			.cm-s-default .cm-keyword {
+				color: var(--sql-keyword) !important;
+			}
+			.cm-s-default .cm-string {
+				color: var(--sql-string) !important;
+			}
+			.cm-s-default .cm-string-2 {
+				color: var(--sql-string) !important;
+			}
+			.cm-s-default .cm-number {
+				color: var(--sql-number) !important;
+			}
+			.cm-s-default .cm-comment {
+				color: var(--sql-comment) !important;
+				font-style: italic;
+			}
+			.cm-s-default .cm-punctuation {
+				color: var(--sql-punct) !important;
+			}
+			.cm-s-default .cm-operator {
+				color: var(--sql-keyword) !important;
+			}
+			.cm-s-default .cm-variable {
+				color: var(--text) !important;
+			}
+			.cm-s-default .cm-variable-2 {
+				color: var(--accent) !important;
+			}
+			/* Autocomplete dropdown */
+			.CodeMirror-hints {
+				background: var(--panel) !important;
+				border: 1px solid var(--border) !important;
+				border-radius: 6px !important;
+				box-shadow: 0 4px 12px rgba(0, 0, 0, 0.4) !important;
+				font-family: 'SF Mono', 'Fira Code', monospace !important;
+				font-size: 12px !important;
+				max-height: 200px !important;
+			}
+			.CodeMirror-hint {
+				color: var(--text) !important;
+				padding: 4px 10px !important;
+			}
+			li.CodeMirror-hint-active {
+				background: var(--accent-dim) !important;
+				color: #fff !important;
+			}
+			.loading-overlay {
+				position: fixed;
+				inset: 0;
+				background: var(--bg);
+				display: flex;
+				align-items: center;
+				justify-content: center;
+				z-index: 100;
+				flex-direction: column;
+				gap: 12px;
+			}
+			.loading-overlay .spinner {
+				width: 32px;
+				height: 32px;
+				border-radius: 50%;
+				border: 3px solid var(--border);
+				border-top-color: var(--accent);
+				animation: spin 0.8s linear infinite;
+			}
+			.loading-overlay p {
+				color: var(--text-dim);
+				font-size: 13px;
+			}
+			@keyframes spin {
+				to {
+					transform: rotate(360deg);
+				}
+			}
+		</style>
+	</head>
+	<body>
+		<div class="loading-overlay" id="loading">
+			<div class="spinner"></div>
+			<p>Loading gql-of-power engine…</p>
+		</div>
+
+		<header>
+			<h1>
+				<a href="https://github.com/dave-palt/gql-of-power" target="_blank">gql-of-power</a> —
+				GraphQL to SQL Live Demo
+			</h1>
+			<div class="links">
+				<span>100% client-side · no server · no DB</span>
+				<a href="https://github.com/dave-palt/gql-of-power" target="_blank">GitHub ↗</a>
+			</div>
+		</header>
+
+		<div class="toolbar">
+			<label>Example:</label>
+			<select id="exampleSelect">
+				<option value="0">Simple fields</option>
+				<option value="1" selected>1:m relationship + count</option>
+				<option value="2">Nested 3 levels deep</option>
+				<option value="3">m:m relationship</option>
+				<option value="4">Filter + orderBy + limit</option>
+				<option value="5">Inline filter on child collection</option>
+				<option value="6">_exists filter</option>
+			</select>
+			<label class="auto-format-toggle">
+				<input type="checkbox" id="autoFormatToggle" checked />
+				Auto-format GraphQL
+			</label>
+			<span class="status" id="status">Ready</span>
+		</div>
+
+		<div class="main" id="main">
+			<div class="pane gql" id="gqlPane">
+				<div class="pane-header">
+					<span class="dot"></span> GraphQL Query
+					<button class="format-btn" id="formatBtn" title="Format query (Ctrl-Enter)">
+						Format
+					</button>
+					<span style="margin-left: auto; font-weight: 400; text-transform: none; letter-spacing: 0"
+						>Type to autocomplete</span
+					>
+				</div>
+				<div class="editor-wrap"><textarea id="gqlEditor"></textarea></div>
+			</div>
+			<div class="divider" id="divider"></div>
+			<div class="pane sql">
+				<div class="pane-header"><span class="dot"></span> Generated SQL (PostgreSQL)</div>
+				<div class="editor-wrap"><textarea id="sqlEditor"></textarea></div>
+				<details class="bindings" id="bindingsPanel" style="display: none">
+					<summary>Parameter Bindings</summary>
+					<pre id="bindingsPre"></pre>
+				</details>
+			</div>
+		</div>
+
+		<script>
+			// Polyfill Node globals for browser — the library and its transitive deps
+			// (type-graphql, class-validator, semver, pg) reference these at runtime.
+			window.global = window.global || window;
+			window.process = window.process || { env: { D3GOP_LOG_TYPE: 'disabled' } };
+			window.Buffer = window.Buffer || { from: (x) => x, isBuffer: () => false };
+			window.setImmediate = window.setImmediate || ((fn) => setTimeout(fn, 0));
+			window.clearImmediate = window.clearImmediate || ((id) => clearTimeout(id));
+			// Suppress the library's console noise
+			console.time = () => {};
+			console.timeLog = () => {};
+			console.timeEnd = () => {};
+			console.warn = () => {};
+		</script>
+		<script src="./dist/main.js"></script>
+		<script>
+			// ─── Example queries ─────────────────────────────────────────────────────
+			const EXAMPLES = [
+				`query {
+  persons {
+    id
+    name
+    race
+  }
+}`,
+				`query {
+  fellowships {
+    id
+    name
+    memberCount
+    members {
+      id
+      name
+      race
+    }
+  }
+}`,
+				`query {
+  quests {
+    id
+    name
+    fellowships {
+      id
+      name
+      members {
+        id
+        name
+        ring {
+          name
+          power
+        }
+      }
+    }
+  }
+}`,
+				`query {
+  battles {
+    id
+    name
+    outcome
+    warriors {
+      id
+      name
+      race
+    }
+  }
+}`,
+				`query {
+  persons(
+    filter: { race_eq: "Hobbit" }
+    pagination: { limit: 10, orderBy: [{ name: "asc" }] }
+  ) {
+    id
+    name
+    age
+  }
+}`,
+				`query {
+  fellowships {
+    id
+    name
+    members(filter: { race_eq: "Elf" }) {
+      id
+      name
+      race
+    }
+  }
+}`,
+				`query {
+  persons(filter: { _exists: { battles: {} } }) {
+    id
+    name
+    battles {
+      name
+      outcome
+    }
+  }
+}`,
+			];
+
+			// ─── Setup editors ───────────────────────────────────────────────────────
+			const gqlEditor = CodeMirror.fromTextArea(document.getElementById('gqlEditor'), {
+				mode: 'text/plain',
+				lineNumbers: true,
+				tabSize: 2,
+				indentUnit: 2,
+				smartIndent: true,
+			});
+			const sqlEditor = CodeMirror.fromTextArea(document.getElementById('sqlEditor'), {
+				mode: 'text/x-pgsql',
+				lineNumbers: true,
+				readOnly: true,
+			});
+			sqlEditor.setValue('-- Start typing a query…');
+
+			const statusEl = document.getElementById('status');
+			const selectEl = document.getElementById('exampleSelect');
+			const bindingsPanel = document.getElementById('bindingsPanel');
+			const bindingsPre = document.getElementById('bindingsPre');
+
+			// ─── Schema autocomplete ─────────────────────────────────────────────────
+			// Simple context-aware hint: at the top level suggest root fields, inside
+			// a `{ }` block suggest fields of the enclosing entity.
+			let schemaHints = { rootFields: [], entityFields: {} };
+			if (window.gqlOfPower?.getSchemaHints) {
+				schemaHints = window.gqlOfPower.getSchemaHints();
+			}
+
+			// Map root field name → entity name (e.g. "persons" → "Person")
+			const ROOT_TO_ENTITY = {
+				persons: 'Person',
+				rings: 'Ring',
+				fellowships: 'Fellowship',
+				quests: 'Quest',
+				locations: 'Location',
+				regions: 'Region',
+				battles: 'Battle',
+				armies: 'Army',
+				authors: 'Author',
+				books: 'Book',
+				genres: 'Genre',
+			};
+
+			// Map relation field name → target entity name (for nested autocomplete)
+			const RELATION_TO_ENTITY = {
+				ring: 'Ring',
+				fellowship: 'Fellowship',
+				battles: 'Battle',
+				books: 'Book',
+				members: 'Person',
+				quest: 'Quest',
+				fellowships: 'Fellowship',
+				locations: 'Location',
+				region: 'Region',
+				quests: 'Quest',
+				location: 'Location',
+				warriors: 'Person',
+				armies: 'Army',
+				author: 'Author',
+				characters: 'Person',
+				genres: 'Genre',
+				bearer: 'Person',
+			};
+
+			const FILTER_OPS = [
+				'_eq',
+				'_ne',
+				'_in',
+				'_nin',
+				'_gt',
+				'_gte',
+				'_lt',
+				'_lte',
+				'_like',
+				'_nlike',
+				'_ilike',
+				'_nilike',
+				'_startsWith',
+				'_endsWith',
+				'_re',
+				'_nre',
+				'_between',
+				'_nbetween',
+				'_is_null',
+				'_and',
+				'_or',
+				'_not',
+				'_exists',
+				'_not_exists',
+			];
+
+			// Tokenize text up to cursor, tracking a scope stack with entity + block type.
+			// Handles GraphQL's nested { } ( ) [ ] syntax to determine what suggestions
+			// are valid at the cursor position.
+			function gqlHint(cm) {
+				const cur = cm.getCursor();
+				const token = cm.getTokenAt(cur);
+				// Extract just the partial word being typed (alphanumeric + underscore).
+				// When the token spans field + args like "persons(filter:", we only want
+				// the trailing partial word after the last non-word char.
+				const tokenStr = token.string || '';
+				const partialWordMatch = tokenStr.match(/[a-zA-Z_][a-zA-Z0-9_]*$/);
+				const word = partialWordMatch ? partialWordMatch[0] : '';
+				// Compute the hint replacement range from the token + word position, NOT
+				// from cur.ch - word.length. When the token spans mixed chars like
+				// "fellowships(fi", the cursor ch doesn't line up with the word start
+				// (the '(' throws off the subtraction). Using token.start + the offset
+				// of the matched word within the token string is reliable in all cases.
+				const wordOffsetInToken = partialWordMatch ? tokenStr.lastIndexOf(word) : tokenStr.length;
+				const fromCh = token.start + wordOffsetInToken;
+				const toCh = token.end;
+
+				// Build the text up to cursor and tokenize it
+				let text = cm.getRange({ line: 0, ch: 0 }, cur);
+				text = text.replace(/"[^"]*"/g, '""');
+				const tokens = text.match(/\s+|[{}()[\]]|[a-zA-Z_][a-zA-Z0-9_]*|./g) || [];
+
+				// Scope stack: each entry = { type, entity }
+				const stack = [{ type: 'top', entity: null }];
+				let pendingField = null;
+				let inArgs = false;
+				let argKeyword = null;
+
+				for (const t of tokens) {
+					if (/^\s+$/.test(t)) continue;
+
+					if (t === '(') {
+						inArgs = true;
+						argKeyword = null;
+						// Push args scope for the field whose args we're entering
+						if (pendingField) {
+							const parent = stack[stack.length - 1];
+							let entity = ROOT_TO_ENTITY[pendingField];
+							if (!entity && parent.entity) {
+								const target = RELATION_TO_ENTITY[pendingField];
+								if (
+									target &&
+									schemaHints.entityFields[parent.entity]?.relations.includes(pendingField)
+								)
+									entity = target;
+								else entity = parent.entity;
+							}
+							if (!entity) entity = parent.entity;
+							stack.push({ type: 'args', entity });
+						}
+					} else if (t === ')') {
+						inArgs = false;
+						argKeyword = null;
+						if (stack.length > 1 && stack[stack.length - 1].type === 'args') stack.pop();
+					} else if (t === '{') {
+						const parent = stack[stack.length - 1];
+						let scopeType = 'entity';
+						let entity = parent.entity;
+
+						if (inArgs && argKeyword === 'filter') {
+							scopeType = 'filter';
+						} else if (inArgs && argKeyword === 'pagination') {
+							scopeType = 'pagination';
+						} else if (inArgs && (argKeyword === '_exists' || argKeyword === '_not_exists')) {
+							scopeType = 'exists';
+						} else if (pendingField === 'query' || pendingField === 'mutation') {
+							scopeType = 'root';
+							entity = null;
+						} else if (pendingField === '_exists' || pendingField === '_not_exists') {
+							scopeType = 'exists';
+						} else if ((parent.type === 'exists' || parent.type === 'filter') && pendingField) {
+							const target = RELATION_TO_ENTITY[pendingField];
+							if (
+								target &&
+								parent.entity &&
+								schemaHints.entityFields[parent.entity]?.relations.includes(pendingField)
+							) {
+								entity = target;
+								scopeType = 'filter';
+							} else if (['_and', '_or', '_not'].includes(pendingField)) {
+								scopeType = 'filter';
+							}
+						} else if (pendingField) {
+							const rootEntity = ROOT_TO_ENTITY[pendingField];
+							if (rootEntity) entity = rootEntity;
+							else if (parent.entity) {
+								const target = RELATION_TO_ENTITY[pendingField];
+								if (
+									target &&
+									schemaHints.entityFields[parent.entity]?.relations.includes(pendingField)
+								)
+									entity = target;
+							}
+						}
+
+						stack.push({ type: scopeType, entity });
+						pendingField = null;
+						argKeyword = null;
+					} else if (t === '}' || t === ']' || t === '[') {
+						if (t === '}' && stack.length > 1) stack.pop();
+						pendingField = null;
+					} else if (/^[a-zA-Z_]/.test(t)) {
+						if (inArgs && ['filter', 'pagination', '_exists', '_not_exists'].includes(t)) {
+							argKeyword = t;
+						} else {
+							pendingField = t;
+						}
+					} else {
+						pendingField = null;
+					}
+				}
+
+				// Now use the context to build the suggestion list
+				const ctx = stack[stack.length - 1];
+				let list = [];
+
+				if (ctx.type === 'top') {
+					list = ['query'];
+				} else if (ctx.type === 'root') {
+					list = [...schemaHints.rootFields];
+				} else if (ctx.type === 'args') {
+					// Inside field arguments ( ) — suggest argument names
+					list = ['filter', 'pagination'];
+				} else if (ctx.type === 'entity') {
+					const info = schemaHints.entityFields[ctx.entity];
+					if (info) list = [...info.scalars, ...info.relations];
+				} else if (ctx.type === 'filter') {
+					const info = schemaHints.entityFields[ctx.entity];
+					if (info) list = [...info.scalars, ...FILTER_OPS];
+					else list = [...FILTER_OPS];
+				} else if (ctx.type === 'pagination') {
+					list = ['limit', 'offset', 'orderBy'];
+				} else if (ctx.type === 'exists') {
+					const ent = ctx.entity ? schemaHints.entityFields[ctx.entity] : null;
+					if (ent) list = ent.relations;
+				}
+
+				const filtered =
+					word.length > 0
+						? list.filter((s) => s.toLowerCase().startsWith(word.toLowerCase()))
+						: list;
+
+				return {
+					list: [...new Set(filtered)].sort(),
+					from: CodeMirror.Pos(cur.line, fromCh),
+					to: CodeMirror.Pos(cur.line, toCh),
+				};
+			}
+
+			CodeMirror.registerHelper('hint', 'text/plain', gqlHint);
+
+			// ─── GraphQL formatting (prettier standalone + graphql plugin) ───────────
+			// prettier.formatWithCursor preserves the cursor position during auto-format
+			// so it doesn't jump to the start while typing. Returns null on parse error
+			// (e.g. mid-typing), which callers should treat as "don't touch the editor".
+			const autoFormatToggle = document.getElementById('autoFormatToggle');
+			const formatBtn = document.getElementById('formatBtn');
+
+			function gqlPrettierAvailable() {
+				return typeof prettier !== 'undefined' && typeof prettierPlugins !== 'undefined';
+			}
+
+			async function formatGQLDoc() {
+				if (!gqlPrettierAvailable()) return false;
+				const cm = gqlEditor;
+				const code = cm.getValue();
+				if (!code.trim()) return false;
+				try {
+					// Convert CodeMirror cursor → character offset
+					const cursor = cm.getCursor();
+					const offset = cm.indexFromPos(cursor);
+					const result = await prettier.formatWithCursor(code, {
+						parser: 'graphql',
+						plugins: prettierPlugins,
+						cursorOffset: offset,
+					});
+					// Only replace if content actually changed (avoid resetting cursor/scroll
+					// and clobbering an open autocomplete popup unnecessarily)
+					if (result.formatted === code) return true;
+					// Suppress the change-triggered auto-format + SQL regen to avoid a loop:
+					// setValue fires 'change', which would re-trigger scheduleUpdate → fine,
+					// but we don't want it to also re-trigger auto-format.
+					const scrollInfo = cm.getScrollInfo();
+					cm.setValue(result.formatted);
+					cm.scrollTo(scrollInfo.left, scrollInfo.top);
+					// Restore cursor from returned offset
+					if (typeof result.cursorOffset === 'number') {
+						cm.setCursor(cm.posFromIndex(result.cursorOffset));
+					}
+					return true;
+				} catch (e) {
+					// Parse error (mid-typing, invalid syntax) — leave the editor untouched
+					return false;
+				}
+			}
+
+			// Manual Format button
+			formatBtn.addEventListener('click', () => {
+				formatGQLDoc();
+			});
+
+			// Ctrl-Enter → format (Cmd-Enter on macOS)
+			gqlEditor.setOption('extraKeys', {
+				'Ctrl-Enter': () => formatGQLDoc(),
+				'Cmd-Enter': () => formatGQLDoc(),
+			});
+
+			// Auto-format: debounced after the user stops typing.
+			// Skips if the autocomplete popup is open mid-typing (would fight the user);
+			// closes it and proceeds when triggered after a paste.
+			let autoFormatTimer = null;
+			function scheduleAutoFormat() {
+				if (!autoFormatToggle.checked) return;
+				if (autoFormatTimer) clearTimeout(autoFormatTimer);
+				autoFormatTimer = setTimeout(() => {
+					// If the autocomplete dropdown is open, skip this cycle — the user
+					// is actively choosing a suggestion.
+					if (document.querySelector('.CodeMirror-hints')) return;
+					formatGQLDoc();
+				}, 600);
+			}
+
+			// ─── Live SQL generation (debounced) ─────────────────────────────────────
+			let debounceTimer = null;
+
+			function updateSQL() {
+				const query = gqlEditor.getValue().trim();
+				if (!query) {
+					sqlEditor.setValue('-- Empty query');
+					bindingsPanel.style.display = 'none';
+					statusEl.textContent = 'Ready';
+					statusEl.className = 'status';
+					return;
+				}
+				if (!window.gqlOfPower) {
+					statusEl.textContent = 'Engine not loaded yet';
+					statusEl.className = 'status error';
+					return;
+				}
+
+				const result = window.gqlOfPower.generateSQL(query);
+
+				if (result.error) {
+					statusEl.textContent = '✗ ' + result.error.slice(0, 80);
+					statusEl.className = 'status error';
+					// Don't overwrite the SQL panel on error — keep last good output
+					return;
+				}
+
+				// Format with sql-formatter if available.
+				// paramTypes.named: [':'] is required because the SQLBuilder emits
+				// named params like :v_name3_1 / :limit, which sql-formatter's
+				// postgresql dialect doesn't recognize by default — without it the
+				// parser throws and we silently fall back to raw unformatted SQL.
+				let formatted = result.sql;
+				if (typeof sqlFormatter !== 'undefined' && sqlFormatter.format) {
+					try {
+						formatted = sqlFormatter.format(result.sql, {
+							language: 'postgresql',
+							paramTypes: { named: [':'] },
+						});
+					} catch (e) {
+						// Fall back to raw SQL if formatter fails
+					}
+				}
+
+				sqlEditor.setValue(formatted);
+
+				// Show bindings (filter out default limit)
+				if (result.bindings && Object.keys(result.bindings).length > 0) {
+					bindingsPre.textContent = JSON.stringify(result.bindings, null, 2);
+					bindingsPanel.style.display = 'block';
+				} else {
+					bindingsPanel.style.display = 'none';
+				}
+
+				statusEl.textContent = '✓ Generated';
+				statusEl.className = 'status ok';
+			}
+
+			function scheduleUpdate() {
+				if (debounceTimer) clearTimeout(debounceTimer);
+				debounceTimer = setTimeout(updateSQL, 200);
+			}
+
+			// Trigger autocomplete on every keystroke (alphabetic + underscore)
+			// Also trigger on cursor activity in case inputRead doesn't fire
+			let hintTimer = null;
+			function triggerHint(cm) {
+				if (hintTimer) clearTimeout(hintTimer);
+				hintTimer = setTimeout(() => {
+					try {
+						cm.showHint({
+							hint: gqlHint,
+							completeSingle: false,
+							extraKeys: {
+								Space: (cm) => {
+									const activeHint = document.querySelector('.CodeMirror-hint-active');
+									if (activeHint) {
+										activeHint.click();
+									} else {
+										cm.replaceSelection(' ');
+										cm.closeHint();
+									}
+								},
+							},
+						});
+					} catch (e) {
+						// Silently ignore hint errors
+					}
+				}, 50);
+			}
+			gqlEditor.on('inputRead', function (cm, change) {
+				// Don't trigger autocomplete on paste — it's a bulk insert, not
+				// incremental typing, and an open popup would block auto-format.
+				if (change.origin === 'paste') return;
+				// Only trigger on word characters (alphanumeric + underscore).
+				// Non-word chars like { } ( ) : are structural delimiters that close
+				// the current completion context — re-triggering the popup on them
+				// opens a fresh hint at the wrong position (after the delimiter),
+				// so picking a suggestion inserts it at cursor instead of replacing
+				// the partial word typed before the delimiter.
+				const ch = change.text[0];
+				if (ch && /^[a-zA-Z0-9_]$/.test(ch)) {
+					triggerHint(cm);
+				}
+			});
+
+			gqlEditor.on('change', () => {
+				scheduleUpdate();
+				scheduleAutoFormat();
+			});
+
+			// ─── Example selector ────────────────────────────────────────────────────
+			function loadExample(i) {
+				gqlEditor.setValue(EXAMPLES[i].trim());
+				// updateSQL fires via the change listener
+			}
+			selectEl.addEventListener('change', (e) => loadExample(parseInt(e.target.value)));
+
+			// ─── Divider drag ────────────────────────────────────────────────────────
+			const divider = document.getElementById('divider');
+			const main = document.getElementById('main');
+			let dragging = false;
+			divider.addEventListener('mousedown', () => {
+				dragging = true;
+				document.body.style.cursor = 'col-resize';
+				document.body.style.userSelect = 'none';
+			});
+			document.addEventListener('mousemove', (e) => {
+				if (!dragging) return;
+				const rect = main.getBoundingClientRect();
+				const pct = ((e.clientX - rect.left) / rect.width) * 100;
+				if (pct > 15 && pct < 85) {
+					document.getElementById('gqlPane').style.flex = pct;
+					document.querySelector('.pane.sql').style.flex = 100 - pct;
+				}
+			});
+			document.addEventListener('mouseup', () => {
+				dragging = false;
+				document.body.style.cursor = '';
+				document.body.style.userSelect = '';
+			});
+
+			// ─── Init ────────────────────────────────────────────────────────────────
+			loadExample(1);
+			document.getElementById('loading').style.display = 'none';
+		</script>
+	</body>
+</html>

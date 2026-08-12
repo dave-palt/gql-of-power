@@ -28,7 +28,8 @@
 		"audit:dead-code": "fallow dead-code",
 		"audit:dupes": "fallow dupes",
 		"audit:health": "fallow health",
-		"audit:fix": "fallow fix"
+		"audit:fix": "fallow fix",
+		"build:demo": "bun build examples/demo/src/main.ts --target=browser --format=iife --outfile=examples/demo/dist/main.js --define process.env.D3GOP_LOG_TYPE='\"disabled\"'"
 	},
 	"keywords": [
 		"graphql",
@@ -48,6 +49,7 @@
 		"@graphql-tools/schema": "^10.0.38",
 		"@types/bun": "latest",
 		"@types/graphql-fields": "^1.3.9",
+		"class-validator": "^0.15.1",
 		"fallow": "^3.6.0",
 		"graphql-yoga": "^5.21.0",
 		"reflect-metadata": "^0.2.2",

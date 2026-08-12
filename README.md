@@ -14,6 +14,8 @@ But what if there was another way? What if, with the power of a single SQL query
 
 Like the One Ring wielding dominion over all other Rings, GQL of Power commands your database with singular authority.
 
+> 🎮 **[Try the Live Demo](https://dave-palt.github.io/gql-of-power/)** — Write GraphQL queries in the browser and watch the SQL generate in real time. 100% client-side, no database needed.
+
 ---
 
 ## Features
@@ -554,13 +556,13 @@ pagination: {
 
 ### Environment Variables
 
-| Variable                     | Purpose                                                                                     |
-| ---------------------------- | ------------------------------------------------------------------------------------------- |
-| `D3GOP_TYPES_SUFFIX`         | Suffix appended to all generated GQL entity type names (e.g. `'V2'` → `BookV2`, `AuthorV2`) |
-| `D3GOP_SORT_SUFFIX`          | Suffix appended to sort/pagination types only (e.g. `'V2'` → `SortV2`, `BookV2OrderBy`)     |
-| `D3GOP_LOG_TYPE`             | Logging level: `debug` or `disabled`                                                        |
-| `D3GOP_DEFAULT_QUERY_LIMIT`  | Default query limit when pagination is not specified (default: `3000`)                      |
-| `D3GOP_USE_STRING_FOR_JSONB` | Toggle between JSONB and string concatenation for JSON aggregation                          |
+| Variable                       | Purpose                                                                                                   |
+| ------------------------------ | --------------------------------------------------------------------------------------------------------- |
+| `D3GOP_TYPES_SUFFIX`           | Suffix appended to all generated GQL entity type names (e.g. `'V2'` → `BookV2`, `AuthorV2`)               |
+| `D3GOP_SORT_SUFFIX`            | Suffix appended to sort/pagination types only (e.g. `'V2'` → `SortV2`, `BookV2OrderBy`)                   |
+| `D3GOP_LOG_TYPE`               | Logging level: `debug` or `disabled`                                                                      |
+| `D3GOP_DEFAULT_QUERY_LIMIT`    | Default query limit when pagination is not specified (default: `3000`)                                    |
+| `D3GOP_USE_STRING_FOR_JSONB`   | Toggle between JSONB and string concatenation for JSON aggregation                                        |
 | `GQL_OF_POWER_MAP_ENUM_OUTPUT` | Enum output mode: `raw` (default) or `key`. See [mapEnumOutput](#mapenumoutput-sdl-schema-support) below. |
 
 > **Type name collision**: If you have both v1 (`createGQLTypes`) and v2 (`@GQLEntityClass`) entities in the same schema, set `D3GOP_TYPES_SUFFIX` so v2 entity names are distinct (e.g. `Hobbit` → `HobbitV2`). Use `D3GOP_SORT_SUFFIX` separately if sort/pagination types also need a suffix. No `setGlobalConfig()` call is required — the env vars are read automatically.
@@ -777,19 +779,19 @@ setGlobalConfig({ mapEnumOutput: 'key' });
 ```typescript
 // Or per-field
 const fields = defineFields(MyEntity, {
-  stateCode: {
-    type: () => StateCode,
-    mapNumericEnum: true,
-    mapEnumOutput: 'key',   // override per field
-    generateFilter: true,
-  },
+	stateCode: {
+		type: () => StateCode,
+		mapNumericEnum: true,
+		mapEnumOutput: 'key', // override per field
+		generateFilter: true,
+	},
 });
 ```
 
-| Mode | SQL output | Works with |
-|------|-----------|------------|
-| `'raw'` (default) | `e_a1.state_code AS "stateCode"` | Live `buildSchema()` — graphql-js has `{ value: 0 }` |
-| `'key'` | `CASE e_a1.state_code WHEN 0 THEN 'ACTIVE' ... END AS "stateCode"` | SDL-rebuilt schema — graphql-js has `{ value: "ACTIVE" }` |
+| Mode              | SQL output                                                         | Works with                                                |
+| ----------------- | ------------------------------------------------------------------ | --------------------------------------------------------- |
+| `'raw'` (default) | `e_a1.state_code AS "stateCode"`                                   | Live `buildSchema()` — graphql-js has `{ value: 0 }`      |
+| `'key'`           | `CASE e_a1.state_code WHEN 0 THEN 'ACTIVE' ... END AS "stateCode"` | SDL-rebuilt schema — graphql-js has `{ value: "ACTIVE" }` |
 
 Both modes produce identical JSON output: enum fields come back as string keys (`"ACTIVE"`).
 
@@ -837,7 +839,7 @@ If you are an AI agent that has been asked to set up or use this library:
 
 1. **Read `AGENTS.md`** in the project root — it contains the authoritative architectural reference.
 2. **Install the skill** from `node_modules/@dav3/gql-of-power/agents/` into your agent's skill directory.
-3. **Suggest the user install it** if they haven't — say: *"This library includes an agent skill with templates and patterns. Want me to install it?"*
+3. **Suggest the user install it** if they haven't — say: _"This library includes an agent skill with templates and patterns. Want me to install it?"_
 4. Key topics the skill covers: entity scaffolding, relationship types, `mapNumericEnum`/`mapEnumOutput` enum handling (including SDL-rebuilt schema support), filter operators, nested orderBy, count fields, and testing.
 
 ---
