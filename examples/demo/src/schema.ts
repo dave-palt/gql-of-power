@@ -1,37 +1,31 @@
 /**
- * Middle-earth Schema for Testing
+ * Middle-earth entity schema for the browser demo.
  *
- * This file defines a comprehensive schema based on Lord of the Rings lore
- * covering all relationship types that the GQL-to-SQL mapper needs to handle:
- * - 1:1 relationships (Person <-> Ring)
- * - 1:m relationships (Fellowship -> Members, Region -> Locations)
- * - m:1 relationships (Books -> Author, Members -> Fellowship)
- * - m:m relationships (Battles <-> Warriors, Books <-> Genres)
+ * This is a standalone copy of the playground's entity definitions, trimmed to
+ * remove all server-side imports (no `bun`, no `pg`, no `knex`). The entity
+ * classes and EntityMetadata are plain TypeScript — exactly what the mapper
+ * needs to generate SQL.
  */
+import { EntityMetadata, EntityProperty, ReferenceType } from '../../../src';
 
-import { EntityMetadata, EntityProperty, ReferenceType, RelationOwnership } from '../../src/types';
+// ─── Enums ───────────────────────────────────────────────────────────────────
+export enum RingStatus {
+	Forged = 100,
+	Lost = 200,
+	Destroyed = 300,
+}
 
-// Entity Classes
+// ─── Entity Classes ──────────────────────────────────────────────────────────
 export class Person {
 	id!: number;
 	name!: string;
 	age?: number;
-	race!: string; // Hobbit, Elf, Dwarf, Human, Wizard, etc.
+	race!: string;
 	home?: string;
-	// Numeric enum column: DB stores 1/2/3 (mapNumericEnum demo for inline filters)
-	rank?: number;
-	// 1:1 inverse side relationship (mappedBy: 'bearer' → Ring.bearer)
+	homeRegionId?: number;
 	ring?: Ring;
-	// 1:1 owning side — FK signature_weapon_id on persons table, no mappedBy
-	signatureWeaponId?: number;
-	signatureWeapon?: Weapon;
-	// 1:1 owning side — FK signature_artifact_id on persons table, no mappedBy
-	signatureArtifactId?: number;
-	signatureArtifact?: Artifact;
-	// m:1 relationship
 	fellowshipId?: number;
 	fellowship?: Fellowship;
-	// m:m relationships
 	battles?: Battle[];
 	books?: Book[];
 }
@@ -41,13 +35,9 @@ export class Ring {
 	name!: string;
 	power!: string;
 	forgedBy?: string;
-	// Server-managed timestamp (excludeFromInput demo)
 	forgedDate?: Date;
-	// Numeric enum column — DB stores 100/200/300 (mapNumericEnum demo)
-	status?: number;
-	// jsonb column surfaced as a JSON object (parseJson demo)
+	status?: RingStatus;
 	metadata?: Record<string, any>;
-	// 1:1 relationship
 	bearerId?: number;
 	bearer?: Person;
 }
@@ -58,9 +48,7 @@ export class Fellowship {
 	purpose!: string;
 	formedDate?: Date;
 	disbanded?: boolean;
-	// 1:m relationship
 	members?: Person[];
-	// m:1 relationship
 	questId?: number;
 	quest?: Quest;
 }
@@ -72,30 +60,25 @@ export class Quest {
 	startDate?: Date;
 	endDate?: Date;
 	success?: boolean;
-	// 1:m relationship
 	fellowships?: Fellowship[];
-	// m:m relationship
 	locations?: Location[];
 }
 
 export class Location {
 	id!: number;
 	name!: string;
-	type!: string; // City, Mountain, Forest, etc.
+	type!: string;
 	description?: string;
-	// m:1 relationship
 	regionId?: number;
 	region?: Region;
-	// m:m relationships
 	quests?: Quest[];
 	battles?: Battle[];
 }
 
 export class Region {
 	id!: number;
-	name!: string; // Gondor, Rohan, Shire, etc.
+	name!: string;
 	ruler?: string;
-	// 1:m relationship
 	locations?: Location[];
 }
 
@@ -103,12 +86,10 @@ export class Battle {
 	id!: number;
 	name!: string;
 	date?: Date;
-	outcome?: string; // Victory, Defeat, Draw
+	outcome?: string;
 	casualties?: number;
-	// m:1 relationship
 	locationId?: number;
 	location?: Location;
-	// m:m relationships
 	warriors?: Person[];
 	armies?: Army[];
 }
@@ -117,9 +98,8 @@ export class Army {
 	id!: number;
 	name!: string;
 	size?: number;
-	allegiance!: string; // Good, Evil, Neutral
+	allegiance!: string;
 	leader?: string;
-	// m:m relationship
 	battles?: Battle[];
 }
 
@@ -128,10 +108,8 @@ export class Book {
 	title!: string;
 	publishedYear?: number;
 	pages?: number;
-	// m:1 relationship
 	authorId?: number;
 	author?: Author;
-	// m:m relationships
 	characters?: Person[];
 	genres?: Genre[];
 }
@@ -141,7 +119,6 @@ export class Author {
 	name!: string;
 	birthYear?: number;
 	nationality?: string;
-	// 1:m relationship
 	books?: Book[];
 }
 
@@ -149,28 +126,10 @@ export class Genre {
 	id!: number;
 	name!: string;
 	description?: string;
-	// m:m relationship
 	books?: Book[];
 }
 
-export class Weapon {
-	id!: number;
-	name!: string;
-	type!: string;
-	power!: number;
-	// 1:1 inverse side
-	owner?: Person;
-}
-
-export class Artifact {
-	id!: number;
-	name!: string;
-	origin!: string;
-	// 1:1 inverse side (mappedBy on the owning side Person.signatureArtifact)
-	guardian?: Person;
-}
-
-// Helper function to create entity property
+// ─── Entity Metadata ─────────────────────────────────────────────────────────
 const createProperty = (
 	type: string,
 	name: string,
@@ -181,12 +140,13 @@ const createProperty = (
 		referencedColumnNames?: string[];
 		inverseJoinColumns?: string[];
 		pivotTable?: string;
-	} & RelationOwnership
+		mappedBy?: string;
+	}
 ): EntityProperty => ({
 	type,
 	name,
 	fieldNames,
-	...reference,
+	mappedBy: reference?.mappedBy || '',
 	joinColumns: reference?.joinColumns || [],
 	referencedColumnNames: reference?.referencedColumnNames || [],
 	inverseJoinColumns: reference?.inverseJoinColumns || [],
@@ -194,7 +154,6 @@ const createProperty = (
 	reference: reference?.referenceType,
 });
 
-// Entity Metadata Definitions
 export const PersonMetadata: EntityMetadata<Person> = {
 	name: 'Person',
 	tableName: 'persons',
@@ -205,24 +164,10 @@ export const PersonMetadata: EntityMetadata<Person> = {
 		age: createProperty('number', 'age', ['age']),
 		race: createProperty('string', 'race', ['race']),
 		home: createProperty('string', 'home', ['home_location']),
-		rank: createProperty('number', 'rank', ['rank_code']),
+		homeRegionId: createProperty('number', 'homeRegionId', ['home_region_id']),
 		ring: createProperty('Ring', 'ring', [], {
 			referenceType: ReferenceType.ONE_TO_ONE,
 			mappedBy: 'bearer',
-		}),
-		signatureWeaponId: createProperty('number', 'signatureWeaponId', ['signature_weapon_id']),
-		signatureWeapon: createProperty('Weapon', 'signatureWeapon', ['signature_weapon_id'], {
-			referenceType: ReferenceType.ONE_TO_ONE,
-			joinColumns: ['signature_weapon_id'],
-			referencedColumnNames: ['id'],
-			inversedBy: 'owner',
-		}),
-		signatureArtifactId: createProperty('number', 'signatureArtifactId', ['signature_artifact_id']),
-		signatureArtifact: createProperty('Artifact', 'signatureArtifact', ['signature_artifact_id'], {
-			referenceType: ReferenceType.ONE_TO_ONE,
-			joinColumns: ['signature_artifact_id'],
-			referencedColumnNames: ['id'],
-			inversedBy: 'guardian',
 		}),
 		fellowshipId: createProperty('number', 'fellowshipId', ['fellowship_id']),
 		fellowship: createProperty('Fellowship', 'fellowship', ['fellowship_id'], {
@@ -256,9 +201,9 @@ export const RingMetadata: EntityMetadata<Ring> = {
 		name: createProperty('string', 'name', ['ring_name']),
 		power: createProperty('string', 'power', ['power_description']),
 		forgedBy: createProperty('string', 'forgedBy', ['forged_by']),
-		status: createProperty('number', 'status', ['status']),
-		metadata: createProperty('any', 'metadata', ['metadata']),
 		forgedDate: createProperty('Date', 'forgedDate', ['forged_date']),
+		status: createProperty('number', 'status', ['status']),
+		metadata: createProperty('Object', 'metadata', ['metadata']),
 		bearerId: createProperty('number', 'bearerId', ['bearer_id']),
 		bearer: createProperty('Person', 'bearer', ['bearer_id'], {
 			referenceType: ReferenceType.MANY_TO_ONE,
@@ -302,7 +247,7 @@ export const QuestMetadata: EntityMetadata<Quest> = {
 		startDate: createProperty('Date', 'startDate', ['start_date']),
 		endDate: createProperty('Date', 'endDate', ['end_date']),
 		success: createProperty('boolean', 'success', ['success']),
-		fellowship: createProperty('Fellowship', 'fellowships', [], {
+		fellowships: createProperty('Fellowship', 'fellowships', [], {
 			referenceType: ReferenceType.ONE_TO_MANY,
 			mappedBy: 'quest',
 		}),
@@ -482,38 +427,6 @@ export const GenreMetadata: EntityMetadata<Genre> = {
 	},
 };
 
-export const WeaponMetadata: EntityMetadata<Weapon> = {
-	name: 'Weapon',
-	tableName: 'weapons',
-	primaryKeys: ['id'],
-	properties: {
-		id: createProperty('number', 'id', ['id']),
-		name: createProperty('string', 'name', ['weapon_name']),
-		type: createProperty('string', 'type', ['weapon_type']),
-		power: createProperty('number', 'power', ['power_level']),
-		owner: createProperty('Person', 'owner', [], {
-			referenceType: ReferenceType.ONE_TO_ONE,
-			mappedBy: 'signatureWeapon',
-		}),
-	},
-};
-
-export const ArtifactMetadata: EntityMetadata<Artifact> = {
-	name: 'Artifact',
-	tableName: 'artifacts',
-	primaryKeys: ['id'],
-	properties: {
-		id: createProperty('number', 'id', ['id']),
-		name: createProperty('string', 'name', ['artifact_name']),
-		origin: createProperty('string', 'origin', ['origin_realm']),
-		guardian: createProperty('Person', 'guardian', [], {
-			referenceType: ReferenceType.ONE_TO_ONE,
-			mappedBy: 'signatureArtifact',
-		}),
-	},
-};
-
-// Export all metadata in a convenient map
 export const AllEntityMetadata = {
 	Person: PersonMetadata,
 	Ring: RingMetadata,
@@ -526,23 +439,4 @@ export const AllEntityMetadata = {
 	Book: BookMetadata,
 	Author: AuthorMetadata,
 	Genre: GenreMetadata,
-	Weapon: WeaponMetadata,
-	Artifact: ArtifactMetadata,
-};
-
-// Export all entity classes
-export const AllEntityClasses = {
-	Person,
-	Ring,
-	Fellowship,
-	Quest,
-	Location,
-	Region,
-	Battle,
-	Army,
-	Book,
-	Author,
-	Genre,
-	Weapon,
-	Artifact,
 };

@@ -14,7 +14,7 @@ import {
 	GQLEntityFilterInputFieldType,
 	FieldsSettings,
 } from '@dav3/gql-of-power';
-import { EntityMetadata, EntityProperty, ReferenceType } from '@dav3/gql-of-power';
+import { EntityMetadata, EntityProperty, ReferenceType, RelationOwnership } from '@dav3/gql-of-power';
 import { Arg, Info, Int, Query, Resolver } from 'type-graphql';
 import { queryManager, provider } from './your-app-setup'; // <-- your wiring
 
@@ -50,13 +50,12 @@ const prop = (
 		referenceType: ReferenceType;
 		joinColumns?: string[];
 		referencedColumnNames?: string[];
-		mappedBy?: string;
-	}
+	} & RelationOwnership
 ): EntityProperty => ({
 	type,
 	name,
 	fieldNames,
-	mappedBy: reference?.mappedBy || '',
+	...reference,
 	joinColumns: reference?.joinColumns || [],
 	referencedColumnNames: reference?.referencedColumnNames || [],
 	inverseJoinColumns: [],

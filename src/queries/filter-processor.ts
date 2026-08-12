@@ -844,7 +844,7 @@ export class FilterProcessor extends ClassOperations {
 		let joinCondition = '';
 		if (
 			fieldProps.reference === ReferenceType.ONE_TO_MANY ||
-			fieldProps.reference === ReferenceType.ONE_TO_ONE
+			(fieldProps.reference === ReferenceType.ONE_TO_ONE && !fieldProps.inversedBy)
 		) {
 			const refFieldProps = relatedMetadata.properties[
 				fieldProps.mappedBy as keyof typeof relatedMetadata.properties
@@ -854,7 +854,10 @@ export class FilterProcessor extends ClassOperations {
 			joinCondition = entityOns
 				.map((o, i) => `${parentAlias.toColumnName(o)} = ${countAlias.toColumnName(ons[i])}`)
 				.join(' and ');
-		} else if (fieldProps.reference === ReferenceType.MANY_TO_ONE) {
+		} else if (
+			fieldProps.reference === ReferenceType.MANY_TO_ONE ||
+			(fieldProps.reference === ReferenceType.ONE_TO_ONE && fieldProps.inversedBy)
+		) {
 			const ons =
 				fieldProps.referencedColumnNames.length > 0
 					? fieldProps.referencedColumnNames
@@ -1039,7 +1042,7 @@ export class FilterProcessor extends ClassOperations {
 		// Handle different relationship types
 		if (
 			fieldProps.reference === ReferenceType.ONE_TO_MANY ||
-			fieldProps.reference === ReferenceType.ONE_TO_ONE
+			(fieldProps.reference === ReferenceType.ONE_TO_ONE && !fieldProps.inversedBy)
 		) {
 			this.mapFilterOneToX<T>(
 				referenceField,
@@ -1054,7 +1057,10 @@ export class FilterProcessor extends ClassOperations {
 				mapping,
 				_or
 			);
-		} else if (fieldProps.reference === ReferenceType.MANY_TO_ONE) {
+		} else if (
+			fieldProps.reference === ReferenceType.MANY_TO_ONE ||
+			(fieldProps.reference === ReferenceType.ONE_TO_ONE && fieldProps.inversedBy)
+		) {
 			this.mapFilterManyToOne<T>(
 				fieldProps,
 				referenceField,
@@ -1548,9 +1554,12 @@ export class FilterProcessor extends ClassOperations {
 		_or: MappingsType[]
 	): void {
 		if (fieldProps.fieldNames.length && referenceField.tableName) {
+			// On the owning side (m:1 or owning 1:1), mappedBy is empty and
+			// referenceField.properties[''] is undefined — only used for the
+			// error message below. Resolve defensively.
 			const referenceFieldProps = referenceField.properties[
 				fieldProps.mappedBy as keyof typeof referenceField.properties
-			] as EntityProperty;
+			] as EntityProperty | undefined;
 
 			const ons =
 				fieldProps.referencedColumnNames.length > 0
@@ -1560,7 +1569,7 @@ export class FilterProcessor extends ClassOperations {
 
 			if (ons.length !== entityOns.length) {
 				throw new Error(
-					`m:1 join with different number of columns ${ons.length} !== ${entityOns.length} on ${referenceFieldProps.name}`
+					`m:1 join with different number of columns ${ons.length} !== ${entityOns.length} on ${referenceFieldProps?.name ?? fieldProps.name}`
 				);
 			}
 
