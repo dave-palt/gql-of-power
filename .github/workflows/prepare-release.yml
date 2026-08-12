@@ -86,7 +86,9 @@ jobs:
             echo "No previous release tag found. Listing all merged PRs."
           fi
 
-          PRS=$(gh api "/search/issues" \
+          # -X GET is required: gh api defaults to POST when -f flags are passed,
+          # and the GitHub Search API only accepts GET — POST returns HTTP 404.
+          PRS=$(gh api -X GET "/search/issues" \
             -f q="repo:${{ github.repository }} base:develop is:merged merged:>$TAG_DATE" \
             -f sort=created \
             -f order=asc \
