@@ -9,7 +9,7 @@
  * - m:m relationships (Battles <-> Warriors, Books <-> Genres)
  */
 
-import { EntityMetadata, EntityProperty, ReferenceType } from '../../src/types';
+import { EntityMetadata, EntityProperty, ReferenceType, RelationOwnership } from '../../src/types';
 
 // Entity Classes
 export class Person {
@@ -181,13 +181,12 @@ const createProperty = (
 		referencedColumnNames?: string[];
 		inverseJoinColumns?: string[];
 		pivotTable?: string;
-		mappedBy?: string;
-	}
+	} & RelationOwnership
 ): EntityProperty => ({
 	type,
 	name,
 	fieldNames,
-	mappedBy: reference?.mappedBy || '',
+	...reference,
 	joinColumns: reference?.joinColumns || [],
 	referencedColumnNames: reference?.referencedColumnNames || [],
 	inverseJoinColumns: reference?.inverseJoinColumns || [],
@@ -216,12 +215,14 @@ export const PersonMetadata: EntityMetadata<Person> = {
 			referenceType: ReferenceType.ONE_TO_ONE,
 			joinColumns: ['signature_weapon_id'],
 			referencedColumnNames: ['id'],
+			inversedBy: 'owner',
 		}),
 		signatureArtifactId: createProperty('number', 'signatureArtifactId', ['signature_artifact_id']),
 		signatureArtifact: createProperty('Artifact', 'signatureArtifact', ['signature_artifact_id'], {
 			referenceType: ReferenceType.ONE_TO_ONE,
 			joinColumns: ['signature_artifact_id'],
 			referencedColumnNames: ['id'],
+			inversedBy: 'guardian',
 		}),
 		fellowshipId: createProperty('number', 'fellowshipId', ['fellowship_id']),
 		fellowship: createProperty('Fellowship', 'fellowship', ['fellowship_id'], {

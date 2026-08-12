@@ -7,7 +7,13 @@ import {
 	setGlobalConfig,
 } from '../../src/entities/gql-entity';
 import { GQLQueryManager } from '../../src/query-manager';
-import { EntityMetadata, EntityProperty, FieldSelection, ReferenceType } from '../../src/types';
+import {
+	EntityMetadata,
+	EntityProperty,
+	FieldSelection,
+	ReferenceType,
+	RelationOwnership,
+} from '../../src/types';
 import '../setup';
 
 enum WeaponStatus {
@@ -41,13 +47,12 @@ const createProperty = (
 	fieldNames: string[],
 	reference?: {
 		referenceType: ReferenceType;
-		mappedBy?: string;
-	}
+	} & RelationOwnership
 ): EntityProperty => ({
 	type,
 	name,
 	fieldNames,
-	mappedBy: reference?.mappedBy || '',
+	...reference,
 	joinColumns: [],
 	referencedColumnNames: [],
 	inverseJoinColumns: [],

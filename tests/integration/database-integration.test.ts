@@ -878,6 +878,216 @@ describe('GQL-of-Power Database Integration Tests', () => {
 			}
 		}
 
+		describe('Owning-side 1:1 filter join direction (issue #45)', () => {
+			// These tests execute the generated SQL against real PostgreSQL to
+			// verify the owning-side OneToOne filter joins on THIS entity's FK
+			// column (persons.signature_weapon_id), not the related side's.
+			// Before the fix, the SQL referenced a non-existent column on the
+			// related table and PostgreSQL rejected the query at runtime.
+			it(
+				'should filter persons by owning-side 1:1 (signatureWeapon) and return correct rows',
+				async () => {
+					const fields = {
+						id: {},
+						name: {},
+					};
+
+					// Frodo → Sting (weapon id 1), Gandalf → Glamdring (id 2)
+					const filter = {
+						signatureWeapon: {
+							name: 'Sting',
+						},
+					};
+
+					const result = mapper.buildQueryAndBindingsFor({
+						fields,
+						entity: Person,
+						customFields: {},
+						filter: filter as any,
+					});
+
+					// The SQL must execute without error (the bug caused
+					// "column weapon.signature_weapon_id does not exist").
+					const dbResults = await metadataProvider.executeQuery(
+						k.raw(result.querySQL, result.bindings).toString()
+					);
+
+					expect(dbResults).toBeDefined();
+					expect(Array.isArray(dbResults)).toBe(true);
+					expect(dbResults.length).toBe(1);
+					expect(dbResults[0].name).toBe('Frodo Baggins');
+				},
+				TEST_TIMEOUT
+			);
+
+			it(
+				'should filter persons by owning-side 1:1 (signatureArtifact) and return correct rows',
+				async () => {
+					const fields = {
+						id: {},
+						name: {},
+					};
+
+					// Only Frodo has a signature artifact (Phial of Galadriel)
+					const filter = {
+						signatureArtifact: {
+							name: 'Phial of Galadriel',
+						},
+					};
+
+					const result = mapper.buildQueryAndBindingsFor({
+						fields,
+						entity: Person,
+						customFields: {},
+						filter: filter as any,
+					});
+
+					const dbResults = await metadataProvider.executeQuery(
+						k.raw(result.querySQL, result.bindings).toString()
+					);
+
+					expect(dbResults).toBeDefined();
+					expect(dbResults.length).toBe(1);
+					expect(dbResults[0].name).toBe('Frodo Baggins');
+				},
+				TEST_TIMEOUT
+			);
+
+			it(
+				'should return ZERO persons when owning-side 1:1 filter matches nothing',
+				async () => {
+					const fields = {
+						id: {},
+						name: {},
+					};
+
+					const filter = {
+						signatureWeapon: {
+							name: 'Nonexistent Weapon',
+						},
+					};
+
+					const result = mapper.buildQueryAndBindingsFor({
+						fields,
+						entity: Person,
+						customFields: {},
+						filter: filter as any,
+					});
+
+					const dbResults = await metadataProvider.executeQuery(
+						k.raw(result.querySQL, result.bindings).toString()
+					);
+
+					expect(dbResults).toBeDefined();
+					expect(dbResults.length).toBe(0);
+				},
+				TEST_TIMEOUT
+			);
+
+			it(
+				'should select owning-side 1:1 relation (signatureWeapon) as a nested object',
+				async () => {
+					const fields = {
+						id: {},
+						name: {},
+						signatureWeapon: {
+							fieldsByTypeName: {
+								Weapon: {
+									id: {},
+									name: {},
+									power: {},
+								},
+							},
+						},
+					};
+
+					const result = mapper.buildQueryAndBindingsFor({
+						fields,
+						entity: Person,
+						customFields: {},
+					});
+
+					const dbResults = await metadataProvider.executeQuery(
+						k.raw(result.querySQL, result.bindings).toString()
+					);
+
+					expect(dbResults).toBeDefined();
+					expect(Array.isArray(dbResults)).toBe(true);
+					// Frodo should have Sting as signatureWeapon
+					const frodo = dbResults.find((r: any) => r?.name === 'Frodo Baggins');
+					expect(frodo).toBeDefined();
+					expect(frodo.signatureWeapon).toBeDefined();
+					expect(frodo.signatureWeapon.name).toBe('Sting');
+				},
+				TEST_TIMEOUT
+			);
+
+			it(
+				'inverse-side 1:1 filter (ring) still works correctly (regression guard)',
+				async () => {
+					const fields = {
+						id: {},
+						name: {},
+					};
+
+					// ring is the inverse side: mappedBy: 'bearer', no inversedBy.
+					// The FK (bearer_id) lives on the rings table.
+					const filter = {
+						ring: {
+							name: 'The One Ring',
+						},
+					};
+
+					const result = mapper.buildQueryAndBindingsFor({
+						fields,
+						entity: Person,
+						customFields: {},
+						filter: filter as any,
+					});
+
+					const dbResults = await metadataProvider.executeQuery(
+						k.raw(result.querySQL, result.bindings).toString()
+					);
+
+					expect(dbResults).toBeDefined();
+					expect(dbResults.length).toBe(1);
+					expect(dbResults[0].name).toBe('Frodo Baggins');
+				},
+				TEST_TIMEOUT
+			);
+
+			it(
+				'm:1 filter (fellowship) still works correctly (regression guard)',
+				async () => {
+					const fields = {
+						id: {},
+						name: {},
+					};
+
+					const filter = {
+						fellowship: {
+							name: 'Fellowship of the Ring',
+						},
+					};
+
+					const result = mapper.buildQueryAndBindingsFor({
+						fields,
+						entity: Person,
+						customFields: {},
+						filter: filter as any,
+					});
+
+					const dbResults = await metadataProvider.executeQuery(
+						k.raw(result.querySQL, result.bindings).toString()
+					);
+
+					expect(dbResults).toBeDefined();
+					expect(dbResults.length).toBeGreaterThan(0);
+				},
+				TEST_TIMEOUT
+			);
+		});
+
 		async function insertTestData(): Promise<void> {
 			console.log('📝 Inserting test data...');
 

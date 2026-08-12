@@ -28,7 +28,13 @@ import {
 } from '../../src/entities/gql-entity';
 import { convertFilterEnumValues } from '../../src/queries/enum-filter-converter';
 import { GQLQueryManager } from '../../src/query-manager';
-import { EntityMetadata, EntityProperty, FieldSelection, ReferenceType } from '../../src/types';
+import {
+	EntityMetadata,
+	EntityProperty,
+	FieldSelection,
+	ReferenceType,
+	RelationOwnership,
+} from '../../src/types';
 import '../setup';
 
 // ─── LOTR enums ───────────────────────────────────────────────────────────
@@ -82,12 +88,12 @@ const createProperty = (
 	type: string,
 	name: string,
 	fieldNames: string[],
-	reference?: { referenceType: ReferenceType; mappedBy?: string }
+	reference?: { referenceType: ReferenceType } & RelationOwnership
 ): EntityProperty => ({
 	type,
 	name,
 	fieldNames,
-	mappedBy: reference?.mappedBy || '',
+	...reference,
 	joinColumns: [],
 	referencedColumnNames: [],
 	inverseJoinColumns: [],

@@ -9,7 +9,7 @@ import {
 	setGlobalConfig,
 } from '../../src/entities/gql-entity';
 import { GQLQueryManager } from '../../src/query-manager';
-import { EntityMetadata, EntityProperty, ReferenceType } from '../../src/types';
+import { EntityMetadata, EntityProperty, ReferenceType, RelationOwnership } from '../../src/types';
 import '../setup';
 
 enum RingBearerStatus {
@@ -68,13 +68,12 @@ const createProperty = (
 	fieldNames: string[],
 	reference?: {
 		referenceType: ReferenceType;
-		mappedBy?: string;
-	}
+	} & RelationOwnership
 ): EntityProperty => ({
 	type,
 	name,
 	fieldNames,
-	mappedBy: reference?.mappedBy || '',
+	...reference,
 	joinColumns: [],
 	referencedColumnNames: [],
 	inverseJoinColumns: [],
@@ -277,10 +276,10 @@ describe('mapNumericEnum SQL output modes', () => {
 		const sql = capturedSQLs.join(' ');
 		// CASE expressions wrapping the raw column
 		expect(sql).toContain('CASE ');
-		expect(sql).toContain('WHEN 100 THEN \'Worthy\'');
-		expect(sql).toContain('WHEN 200 THEN \'Corrupted\'');
-		expect(sql).toContain('WHEN 0 THEN \'NotStarted\'');
-		expect(sql).toContain('WHEN 1 THEN \'InProgress\'');
+		expect(sql).toContain("WHEN 100 THEN 'Worthy'");
+		expect(sql).toContain("WHEN 200 THEN 'Corrupted'");
+		expect(sql).toContain("WHEN 0 THEN 'NotStarted'");
+		expect(sql).toContain("WHEN 1 THEN 'InProgress'");
 		// Should be aliased as the GQL field name
 		expect(sql).toContain('AS "status"');
 		expect(sql).toContain('AS "questState"');
@@ -353,7 +352,6 @@ describe('mapNumericEnum SQL output modes', () => {
 		expect(sql).toContain("WHEN '1' THEN 'Weekly'");
 		expect(sql).toContain('AS "frequency"');
 	});
-
 });
 
 describe('mapNumericEnum filter conversion', () => {
