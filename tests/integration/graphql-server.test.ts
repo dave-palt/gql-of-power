@@ -36,7 +36,14 @@ import { createGQLTypes } from '../../src/entities/gql-entity';
 import { GQLQueryManager } from '../../src/query-manager';
 import { FieldSettings, RelatedFieldSettings } from '../../src/types';
 import { DatabaseMetadataProvider } from '../fixtures/database-metadata-provider';
-import { Battle, Fellowship, Person, Ring, Weapon } from '../fixtures/middle-earth-schema';
+import {
+	Battle,
+	Fellowship,
+	Person,
+	Ring,
+	Weapon,
+	Artifact,
+} from '../fixtures/middle-earth-schema';
 import { AllSampleData } from '../fixtures/test-data';
 import { getTestDBConfig } from '../fixtures/test-db-config';
 
@@ -112,6 +119,15 @@ const PersonFields: Partial<Record<keyof Person, FieldSettings | RelatedFieldSet
 		generateFilter: true,
 		array: true,
 		relatedEntityName: () => 'Battle',
+		getFilterType: () => Int,
+	},
+	// Owning-side 1:1 relation (FK signature_artifact_id on persons table).
+	// Used by the owning-side OneToOne filter integration tests below.
+	signatureArtifact: {
+		type: () => ArtifactGQL.GQLEntity,
+		options: { nullable: true },
+		generateFilter: true,
+		relatedEntityName: () => 'Artifact',
 		getFilterType: () => Int,
 	},
 };
@@ -193,6 +209,13 @@ const WeaponFields: Partial<Record<keyof Weapon, FieldSettings | RelatedFieldSet
 	power: { type: () => Number, options: { nullable: true }, generateFilter: true },
 };
 
+// ─── Artifact entity (used by owning-side 1:1 filter test) ──────────────────
+const ArtifactFields: Partial<Record<keyof Artifact, FieldSettings | RelatedFieldSettings<any>>> = {
+	id: { type: () => Number, options: { nullable: false }, generateFilter: true },
+	name: { type: () => String, options: { nullable: true }, generateFilter: true },
+	origin: { type: () => String, options: { nullable: true }, generateFilter: true },
+};
+
 // Create GQL types using the library
 const WeaponGQL = createGQLTypes(Weapon, WeaponFields);
 const PersonGQL = createGQLTypes(Person, PersonFields, {
@@ -212,6 +235,7 @@ const PersonGQL = createGQLTypes(Person, PersonFields, {
 const RingGQL = createGQLTypes(Ring, RingFields);
 const FellowshipGQL = createGQLTypes(Fellowship, FellowshipFields);
 const BattleGQL = createGQLTypes(Battle, BattleFields);
+const ArtifactGQL = createGQLTypes(Artifact, ArtifactFields);
 
 @InputType('TestInput')
 class TestInput {
@@ -298,6 +322,17 @@ class WeaponResolver extends WeaponGQL.FieldsResolver {
 	}
 }
 
+@Resolver(() => ArtifactGQL.GQLEntity)
+class ArtifactResolver extends ArtifactGQL.FieldsResolver {
+	@Query(() => [ArtifactGQL.GQLEntity], { description: 'Get all artifacts from Middle-earth' })
+	async artifacts(
+		@Info() info: GraphQLResolveInfo,
+		@Arg('filter', () => ArtifactGQL.GQLEntityFilterInput, { nullable: true }) filter?: any
+	): Promise<any[]> {
+		return await queryManager.getQueryResultsForInfo(metadataProvider, Artifact, info, filter);
+	}
+}
+
 const describeOrSkip = schemaExists ? describe : describe.skip;
 
 describe('GraphQL Server Integration Tests', () => {
@@ -352,6 +387,7 @@ describe('GraphQL Server Integration Tests', () => {
 						FellowshipResolver,
 						BattleResolver,
 						WeaponResolver,
+						ArtifactResolver,
 					],
 					validate: false, // Skip validation for faster testing
 				});
@@ -1858,6 +1894,137 @@ query GetMixedData {
 
 				expect(response.status).toBe(200);
 				expect(result.errors).toBeDefined();
+			});
+		});
+
+		describe('Owning-side OneToOne filter (issue #45)', () => {
+			// Full HTTP round-trip: GraphQL query → GQLQueryManager → SQL →
+			// PostgreSQL → result. Verifies the owning-side 1:1 filter (FK on
+			// persons table) executes against real PostgreSQL and returns
+			// correct rows. Before the fix, the generated EXISTS subquery
+			// referenced a non-existent column on the related table.
+			it('should filter persons by owning-side 1:1 relation (signatureArtifact)', async () => {
+				const query = `
+			query OwningOneToOneFilter {
+			persons(filter: { SignatureArtifact: { name: "Phial of Galadriel" } }) {
+			id
+			name
+			}
+			}
+			`;
+
+				const response = await fetch(TEST_URL, {
+					method: 'POST',
+					headers: { 'Content-Type': 'application/json' },
+					body: JSON.stringify({ query }),
+				});
+
+				expect(response.status).toBe(200);
+				const result = await response.json();
+				expect(result.errors).toBeUndefined();
+				expect(result.data.persons).toBeDefined();
+				expect(result.data.persons.length).toBe(1);
+				expect(result.data.persons[0].name).toBe('Frodo Baggins');
+			});
+
+			it('should return empty when owning-side 1:1 filter matches nothing', async () => {
+				const query = `
+			query OwningOneToOneNoMatch {
+			persons(filter: { SignatureArtifact: { name: "Nonexistent Artifact" } }) {
+			id
+			name
+			}
+			}
+			`;
+
+				const response = await fetch(TEST_URL, {
+					method: 'POST',
+					headers: { 'Content-Type': 'application/json' },
+					body: JSON.stringify({ query }),
+				});
+
+				expect(response.status).toBe(200);
+				const result = await response.json();
+				expect(result.errors).toBeUndefined();
+				expect(result.data.persons).toBeDefined();
+				expect(result.data.persons.length).toBe(0);
+			});
+
+			it('should select owning-side 1:1 relation as nested object', async () => {
+				const query = `
+			query OwningOneToOneSelection {
+			persons(filter: { name: "Frodo Baggins" }) {
+			id
+			name
+			signatureArtifact {
+			id
+			name
+			origin
+			}
+			}
+			}
+			`;
+
+				const response = await fetch(TEST_URL, {
+					method: 'POST',
+					headers: { 'Content-Type': 'application/json' },
+					body: JSON.stringify({ query }),
+				});
+
+				expect(response.status).toBe(200);
+				const result = await response.json();
+				expect(result.errors).toBeUndefined();
+				expect(result.data.persons).toBeDefined();
+				expect(result.data.persons.length).toBe(1);
+				expect(result.data.persons[0].signatureArtifact).toBeDefined();
+				expect(result.data.persons[0].signatureArtifact.name).toBe('Phial of Galadriel');
+			});
+
+			it('inverse-side 1:1 filter (ring) still works (regression guard)', async () => {
+				const query = `
+			query InverseOneToOneFilter {
+			persons(filter: { Ring: { name: "The One Ring" } }) {
+			id
+			name
+			}
+			}
+			`;
+
+				const response = await fetch(TEST_URL, {
+					method: 'POST',
+					headers: { 'Content-Type': 'application/json' },
+					body: JSON.stringify({ query }),
+				});
+
+				expect(response.status).toBe(200);
+				const result = await response.json();
+				expect(result.errors).toBeUndefined();
+				expect(result.data.persons).toBeDefined();
+				expect(result.data.persons.length).toBe(1);
+				expect(result.data.persons[0].name).toBe('Frodo Baggins');
+			});
+
+			it('m:1 filter (fellowship) still works (regression guard)', async () => {
+				const query = `
+			query ManyToOneFilter {
+			persons(filter: { Fellowship: { name: "Fellowship of the Ring" } }) {
+			id
+			name
+			}
+			}
+			`;
+
+				const response = await fetch(TEST_URL, {
+					method: 'POST',
+					headers: { 'Content-Type': 'application/json' },
+					body: JSON.stringify({ query }),
+				});
+
+				expect(response.status).toBe(200);
+				const result = await response.json();
+				expect(result.errors).toBeUndefined();
+				expect(result.data.persons).toBeDefined();
+				expect(result.data.persons.length).toBeGreaterThan(0);
 			});
 		});
 	});

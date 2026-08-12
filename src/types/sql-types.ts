@@ -15,12 +15,22 @@ export type EntityProperty = {
 	reference?: ReferenceType | string;
 	name: string;
 	fieldNames: string[];
-	mappedBy: string;
-	joinColumns: string[];
-	referencedColumnNames: string[];
-	inverseJoinColumns: string[];
-	pivotTable: string;
-};
+} & RelationOwnership & {
+		joinColumns: string[];
+		referencedColumnNames: string[];
+		inverseJoinColumns: string[];
+		pivotTable: string;
+	};
+
+/**
+ * Enforces mutual exclusivity between `mappedBy` and `inversedBy`.
+ * A relation is either:
+ *   - inverse side: `mappedBy` set, `inversedBy` absent
+ *   - owning side:  `inversedBy` set, `mappedBy` absent
+ * Scalar fields have neither (satisfies either branch since both are optional).
+ */
+export type RelationOwnership =
+	{ mappedBy?: string; inversedBy?: never } | { inversedBy?: string; mappedBy?: never };
 
 export type EntityMetadata<T> = {
 	primaryKeys: string[];

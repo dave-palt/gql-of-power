@@ -1,4 +1,9 @@
-import { EntityMetadata, EntityProperty, ReferenceType } from '@dav3/gql-of-power';
+import {
+	EntityMetadata,
+	EntityProperty,
+	ReferenceType,
+	RelationOwnership,
+} from '@dav3/gql-of-power';
 /**
  * Middle-earth Schema
  *
@@ -170,13 +175,12 @@ const createProperty = (
 		referencedColumnNames?: string[];
 		inverseJoinColumns?: string[];
 		pivotTable?: string;
-		mappedBy?: string;
-	}
+	} & RelationOwnership
 ): EntityProperty => ({
 	type,
 	name,
 	fieldNames,
-	mappedBy: reference?.mappedBy || '',
+	...reference,
 	joinColumns: reference?.joinColumns || [],
 	referencedColumnNames: reference?.referencedColumnNames || [],
 	inverseJoinColumns: reference?.inverseJoinColumns || [],

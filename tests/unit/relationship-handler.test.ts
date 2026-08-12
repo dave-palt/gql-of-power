@@ -9,7 +9,7 @@ import { beforeEach, describe, expect, it } from 'bun:test';
 import { AliasManager, AliasType } from '../../src/queries/alias';
 import { RelationshipHandler } from '../../src/queries/relationship-handler';
 import { QueriesUtils } from '../../src/queries/utils';
-import { EntityMetadata, EntityProperty, ReferenceType } from '../../src/types';
+import { EntityMetadata, EntityProperty, ReferenceType, RelationOwnership } from '../../src/types';
 import { Fellowship, Person, Ring, Weapon, Artifact } from '../fixtures/middle-earth-schema';
 import { createMockMetadataProvider } from '../fixtures/test-data';
 import '../setup';
@@ -24,13 +24,12 @@ const createProperty = (
 		referencedColumnNames?: string[];
 		inverseJoinColumns?: string[];
 		pivotTable?: string;
-		mappedBy?: string;
-	}
+	} & RelationOwnership
 ): EntityProperty => ({
 	type,
 	name,
 	fieldNames,
-	mappedBy: reference?.mappedBy || '',
+	...reference,
 	joinColumns: reference?.joinColumns || [],
 	referencedColumnNames: reference?.referencedColumnNames || [],
 	inverseJoinColumns: reference?.inverseJoinColumns || [],
@@ -260,7 +259,8 @@ describe('RelationshipHandler', () => {
 
 			// Verify this is an owning-side OneToOne (no mappedBy)
 			expect(fieldProps.reference).toBe(ReferenceType.ONE_TO_ONE);
-			expect(fieldProps.mappedBy).toBe('');
+			expect(fieldProps.mappedBy).toBeUndefined();
+			expect(fieldProps.inversedBy).toBe('owner');
 			expect(fieldProps.fieldNames).toEqual(['signature_weapon_id']);
 
 			const parentAlias = aliasManager.start('p');
@@ -352,7 +352,6 @@ describe('RelationshipHandler', () => {
 				name: 'forge',
 				reference: ReferenceType.MANY_TO_ONE,
 				fieldNames: ['forge_secret_code'],
-				mappedBy: '',
 				joinColumns: ['forge_secret_code'],
 				referencedColumnNames: ['secret_code'], // Non-PK column!
 				inverseJoinColumns: [],
@@ -460,7 +459,6 @@ describe('RelationshipHandler', () => {
 				type: 'Battle',
 				reference: ReferenceType.MANY_TO_MANY,
 				fieldNames: [],
-				mappedBy: '',
 				joinColumns: ['person_id'],
 				referencedColumnNames: [],
 				inverseJoinColumns: ['battle_id'],

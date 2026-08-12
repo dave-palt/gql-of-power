@@ -735,7 +735,7 @@ export class GQLtoSQLMapper {
 		const primaryKeys = ownerMetadata?.primaryKeys ?? [];
 		if (
 			relFieldProps.reference === ReferenceType.ONE_TO_MANY ||
-			(relFieldProps.reference === ReferenceType.ONE_TO_ONE && relFieldProps.mappedBy)
+			(relFieldProps.reference === ReferenceType.ONE_TO_ONE && !relFieldProps.inversedBy)
 		) {
 			this.relationshipHandler.mapOneToX(
 				refMetadata,
@@ -756,7 +756,7 @@ export class GQLtoSQLMapper {
 			);
 		} else if (
 			relFieldProps.reference === ReferenceType.MANY_TO_ONE ||
-			(relFieldProps.reference === ReferenceType.ONE_TO_ONE && !relFieldProps.mappedBy)
+			(relFieldProps.reference === ReferenceType.ONE_TO_ONE && relFieldProps.inversedBy)
 		) {
 			this.relationshipHandler.mapManyToOne(
 				relFieldProps,
@@ -856,7 +856,7 @@ export class GQLtoSQLMapper {
 		let joinCondition = '';
 		if (
 			fieldProps.reference === ReferenceType.ONE_TO_MANY ||
-			fieldProps.reference === ReferenceType.ONE_TO_ONE
+			(fieldProps.reference === ReferenceType.ONE_TO_ONE && !fieldProps.inversedBy)
 		) {
 			const refFieldProps = relatedMetadata.properties[
 				fieldProps.mappedBy as keyof typeof relatedMetadata.properties
@@ -866,7 +866,10 @@ export class GQLtoSQLMapper {
 			joinCondition = entityOns
 				.map((o, i) => `${parentAlias.toColumnName(o)} = ${countAlias.toColumnName(ons[i])}`)
 				.join(' and ');
-		} else if (fieldProps.reference === ReferenceType.MANY_TO_ONE) {
+		} else if (
+			fieldProps.reference === ReferenceType.MANY_TO_ONE ||
+			(fieldProps.reference === ReferenceType.ONE_TO_ONE && fieldProps.inversedBy)
+		) {
 			const ons =
 				fieldProps.referencedColumnNames.length > 0
 					? fieldProps.referencedColumnNames
@@ -1072,7 +1075,7 @@ export class GQLtoSQLMapper {
 			);
 			if (
 				fieldProps.reference === ReferenceType.ONE_TO_MANY ||
-				(fieldProps.reference === ReferenceType.ONE_TO_ONE && fieldProps.mappedBy)
+				(fieldProps.reference === ReferenceType.ONE_TO_ONE && !fieldProps.inversedBy)
 			) {
 				logger.warn('[DIAG mapField dispatch]', gqlFieldName, '→ mapOneToX');
 				this.relationshipHandler.mapOneToX(
@@ -1094,7 +1097,7 @@ export class GQLtoSQLMapper {
 				);
 			} else if (
 				fieldProps.reference === ReferenceType.MANY_TO_ONE ||
-				(fieldProps.reference === ReferenceType.ONE_TO_ONE && !fieldProps.mappedBy)
+				(fieldProps.reference === ReferenceType.ONE_TO_ONE && fieldProps.inversedBy)
 			) {
 				logger.warn(
 					'[DIAG mapField dispatch]',
