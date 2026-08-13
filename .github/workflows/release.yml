@@ -161,7 +161,13 @@ jobs:
         run: |
           git fetch origin develop
           git checkout develop
-          git merge main --no-edit
+          # --squash avoids merge commits (develop branch protection forbids them).
+          # -X ours auto-resolves the package.json version conflict in develop's
+          # favour (develop carries the -dev suffix; the step below sets the next
+          # -dev). Non-conflicting changes from main still flow through. A plain
+          # `git merge main --no-edit` conflicts on the version line every release.
+          git merge --squash main -X ours
+          git commit -m "chore: sync main into develop after release"
           git push origin develop
 
       - name: Bump develop to next -dev version
