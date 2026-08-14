@@ -11,7 +11,7 @@
  * SQL generation does NOT require PostgreSQL — only execution does.
  * To regenerate: bun tests/regression/generate-sql-snapshots.ts
  */
-import { describe, expect, it } from 'bun:test';
+import { describe, expect, it, beforeAll } from 'bun:test';
 import { GQLtoSQLMapper } from '../../src/queries/gql-to-sql-mapper';
 import { createMockMetadataProvider } from '../fixtures/test-data';
 import {
@@ -23,6 +23,8 @@ import {
 	Person,
 	Ring,
 } from '../fixtures/middle-earth-schema';
+import { Author, Battle, Book, Fellowship, Person, Ring } from '../fixtures/middle-earth-schema';
+import { registerAggregateField, clearAggregateFields } from '../../src/entities/gql-entity';
 import '../setup';
 
 const normalize = (sql: string) => sql.replace(/\s+/g, ' ').trim();
@@ -145,6 +147,14 @@ const goldenSQL: Record<string, string> = {
 		'select e_a1.id, e_a1.person_name AS "name" from ( select e_a1.id, e_a1.person_name, e_a1.fellowship_id from persons as e_a1 where true order by (select e_o.fellowship_name from "fellowships" as e_o where e_a1.fellowship_id = e_o.id) desc limit :limit ) as e_a1 order by (select e_o.fellowship_name from "fellowships" as e_o where e_a1.fellowship_id = e_o.id) desc',
 	'orderby-related-mixed':
 		'select e_a1.book_title, e_a1.id, e_a1.book_title AS "title" from ( select e_a1.id, e_a1.book_title, e_a1.author_id from books as e_a1 where true order by (select e_o.author_name from "authors" as e_o where e_a1.author_id = e_o.id) asc, e_a1.book_title desc limit :limit ) as e_a1 order by (select e_o.author_name from "authors" as e_o where e_a1.author_id = e_o.id) asc, e_a1.book_title desc',
+	'agg-author-sum-totalPages':
+		'select e_a1.id, e_a1.author_name AS "name", (select sum(e_w1.page_count) from "books" as e_w1 where e_a1.id = e_w1.author_id) AS "totalPages" from ( select e_a1.id, e_a1.author_name from authors as e_a1 where true ) as e_a1',
+	'agg-author-avg-pages':
+		'select e_a1.id, e_a1.author_name AS "name", (select avg(e_w1.page_count) from "books" as e_w1 where e_a1.id = e_w1.author_id) AS "avgPages" from ( select e_a1.id, e_a1.author_name from authors as e_a1 where true ) as e_a1',
+	'agg-author-min-year':
+		'select e_a1.id, e_a1.author_name AS "name", (select min(e_w1.published_year) from "books" as e_w1 where e_a1.id = e_w1.author_id) AS "oldestBookYear" from ( select e_a1.id, e_a1.author_name from authors as e_a1 where true ) as e_a1',
+	'agg-author-filter-totalPages-gt':
+		'select e_a1.id, e_a1.author_name AS "name" from ( select e_a1.id, e_a1.author_name from authors as e_a1 where true and ( (select sum(e_w8.page_count) from "books" as e_w8 where e_a1.id = e_w8.author_id) > :v_totalPages1_1 ) ) as e_a1',
 };
 
 type Scenario = {
@@ -446,6 +456,29 @@ const scenarios: Scenario[] = [
 	// requires the count field registered via @GQLEntityClass decorators, which
 	// the bare mock-metadata fixture doesn't set up. Covered in count-field.test.ts instead.
 
+	// ── Aggregate fields ─────────────────────────────────────────────────
+	{
+		name: 'agg-author-sum-totalPages',
+		fields: { id: {}, name: {}, totalPages: {} },
+		entity: Author,
+	},
+	{
+		name: 'agg-author-avg-pages',
+		fields: { id: {}, name: {}, avgPages: {} },
+		entity: Author,
+	},
+	{
+		name: 'agg-author-min-year',
+		fields: { id: {}, name: {}, oldestBookYear: {} },
+		entity: Author,
+	},
+	{
+		name: 'agg-author-filter-totalPages-gt',
+		fields: { id: {}, name: {} },
+		entity: Author,
+		filter: { totalPages_gt: 500 } as any,
+	},
+
 	// ── Pagination ────────────────────────────────────────────────────────
 	{
 		name: 'pagination-limit-offset',
@@ -590,6 +623,28 @@ const scenarios: Scenario[] = [
 describe('SQL regression — golden snapshots', () => {
 	const provider = createMockMetadataProvider();
 	const mapper = new GQLtoSQLMapper(provider);
+
+	beforeAll(() => {
+		clearAggregateFields();
+		registerAggregateField('Author', 'totalPages', 'sum', 'pages', 'books', () => 'Book');
+		registerAggregateField('Author', 'avgPages', 'avg', 'pages', 'books', () => 'Book');
+		registerAggregateField(
+			'Author',
+			'oldestBookYear',
+			'min',
+			'publishedYear',
+			'books',
+			() => 'Book'
+		);
+		registerAggregateField(
+			'Author',
+			'newestBookYear',
+			'max',
+			'publishedYear',
+			'books',
+			() => 'Book'
+		);
+	});
 
 	for (const s of scenarios) {
 		it(`generate identical SQL for ${s.name}`, () => {

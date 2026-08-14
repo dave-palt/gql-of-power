@@ -102,6 +102,7 @@ For the **exact annotated examples** of each relationship type (field settings +
 | Need                                                   | Feature                   | Where                          | See                               |
 | ------------------------------------------------------ | ------------------------- | ------------------------------ | --------------------------------- |
 | Count of related items as an Int field                 | `countFieldName`          | array relation field settings  | `references/advanced-features.md` |
+| Sum/avg/min/max of a related column as a Float field   | `aggregateFields`         | array relation field settings  | `references/advanced-features.md` |
 | Filter by whether a related row exists                 | `_exists` / `_not_exists` | class-level filter (automatic) | `references/advanced-features.md` |
 | DB stores a number, GQL wants the enum string key      | `mapNumericEnum`          | enum field settings            | `references/advanced-features.md` |
 | Store/retrieve a JSON object column                    | `parseJson`               | field settings                 | `references/advanced-features.md` |

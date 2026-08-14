@@ -1,6 +1,7 @@
 import {
 	Field,
 	FieldResolver,
+	Float,
 	getMetadataStorage,
 	InputType,
 	Int,
@@ -12,6 +13,7 @@ import {
 import { FieldOperations } from '../operations';
 import {
 	CountFieldMeta,
+	AggregateFieldMeta,
 	CustomFieldsSettings,
 	CustomFieldSettings,
 	FieldSettings,
@@ -32,6 +34,7 @@ const TypeMap: { [key: string]: any } = {};
 const FieldsOptionsMap: Record<string, Record<string, string>> = {};
 const CustomFieldsMap: Record<string, CustomFieldsSettings<any>> = {};
 const CountFieldsMap: Record<string, Record<string, CountFieldMeta>> = {};
+const AggregateFieldsMap: Record<string, Record<string, AggregateFieldMeta>> = {};
 const MapEnumFieldsMap: Record<string, Record<string, any>> = {};
 
 /**
@@ -219,6 +222,45 @@ export const registerCountField = (
 export const clearCountFields = (): void => {
 	for (const key of Object.keys(CountFieldsMap)) {
 		delete CountFieldsMap[key];
+	}
+};
+
+/**
+ * Returns the aggregate fields registered for the given GQL entity name.
+ * Keyed by the aggregate field name (e.g. 'totalPages'), value is the aggregate field metadata.
+ */
+export const getAggregateFieldsFor = (name: string): Record<string, AggregateFieldMeta> =>
+	AggregateFieldsMap[name] ?? {};
+
+/**
+ * Manually registers an aggregate field for an entity.
+ * Useful for testing without the @GQLEntityClass decorator.
+ * In production, aggregate fields are auto-registered by the decorator when `aggregateFields` is set.
+ */
+export const registerAggregateField = (
+	gqlEntityName: string,
+	aggregateFieldName: string,
+	fn: 'sum' | 'avg' | 'min' | 'max',
+	column: string,
+	relationshipFieldName: string,
+	relatedEntityName: () => string
+): void => {
+	AggregateFieldsMap[gqlEntityName] = AggregateFieldsMap[gqlEntityName] || {};
+	AggregateFieldsMap[gqlEntityName][aggregateFieldName] = {
+		aggregateFieldName,
+		fn,
+		column,
+		relationshipFieldName,
+		relatedEntityName,
+	};
+};
+
+/**
+ * Clears all registered aggregate fields. Intended for test teardown.
+ */
+export const clearAggregateFields = (): void => {
+	for (const key of Object.keys(AggregateFieldsMap)) {
+		delete AggregateFieldsMap[key];
 	}
 };
 export const getMapEnumFieldsFor = (name: string): Record<string, any> =>
@@ -1036,6 +1078,126 @@ function _registerCountFields<T>(
 				description: `Filter by ${countFieldName} with operators`,
 				deprecationReason: undefined,
 			});
+		}
+
+		// Register aggregate fields derived from relationship fields with aggregateFields
+		if (fieldOptions.aggregateFields && Array.isArray(fieldOptions.aggregateFields)) {
+			const relatedEntityName = fieldOptions.relatedEntityName as () => string;
+			const relatedGQLEntityName = getGQLEntityNameFor(relatedEntityName());
+
+			for (const { fn, column, fieldName: aggFieldName } of fieldOptions.aggregateFields) {
+				// avg → Float, sum/min/max → Float (consistent, avoids integer-division surprises)
+				metadata.collectClassFieldMetadata({
+					target: GQLEntity,
+					name: aggFieldName,
+					schemaName: aggFieldName,
+					getType: () => Float,
+					typeOptions: { nullable: true },
+					complexity: undefined,
+					description: `${fn.toUpperCase()} of ${column} with optional filter`,
+					deprecationReason: undefined,
+				});
+
+				// Register filter arg on the aggregate field
+				metadata.collectHandlerParamMetadata({
+					kind: 'arg',
+					name: 'filter',
+					description: undefined,
+					methodName: aggFieldName,
+					index: 0,
+					getType: () => TypeMap[relatedGQLEntityName + 'FilterInput'],
+					target: GQLEntity,
+					typeOptions: { nullable: true },
+					deprecationReason: undefined,
+					validateFn: undefined,
+					validateSettings: undefined,
+				});
+
+				// Store in AggregateFieldsMap
+				AggregateFieldsMap[gqlEntityName] = AggregateFieldsMap[gqlEntityName] || {};
+				AggregateFieldsMap[gqlEntityName][aggFieldName] = {
+					aggregateFieldName: aggFieldName,
+					fn,
+					column,
+					relationshipFieldName: fieldNameToUse,
+					relatedEntityName,
+				};
+
+				// Register numeric filter operators on the entity's FilterInput
+				// Supports: totalPages_eq, totalPages_gt, totalPages: 500, TotalPages: { _gt: 500 }
+				const aggFilterOperators: Array<{ key: string }> = [
+					{ key: '_eq' },
+					{ key: '_ne' },
+					{ key: '_gt' },
+					{ key: '_gte' },
+					{ key: '_lt' },
+					{ key: '_lte' },
+				];
+
+				for (const op of aggFilterOperators) {
+					const opFieldName = aggFieldName + op.key;
+					metadata.collectClassFieldMetadata({
+						target: GQLEntityFilterInput,
+						name: opFieldName,
+						schemaName: opFieldName,
+						getType: () => Float,
+						typeOptions: { nullable: true },
+						complexity: undefined,
+						description: `Filter by ${aggFieldName} ${op.key}`,
+						deprecationReason: undefined,
+					});
+				}
+
+				// totalPages: 500 (implicit _eq)
+				metadata.collectClassFieldMetadata({
+					target: GQLEntityFilterInput,
+					name: aggFieldName,
+					schemaName: aggFieldName,
+					getType: () => Float,
+					typeOptions: { nullable: true },
+					complexity: undefined,
+					description: `Filter by ${aggFieldName} (equals)`,
+					deprecationReason: undefined,
+				});
+
+				// TotalPages: { _gt: 500 } (nested object form)
+				const UppercasedAggFieldName = aggFieldName[0].toUpperCase() + aggFieldName.slice(1);
+				const aggFieldFilterTypeName = `${gqlEntityName}_${UppercasedAggFieldName}`;
+
+				@InputType(aggFieldFilterTypeName)
+				class AggregateFieldFilterInput {}
+
+				Object.defineProperty(AggregateFieldFilterInput, 'name', {
+					value: aggFieldFilterTypeName,
+				});
+				TypeMap[aggFieldFilterTypeName] = AggregateFieldFilterInput;
+
+				for (const op of aggFilterOperators) {
+					metadata.collectClassFieldMetadata({
+						target: AggregateFieldFilterInput,
+						name: op.key,
+						schemaName: op.key,
+						getType: () => Float,
+						typeOptions: { nullable: true },
+						complexity: undefined,
+						description: op.key,
+						deprecationReason: undefined,
+					});
+				}
+
+				InputType(aggFieldFilterTypeName)(AggregateFieldFilterInput);
+
+				metadata.collectClassFieldMetadata({
+					target: GQLEntityFilterInput,
+					name: UppercasedAggFieldName,
+					schemaName: UppercasedAggFieldName,
+					getType: () => AggregateFieldFilterInput,
+					typeOptions: { nullable: true },
+					complexity: undefined,
+					description: `Filter by ${aggFieldName} with operators`,
+					deprecationReason: undefined,
+				});
+			}
 		}
 	}
 }

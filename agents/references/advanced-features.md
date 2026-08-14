@@ -34,6 +34,51 @@ Filter operators auto-generate too: `bookCount_gt`, `bookCount_lte`, etc.
 
 **Requires:** `array: true` + `relatedEntityName`.
 
+## aggregateFields — sum/avg/min/max of related columns
+
+Set on an **array relation field** to auto-generate numeric fields returning aggregated values of a column on the related entities. Each aggregate is a correlated subquery.
+
+```typescript
+// FieldsSettings — Author
+books: {
+  type: () => BookGQL.GQLEntity,
+  generateFilter: true,
+  array: true,
+  relatedEntityName: () => Book.name,
+  countFieldName: 'bookCount',
+  aggregateFields: [
+    { fn: 'sum', column: 'pages', fieldName: 'totalPages' }, // Float
+    { fn: 'avg', column: 'pages', fieldName: 'avgPages' }, // Float
+    { fn: 'min', column: 'publishedYear', fieldName: 'oldestBookYear' }, // Float
+    { fn: 'max', column: 'publishedYear', fieldName: 'newestBookYear' }, // Float
+  ],
+},
+```
+
+Generated SQL (per aggregate):
+
+```sql
+(SELECT SUM(page_count) FROM "books" AS e_w1 WHERE e_w1.author_id = a_1.id) AS "totalPages"
+```
+
+Query it:
+
+```graphql
+authors {
+  id
+  totalPages
+  avgPages
+  oldestBookYear
+  newestBookYear
+}
+```
+
+Filter operators auto-generate too: `totalPages_gt`, `totalPages_lte`, etc. (same numeric operators as count fields).
+
+> The `column` is the **property name** on the related entity (resolved to the SQL column via metadata).
+
+**Requires:** `array: true` + `relatedEntityName`.
+
 ## _exists / _not_exists — filter by related-row existence
 
 These are **class-level** filter operators (not field settings). They work automatically on relationship fields — no schema change needed.

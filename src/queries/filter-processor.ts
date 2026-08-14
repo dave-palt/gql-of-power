@@ -1,4 +1,8 @@
-import { getCountFieldsFor, getGQLEntityNameFor } from '../entities/gql-entity';
+import {
+	getAggregateFieldsFor,
+	getCountFieldsFor,
+	getGQLEntityNameFor,
+} from '../entities/gql-entity';
 import {
 	ClassOperationInputType,
 	ClassOperations,
@@ -6,6 +10,7 @@ import {
 	FieldOperationsType,
 } from '../operations';
 import {
+	AggregateFieldMeta,
 	CountFieldMeta,
 	CustomFieldsSettings,
 	EntityMetadata,
@@ -119,6 +124,19 @@ export class FilterProcessor extends ClassOperations {
 			isFieldFilter
 		);
 		if (countFilterResult) {
+			return;
+		}
+
+		// Check if this filter key matches an aggregate field (e.g. totalPages_gt: 500)
+		const aggregateFilterResult = this.tryMapAggregateFieldFilter<T>(
+			gqlFieldNameKey,
+			filterValue,
+			entityMetadata,
+			parentAlias,
+			alias,
+			mappings
+		);
+		if (aggregateFilterResult) {
 			return;
 		}
 
@@ -861,7 +879,187 @@ export class FilterProcessor extends ClassOperations {
 		}
 
 		return `(select count(*) from "${relatedMetadata.tableName}" as ${countAlias.toString()} where ${joinCondition})`.replaceAll(
-			/[ \n\t]+/gi,
+			/[ \n	]+/gi,
+			' '
+		);
+	}
+
+	// ─── Aggregate field filters ────────────────────────────────────────────────
+
+	/**
+	 * Tries to match a filter key against aggregate field names (e.g. totalPages_gt, TotalPages).
+	 * Returns true if the filter was handled.
+	 */
+	protected tryMapAggregateFieldFilter<T>(
+		gqlFieldNameKey: string,
+		filterValue: any,
+		entityMetadata: EntityMetadata<T>,
+		parentAlias: Alias,
+		alias: Alias,
+		mappings: Map<string, MappingsType>
+	): boolean {
+		const gqlEntityName = getGQLEntityNameFor(entityMetadata.name ?? '');
+		const aggregateFields = getAggregateFieldsFor(gqlEntityName);
+
+		if (Object.keys(aggregateFields).length === 0) {
+			return false;
+		}
+
+		const numericOps = ['_eq', '_ne', '_gt', '_gte', '_lt', '_lte'] as const;
+		for (const [aggFieldName, aggMeta] of Object.entries(aggregateFields)) {
+			const opSuffix = numericOps.find((k) => gqlFieldNameKey === aggFieldName + k);
+			const capitalizedAggFieldName = aggFieldName[0].toUpperCase() + aggFieldName.slice(1);
+
+			if (opSuffix) {
+				this.applyAggregateFilterOperation(
+					aggMeta,
+					entityMetadata,
+					parentAlias,
+					alias,
+					mappings,
+					opSuffix,
+					filterValue
+				);
+				return true;
+			}
+
+			if (gqlFieldNameKey === aggFieldName && isPrimitive(filterValue)) {
+				this.applyAggregateFilterOperation(
+					aggMeta,
+					entityMetadata,
+					parentAlias,
+					alias,
+					mappings,
+					'_eq',
+					filterValue
+				);
+				return true;
+			}
+
+			if (gqlFieldNameKey === capitalizedAggFieldName && typeof filterValue === 'object') {
+				for (const opKey of keys(filterValue ?? {})) {
+					const matchedOp = numericOps.find((k) => k === opKey);
+					if (matchedOp) {
+						this.applyAggregateFilterOperation(
+							aggMeta,
+							entityMetadata,
+							parentAlias,
+							alias,
+							mappings,
+							matchedOp,
+							(filterValue as any)[opKey]
+						);
+					}
+				}
+				return true;
+			}
+		}
+
+		return false;
+	}
+
+	/**
+	 * Generates a WHERE clause comparing an aggregate subquery against a value.
+	 * SQL: `(SELECT SUM(pages) FROM ... WHERE <join>) <operator> :param`
+	 */
+	protected applyAggregateFilterOperation<T>(
+		aggMeta: AggregateFieldMeta,
+		entityMetadata: EntityMetadata<T>,
+		parentAlias: Alias,
+		alias: Alias,
+		mappings: Map<string, MappingsType>,
+		operation: string,
+		value: any
+	): void {
+		const mapping = QueriesUtils.getMapping(mappings, aggMeta.aggregateFieldName);
+		mapping.alias = alias;
+
+		const aggSubquery = this.buildAggregateSubquerySQL(aggMeta, entityMetadata, parentAlias, alias);
+
+		if (!aggSubquery) {
+			logger.warn(
+				'FilterProcessor - applyAggregateFilterOperation: could not build aggregate subquery for',
+				aggMeta.aggregateFieldName
+			);
+			return;
+		}
+
+		const valueAlias = this.aliasManager.next(AliasType.value, aggMeta.aggregateFieldName);
+		const paramRef = `${this.namedParameterPrefix}${valueAlias.toParamName(1)}`;
+
+		const opFunc = FieldOperations[operation as keyof FieldOperationsType];
+		if (!opFunc) {
+			logger.warn('FilterProcessor - unknown operation for aggregate filter:', operation);
+			return;
+		}
+
+		const { where, value: valOverride } = opFunc([aggSubquery, paramRef], ['', value]);
+		mapping.where.push(where);
+		mapping.values = {
+			...mapping.values,
+			...(valOverride ?? { [valueAlias.toParamName(1)]: value }),
+		};
+
+		logger.log(
+			'FilterProcessor - applyAggregateFilterOperation',
+			aggMeta.aggregateFieldName,
+			operation,
+			value,
+			'where',
+			where
+		);
+	}
+
+	/**
+	 * Builds an aggregate (SUM/AVG/MIN/MAX) correlated subquery for use in WHERE clauses.
+	 * Returns the SQL string (without alias), e.g.:
+	 * `(select sum(e_w1.pages) from "books" as e_w1 where e_w1.author_id = a_1.id)`
+	 */
+	protected buildAggregateSubquerySQL<T>(
+		aggMeta: AggregateFieldMeta,
+		entityMetadata: EntityMetadata<T>,
+		parentAlias: Alias,
+		alias: Alias
+	): string | null {
+		const { relationshipFieldName, relatedEntityName, fn, column } = aggMeta;
+		const relatedName = relatedEntityName();
+
+		if (!this.metadataProvider.exists(relatedName)) {
+			return null;
+		}
+
+		const relatedMetadata = this.metadataProvider.getMetadata<any, EntityMetadata<any>>(
+			relatedName
+		);
+		const fieldProps =
+			entityMetadata.properties[relationshipFieldName as keyof typeof entityMetadata.properties];
+
+		if (!fieldProps) {
+			return null;
+		}
+
+		// Resolve SQL column name
+		const colProps = relatedMetadata.properties[column as keyof typeof relatedMetadata.properties];
+		const sqlColumn = colProps?.fieldNames?.[0] ?? column;
+
+		const aggAlias = this.aliasManager.next(AliasType.entity, 'w');
+
+		// Build the join condition — single source of truth in relation-dispatch.ts
+		// (fixes owning-side 1:1 lumped into the child-side branch, issue #45 class).
+		const { sql: joinCondition } = buildCorrelatedJoinCondition({
+			fieldProps,
+			relatedMetadata,
+			parentPrimaryKeys: entityMetadata.primaryKeys,
+			parentAlias,
+			relatedAlias: aggAlias,
+		});
+
+		if (!joinCondition) {
+			return null;
+		}
+
+		return `(select ${fn}(${aggAlias.toString()}.${sqlColumn}) from "${relatedMetadata.tableName}" as ${aggAlias.toString()} where ${joinCondition})`.replaceAll(
+			/[ \n	]+/gi,
 			' '
 		);
 	}

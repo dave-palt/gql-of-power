@@ -1,5 +1,6 @@
 import {
 	getCustomFieldsFor,
+	getAggregateFieldsFor,
 	getCountFieldsFor,
 	getMapEnumFieldsFor,
 	getMapEnumOutputFieldsFor,
@@ -11,6 +12,7 @@ import {
 	getRelationFieldsFor,
 } from '../entities/gql-entity';
 import {
+	AggregateFieldMeta,
 	CountFieldMeta,
 	CustomFieldSettings,
 	CustomFieldsSettings,
@@ -485,6 +487,14 @@ export class GQLtoSQLMapper {
 				];
 				if (countFieldMeta) {
 					this.mapCountField<T>(countFieldMeta, mapping, alias, entityMetadata, args);
+					return { mappings };
+				}
+
+				const aggregateFieldMeta = getAggregateFieldsFor(
+					getGQLEntityNameFor(entityMetadata.name ?? '')
+				)[fieldName];
+				if (aggregateFieldMeta) {
+					this.mapAggregateField<T>(aggregateFieldMeta, mapping, alias, entityMetadata, args);
 					return { mappings };
 				}
 
@@ -1089,6 +1099,117 @@ export class GQLtoSQLMapper {
 		mapping.values = { ...mapping.values, ...filterValues };
 
 		logger.log('mapCountField', countFieldName, 'subquery', subquery);
+	}
+
+	/**
+	 * Generates a correlated aggregate subquery for an aggregate field.
+	 *
+	 * Produces SQL like:
+	 * ```sql
+	 * (SELECT SUM(pages) FROM "books" AS e_w1 WHERE e_w1.author_id = a_1.id AND <filter>) AS "totalPages"
+	 * ```
+	 */
+	protected mapAggregateField<T>(
+		aggregateFieldMeta: AggregateFieldMeta,
+		mapping: MappingsType,
+		parentAlias: Alias,
+		entityMetadata: EntityMetadata<T>,
+		args?: any
+	): void {
+		const { aggregateFieldName, fn, column, relationshipFieldName, relatedEntityName } =
+			aggregateFieldMeta;
+
+		const relatedName = relatedEntityName();
+		if (!this.exists(relatedName)) {
+			mapping.select.add(`null AS "${aggregateFieldName}"`);
+			return;
+		}
+
+		const relatedMetadata = this.getMetadata<any, EntityMetadata<any>>(relatedName);
+		const fieldProps =
+			entityMetadata.properties[relationshipFieldName as keyof typeof entityMetadata.properties];
+
+		if (!fieldProps) {
+			logger.warn('mapAggregateField: relationship field not found', relationshipFieldName);
+			mapping.select.add(`null AS "${aggregateFieldName}"`);
+			return;
+		}
+
+		// Resolve the SQL column name from the related entity's property metadata
+		const colProps = relatedMetadata.properties[column as keyof typeof relatedMetadata.properties];
+		const sqlColumn = colProps?.fieldNames?.[0] ?? column;
+
+		const aggAlias = this.Alias.next(AliasType.entity, 'w');
+
+		// Build the join condition between parent and child — single source of
+		// truth in relation-dispatch.ts (encodes the 1:1 ownership rule of PR #46).
+		// The previous inline dispatch lumped ALL 1:1 into the child-side branch,
+		// so an owning-side 1:1 (inversedBy) crashed with TypeError — same bug
+		// class as issue #45.
+		const { sql: joinCondition } = buildCorrelatedJoinCondition({
+			fieldProps,
+			relatedMetadata,
+			parentPrimaryKeys: entityMetadata.primaryKeys,
+			parentAlias,
+			relatedAlias: aggAlias,
+		});
+
+		// Process optional filter args
+		let filterWhere: string[] = [];
+		let filterValues: Record<string, any> = [];
+		let filterInnerJoin: string[] = [];
+		let filterOuterJoin: string[] = [];
+		let filterOr: MappingsType[] = [];
+
+		if (args?.filter) {
+			// Convert mapNumericEnum string keys → raw DB values before SQL
+			// generation, matching the count-field path. Without this, enum-typed
+			// fields in inline aggregate subquery filters bypass conversion and
+			// silently produce wrong SQL (same bug class fixed for count fields).
+			const aggGqlEntityName = getGQLEntityNameFor(relatedMetadata.name ?? '');
+			const aggConvertedFilter = convertFilterEnumValues(
+				args.filter,
+				getMapEnumFieldsFor(aggGqlEntityName),
+				getCustomFieldsFor(aggGqlEntityName),
+				getRelationFieldsFor(aggGqlEntityName)
+			);
+			const filterMapped = this.recursiveMap({
+				entityMetadata: relatedMetadata,
+				parentAlias: aggAlias,
+				alias: aggAlias,
+				gqlFilters: [aggConvertedFilter],
+				isFieldFilter: true,
+			});
+
+			const reduced = QueriesUtils.mappingsReducer(filterMapped);
+			filterWhere = reduced.where;
+			filterValues = reduced.values as Record<string, any>;
+			filterInnerJoin = reduced.innerJoin;
+			filterOuterJoin = reduced.outerJoin;
+			filterOr = reduced._or;
+		}
+
+		const aggExpr = `${fn}(${aggAlias.toString()}.${sqlColumn})`;
+
+		let subquery: string;
+		if (filterOr.length > 0) {
+			// UNION ALL: aggregate over the unioned branches
+			const branches = filterOr.map((orMapping) => {
+				const allWhere = [joinCondition, ...filterWhere, ...orMapping.where];
+				const allInnerJoin = [...filterInnerJoin, ...orMapping.innerJoin];
+				return `select ${aggAlias.toString()}.${sqlColumn} from "${relatedMetadata.tableName}" as ${aggAlias.toString()} ${allInnerJoin.join(' \n')} where ${allWhere.join(' and ')}`;
+			});
+			subquery = `select ${aggExpr} from (${branches.map((b) => `(${b})`).join(' union all ')}) as ${aggAlias.toString()}_cnt`;
+		} else {
+			const whereParts = [joinCondition, ...filterWhere].filter((w) => w.length > 0);
+			subquery = `select ${aggExpr} from "${relatedMetadata.tableName}" as ${aggAlias.toString()} ${filterInnerJoin.join(' \n')} ${filterOuterJoin.join(' \n')} ${whereParts.length > 0 ? `where ${whereParts.join(' and ')}` : ''}`;
+		}
+
+		subquery = subquery.replaceAll(/[ \n	]+/gi, ' ').trim();
+		mapping.select.add(`(${subquery}) AS "${aggregateFieldName}"`);
+		mapping.values = { ...mapping.values, ...filterValues };
+
+		logger.log('mapAggregateField', aggregateFieldName, 'subquery', subquery);
 	}
 
 	protected mapField<T>(

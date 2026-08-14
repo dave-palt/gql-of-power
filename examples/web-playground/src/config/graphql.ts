@@ -50,6 +50,10 @@ query ProlificAuthors {
     id
     name
     bookCount
+    totalPages
+    avgPages
+    oldestBookYear
+    newestBookYear
     books {
       title
       publishedYear
@@ -57,6 +61,20 @@ query ProlificAuthors {
         name
       }
     }
+  }
+}
+
+# ─────────────────────────────────────────────────────────────────────────────
+# 2b. aggregate-field filter
+#     Author.books also has aggregateFields (sum/avg/min/max on pages &
+#     publishedYear). The filter exposes totalPages_gt / _lte / _eq etc.
+# ─────────────────────────────────────────────────────────────────────────────
+query ProlificAuthorsByPages {
+  authors(filter: { totalPages_gt: 500 }) {
+    id
+    name
+    totalPages
+    avgPages
   }
 }
 
