@@ -1141,35 +1141,18 @@ export class GQLtoSQLMapper {
 
 		const aggAlias = this.Alias.next(AliasType.entity, 'w');
 
-		// Build the join condition between parent and child (same logic as mapCountField)
-		let joinCondition = '';
-		if (
-			fieldProps.reference === ReferenceType.ONE_TO_MANY ||
-			fieldProps.reference === ReferenceType.ONE_TO_ONE
-		) {
-			const refFieldProps = relatedMetadata.properties[
-				fieldProps.mappedBy as keyof typeof relatedMetadata.properties
-			] as EntityProperty;
-			const ons = refFieldProps.joinColumns;
-			const entityOns = refFieldProps.referencedColumnNames;
-			joinCondition = entityOns
-				.map((o, i) => `${parentAlias.toColumnName(o)} = ${aggAlias.toColumnName(ons[i])}`)
-				.join(' and ');
-		} else if (fieldProps.reference === ReferenceType.MANY_TO_ONE) {
-			const ons =
-				fieldProps.referencedColumnNames.length > 0
-					? fieldProps.referencedColumnNames
-					: relatedMetadata.primaryKeys;
-			const entityOns = fieldProps.fieldNames;
-			joinCondition = entityOns
-				.map((o, i) => `${parentAlias.toColumnName(o)} = ${aggAlias.toColumnName(ons[i])}`)
-				.join(' and ');
-		} else if (fieldProps.reference === ReferenceType.MANY_TO_MANY) {
-			const pivotCols = fieldProps.joinColumns;
-			const inverseCols = fieldProps.inverseJoinColumns;
-			const pivotSubquery = `select ${inverseCols.join(', ')} from ${fieldProps.pivotTable} where ${pivotCols.map((c, i) => `${parentAlias.toColumnName(entityMetadata.primaryKeys[i])} = ${fieldProps.pivotTable}.${c}`).join(' and ')}`;
-			joinCondition = `(${relatedMetadata.primaryKeys.map((c) => aggAlias.toColumnName(c)).join(', ')}) in (${pivotSubquery})`;
-		}
+		// Build the join condition between parent and child — single source of
+		// truth in relation-dispatch.ts (encodes the 1:1 ownership rule of PR #46).
+		// The previous inline dispatch lumped ALL 1:1 into the child-side branch,
+		// so an owning-side 1:1 (inversedBy) crashed with TypeError — same bug
+		// class as issue #45.
+		const { sql: joinCondition } = buildCorrelatedJoinCondition({
+			fieldProps,
+			relatedMetadata,
+			parentPrimaryKeys: entityMetadata.primaryKeys,
+			parentAlias,
+			relatedAlias: aggAlias,
+		});
 
 		// Process optional filter args
 		let filterWhere: string[] = [];

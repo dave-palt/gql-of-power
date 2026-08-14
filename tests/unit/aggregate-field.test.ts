@@ -34,6 +34,36 @@ describe('Aggregate Field Feature', () => {
 		clearAggregateFields();
 	});
 
+	describe('Aggregate field SQL generation - owning-side 1:1 relationship', () => {
+		it('correlates on THIS entity FK column (ownership dispatch, issue #45 class)', () => {
+			// signatureWeapon is an owning-side 1:1 (inversedBy: 'owner') — structurally
+			// an m:1. Before the relation-dispatch refactor, all 1:1 relations were
+			// lumped into the child-side branch and this crashed with a TypeError.
+			registerAggregateField(
+				'Person',
+				'weaponPower',
+				'max',
+				'power',
+				'signatureWeapon',
+				() => 'Weapon'
+			);
+
+			const result = mapper.buildQueryAndBindingsFor({
+				fields: { id: {}, name: {}, weaponPower: {} } as any,
+				entity: Person,
+				customFields: {} as any,
+			});
+
+			const sql = result.querySQL;
+			expect(sql).toContain('max(');
+			expect(sql).toContain('weapons');
+			// Correlated on persons.signature_weapon_id (this entity's FK),
+			// NOT a weapon-side column.
+			expect(sql).toContain('signature_weapon_id');
+			expect(sql).toMatch(/e_w\d+\.power_level/);
+		});
+	});
+
 	describe('Aggregate field registration', () => {
 		it('should register and retrieve aggregate fields', () => {
 			registerAggregateField('Author', 'totalPages', 'sum', 'pages', 'books', () => 'Book');
