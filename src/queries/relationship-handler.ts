@@ -4,6 +4,7 @@ import { MappingsType, mappingsTypeToString } from '../types/gql-to-sql-types';
 import { keys } from '../utils/object';
 import { logger } from '../variables';
 import { Alias } from './alias';
+import { resolveInverseProperty } from './relation-dispatch';
 import { SQLBuilder } from './sql-builder';
 
 export class RelationshipHandler {
@@ -31,10 +32,7 @@ export class RelationshipHandler {
 	): void {
 		const prefix = 'RelationshipHandler - mapOneToX';
 		logger.log(prefix);
-		const referenceFieldProps = referenceField.properties[
-			fieldProps.mappedBy as keyof typeof referenceField.properties
-		] as EntityProperty;
-		fieldProps.name;
+		const referenceFieldProps = resolveInverseProperty(fieldProps, referenceField);
 		const ons = referenceFieldProps.joinColumns;
 		const entityOns = referenceFieldProps.referencedColumnNames;
 

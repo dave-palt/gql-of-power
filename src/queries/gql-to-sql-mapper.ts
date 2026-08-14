@@ -28,6 +28,11 @@ import { MappingsType, mappingsTypeToString } from '../types/gql-to-sql-types';
 import { keys } from '../utils/object';
 import { logger } from '../variables';
 import { Alias, AliasManager, AliasType } from './alias';
+import {
+	buildCorrelatedJoinCondition,
+	getRelationCardinality,
+	RelationCardinality,
+} from './relation-dispatch';
 import { convertFilterEnumValues } from './enum-filter-converter';
 import { FilterProcessor } from './filter-processor';
 import { RelationshipHandler } from './relationship-handler';
@@ -733,10 +738,8 @@ export class GQLtoSQLMapper {
 		ownerMetadata: EntityMetadata<T> | undefined
 	): void {
 		const primaryKeys = ownerMetadata?.primaryKeys ?? [];
-		if (
-			relFieldProps.reference === ReferenceType.ONE_TO_MANY ||
-			(relFieldProps.reference === ReferenceType.ONE_TO_ONE && !relFieldProps.inversedBy)
-		) {
+		const cardinality = getRelationCardinality(relFieldProps);
+		if (cardinality === RelationCardinality.ONE_TO_X) {
 			this.relationshipHandler.mapOneToX(
 				refMetadata,
 				relFieldProps,
@@ -754,10 +757,7 @@ export class GQLtoSQLMapper {
 				refInnerJoin,
 				refOuterJoin
 			);
-		} else if (
-			relFieldProps.reference === ReferenceType.MANY_TO_ONE ||
-			(relFieldProps.reference === ReferenceType.ONE_TO_ONE && relFieldProps.inversedBy)
-		) {
+		} else if (cardinality === RelationCardinality.MANY_TO_ONE) {
 			this.relationshipHandler.mapManyToOne(
 				relFieldProps,
 				refMetadata,
@@ -774,7 +774,7 @@ export class GQLtoSQLMapper {
 				refJson,
 				refOuterJoin
 			);
-		} else if (relFieldProps.reference === ReferenceType.MANY_TO_MANY) {
+		} else if (cardinality === RelationCardinality.MANY_TO_MANY) {
 			this.relationshipHandler.mapManyToMany(
 				refMetadata,
 				primaryKeys,
@@ -852,39 +852,15 @@ export class GQLtoSQLMapper {
 
 		const countAlias = this.Alias.next(AliasType.entity, 'w');
 
-		// Build the join condition between parent and child, same logic as FilterProcessor
-		let joinCondition = '';
-		if (
-			fieldProps.reference === ReferenceType.ONE_TO_MANY ||
-			(fieldProps.reference === ReferenceType.ONE_TO_ONE && !fieldProps.inversedBy)
-		) {
-			const refFieldProps = relatedMetadata.properties[
-				fieldProps.mappedBy as keyof typeof relatedMetadata.properties
-			] as EntityProperty;
-			const ons = refFieldProps.joinColumns;
-			const entityOns = refFieldProps.referencedColumnNames;
-			joinCondition = entityOns
-				.map((o, i) => `${parentAlias.toColumnName(o)} = ${countAlias.toColumnName(ons[i])}`)
-				.join(' and ');
-		} else if (
-			fieldProps.reference === ReferenceType.MANY_TO_ONE ||
-			(fieldProps.reference === ReferenceType.ONE_TO_ONE && fieldProps.inversedBy)
-		) {
-			const ons =
-				fieldProps.referencedColumnNames.length > 0
-					? fieldProps.referencedColumnNames
-					: relatedMetadata.primaryKeys;
-			const entityOns = fieldProps.fieldNames;
-			joinCondition = entityOns
-				.map((o, i) => `${parentAlias.toColumnName(o)} = ${countAlias.toColumnName(ons[i])}`)
-				.join(' and ');
-		} else if (fieldProps.reference === ReferenceType.MANY_TO_MANY) {
-			// For m:n, use a pivot subquery in the join condition
-			const pivotCols = fieldProps.joinColumns;
-			const inverseCols = fieldProps.inverseJoinColumns;
-			const pivotSubquery = `select ${inverseCols.join(', ')} from ${fieldProps.pivotTable} where ${pivotCols.map((c, i) => `${parentAlias.toColumnName(entityMetadata.primaryKeys[i])} = ${fieldProps.pivotTable}.${c}`).join(' and ')}`;
-			joinCondition = `(${relatedMetadata.primaryKeys.map((c) => countAlias.toColumnName(c)).join(', ')}) in (${pivotSubquery})`;
-		}
+		// Build the join condition between parent and child — single source of
+		// truth in relation-dispatch.ts (encodes the 1:1 ownership rule of PR #46).
+		const { sql: joinCondition } = buildCorrelatedJoinCondition({
+			fieldProps,
+			relatedMetadata,
+			parentPrimaryKeys: entityMetadata.primaryKeys,
+			parentAlias,
+			relatedAlias: countAlias,
+		});
 
 		// Process optional filter args
 		let filterWhere: string[] = [];
@@ -1073,10 +1049,8 @@ export class GQLtoSQLMapper {
 				fieldProps.reference,
 				'fields'
 			);
-			if (
-				fieldProps.reference === ReferenceType.ONE_TO_MANY ||
-				(fieldProps.reference === ReferenceType.ONE_TO_ONE && !fieldProps.inversedBy)
-			) {
+			const fieldCardinality = getRelationCardinality(fieldProps);
+			if (fieldCardinality === RelationCardinality.ONE_TO_X) {
 				logger.warn('[DIAG mapField dispatch]', gqlFieldName, '→ mapOneToX');
 				this.relationshipHandler.mapOneToX(
 					referenceField,
@@ -1095,10 +1069,7 @@ export class GQLtoSQLMapper {
 					innerJoin,
 					outerJoin
 				);
-			} else if (
-				fieldProps.reference === ReferenceType.MANY_TO_ONE ||
-				(fieldProps.reference === ReferenceType.ONE_TO_ONE && fieldProps.inversedBy)
-			) {
+			} else if (fieldCardinality === RelationCardinality.MANY_TO_ONE) {
 				logger.warn(
 					'[DIAG mapField dispatch]',
 					gqlFieldName,
@@ -1124,7 +1095,7 @@ export class GQLtoSQLMapper {
 					json,
 					outerJoin
 				);
-			} else if (fieldProps.reference === ReferenceType.MANY_TO_MANY) {
+			} else if (fieldCardinality === RelationCardinality.MANY_TO_MANY) {
 				logger.warn('[DIAG mapField dispatch]', gqlFieldName, '→ mapManyToMany');
 				this.relationshipHandler.mapManyToMany(
 					referenceField,

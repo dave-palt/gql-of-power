@@ -1,103 +1,101 @@
 {
   "finding_counts": {
-    "": {
-      "critical": 4,
-      "high": 4,
-      "moderate": 15
+    "src/entities/gql-entity.ts": {
+      "complexity_moderate": {
+        "count": 1
+      },
+      "crap_moderate": {
+        "count": 3
+      }
+    },
+    "src/queries/enum-filter-converter.ts": {
+      "complexity_high": {
+        "count": 1
+      },
+      "crap_high": {
+        "count": 1
+      }
+    },
+    "src/queries/filter-processor.ts": {
+      "complexity_critical": {
+        "count": 1
+      },
+      "complexity_moderate": {
+        "count": 2
+      },
+      "crap_critical": {
+        "count": 1
+      },
+      "crap_high": {
+        "count": 2
+      },
+      "crap_moderate": {
+        "count": 5
+      }
+    },
+    "src/queries/gql-to-sql-mapper.ts": {
+      "complexity_critical": {
+        "count": 1
+      },
+      "complexity_high": {
+        "count": 1
+      },
+      "crap_critical": {
+        "count": 1
+      },
+      "crap_high": {
+        "count": 2
+      },
+      "crap_moderate": {
+        "count": 3
+      }
+    },
+    "src/queries/relationship-handler.ts": {
+      "crap_moderate": {
+        "count": 1
+      }
+    },
+    "tests/integration/database-integration.test.ts": {
+      "complexity_critical": {
+        "count": 1
+      },
+      "crap_critical": {
+        "count": 1
+      }
+    },
+    "tests/integration/enum-output-modes.test.ts": {
+      "complexity_high": {
+        "count": 1
+      },
+      "crap_high": {
+        "count": 1
+      }
+    },
+    "tests/integration/filter-operators-integration.test.ts": {
+      "complexity_critical": {
+        "count": 1
+      },
+      "crap_critical": {
+        "count": 1
+      }
+    },
+    "tests/integration/graphql-server.test.ts": {
+      "complexity_critical": {
+        "count": 1
+      },
+      "crap_critical": {
+        "count": 1
+      }
+    },
+    "tests/unit/relationship-handler.test.ts": {
+      "crap_moderate": {
+        "count": 1
+      }
     }
   },
   "runtime_coverage_findings": [],
   "target_keys": [
-    {
-      "path": "src/variables.ts",
-      "priority": 16.6,
-      "efficiency": 8.3,
-      "recommendation": "Split high-impact file (86 LOC), 5 dependents amplify every change",
-      "category": "split_high_impact",
-      "effort": "medium",
-      "confidence": "medium",
-      "factors": [
-        {
-          "metric": "complexity_density",
-          "value": 0.36,
-          "threshold": 0.3,
-          "detail": "density 0.36 exceeds 0.3"
-        },
-        {
-          "metric": "fan_in",
-          "value": 5.0,
-          "threshold": 5.0,
-          "detail": "5 files depend on this"
-        }
-      ],
-      "evidence": {
-        "direct_callers": [
-          {
-            "path": "src/queries/alias.ts",
-            "symbols": [
-              {
-                "imported": "logger",
-                "local": "logger",
-                "type_only": false
-              }
-            ]
-          },
-          {
-            "path": "src/queries/filter-processor.ts",
-            "symbols": [
-              {
-                "imported": "logger",
-                "local": "logger",
-                "type_only": false
-              }
-            ]
-          },
-          {
-            "path": "src/queries/gql-to-sql-mapper.ts",
-            "symbols": [
-              {
-                "imported": "logger",
-                "local": "logger",
-                "type_only": false
-              }
-            ]
-          },
-          {
-            "path": "src/queries/relationship-handler.ts",
-            "symbols": [
-              {
-                "imported": "logger",
-                "local": "logger",
-                "type_only": false
-              }
-            ]
-          },
-          {
-            "path": "src/query-manager.ts",
-            "symbols": [
-              {
-                "imported": "logger",
-                "local": "logger",
-                "type_only": false
-              }
-            ]
-          }
-        ]
-      },
-      "actions": [
-        {
-          "type": "apply-refactoring",
-          "auto_fixable": false,
-          "description": "Split high-impact file (86 LOC), 5 dependents amplify every change",
-          "category": "split_high_impact"
-        },
-        {
-          "type": "suppress-line",
-          "auto_fixable": false,
-          "description": "Suppress the underlying complexity finding",
-          "comment": "// fallow-ignore-next-line complexity"
-        }
-      ]
-    }
+    "src/queries/enum-filter-converter.ts:dead code",
+    "src/variables.ts:high impact"
   ]
 }

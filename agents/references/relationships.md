@@ -50,6 +50,28 @@ ring: {
 },
 ```
 
+### Ownership dispatch rule (how the library picks the JOIN direction)
+
+The library never branches on `ReferenceType` alone. For `1:1` it looks at
+which side owns the FK:
+
+- **Owning side** — the property has `inversedBy: '<inverseProp>'` (or carries
+  the FK in `fieldNames`/`joinColumns`). Dispatches exactly like **m:1**:
+  `JOIN related ON this.fk = related.pk`.
+- **Inverse side** — the property has `mappedBy: '<ownerProp>'` and no FK
+  columns. Dispatches exactly like **1:m**: `JOIN related ON this.pk = related.fk`,
+  resolving the FK through the `mappedBy` property on the related entity.
+
+This is centralized in `src/queries/relation-dispatch.ts`
+(`getRelationCardinality()`), which every mapper/filter/count path calls.
+Two metadata mistakes now produce named errors instead of crashes or wrong SQL:
+
+- `mappedBy` target not declared on the related entity →
+  `gql-of-power: inverse property "X" … is not declared in the metadata of …`
+- m:n property without `pivotTable`/`joinColumns` (inverse side) →
+  `gql-of-power: m:n relation "X" is missing pivot metadata …` — declare the
+  pivot columns (owning side) or query from the owning side.
+
 ## 1:m — Fellowship → Members (Fellowship has many Person)
 
 **Fellowship side (the "one"):**
