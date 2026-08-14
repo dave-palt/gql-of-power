@@ -725,6 +725,33 @@ queryManager.getQueryResultsForInfo(provider, PersonGQL, info, {
 
 This is the library's own test-suite pattern.
 
+### Relation metadata errors (`inverse property … not declared` / `missing pivot metadata`)
+
+The JOIN direction for `1:1` relations depends on which side owns the FK — this is
+decided in one place (`src/queries/relation-dispatch.ts`) for every code path
+(selections, top-level filters, count fields, inline filters). Two metadata
+mistakes are reported with named errors:
+
+**`gql-of-power: inverse property "X" (mappedBy of "Y") is not declared in the metadata of …`**
+
+A `1:m` / inverse-`1:1` relation points at `mappedBy: 'X'`, but the related
+entity's metadata does not declare a property named `X` (the one holding the FK).
+Add the FK property to the related entity's `EntityMetadata` so the join columns
+can be resolved.
+
+**`gql-of-power: m:n relation "X" is missing pivot metadata (pivotTable/joinColumns)`**
+
+A `m:n` relation was declared without `pivotTable` / `joinColumns` /
+`inverseJoinColumns`. These live on the **owning** side of the relation. If you
+are querying from the inverse side, either declare the pivot columns explicitly
+or query from the owning side.
+
+Before these guards, both cases crashed with
+`TypeError: Cannot read properties of undefined (reading 'joinColumns')` or
+produced a cryptic column-count mismatch.
+
+---
+
 ### `mapNumericEnum` filter values silently fail inside nested/inline filters
 
 If a `mapNumericEnum` field filters correctly at the **top level** but silently returns no results (or the wrong rows) when placed inside an inline field-argument filter on a nested relation — e.g.:

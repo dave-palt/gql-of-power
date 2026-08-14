@@ -11,13 +11,18 @@ import {
 	EntityMetadata,
 	EntityProperty,
 	MetadataProviderType,
-	ReferenceType,
 } from '../types/sql-types';
 import { GQLEntityFilterInputFieldType } from '../types/gql-types';
 import { MappingsType } from '../types/gql-to-sql-types';
 import { keys } from '../utils/object';
 import { logger } from '../variables';
 import { Alias, AliasManager, AliasType } from './alias';
+import {
+	buildCorrelatedJoinCondition,
+	getRelationCardinality,
+	RelationCardinality,
+	resolveInverseProperty,
+} from './relation-dispatch';
 import { SQLBuilder } from './sql-builder';
 import { QueriesUtils } from './utils';
 
@@ -841,37 +846,15 @@ export class FilterProcessor extends ClassOperations {
 
 		const countAlias = this.aliasManager.next(AliasType.entity, 'w');
 
-		let joinCondition = '';
-		if (
-			fieldProps.reference === ReferenceType.ONE_TO_MANY ||
-			(fieldProps.reference === ReferenceType.ONE_TO_ONE && !fieldProps.inversedBy)
-		) {
-			const refFieldProps = relatedMetadata.properties[
-				fieldProps.mappedBy as keyof typeof relatedMetadata.properties
-			] as EntityProperty;
-			const ons = refFieldProps.joinColumns;
-			const entityOns = refFieldProps.referencedColumnNames;
-			joinCondition = entityOns
-				.map((o, i) => `${parentAlias.toColumnName(o)} = ${countAlias.toColumnName(ons[i])}`)
-				.join(' and ');
-		} else if (
-			fieldProps.reference === ReferenceType.MANY_TO_ONE ||
-			(fieldProps.reference === ReferenceType.ONE_TO_ONE && fieldProps.inversedBy)
-		) {
-			const ons =
-				fieldProps.referencedColumnNames.length > 0
-					? fieldProps.referencedColumnNames
-					: relatedMetadata.primaryKeys;
-			const entityOns = fieldProps.fieldNames;
-			joinCondition = entityOns
-				.map((o, i) => `${parentAlias.toColumnName(o)} = ${countAlias.toColumnName(ons[i])}`)
-				.join(' and ');
-		} else if (fieldProps.reference === ReferenceType.MANY_TO_MANY) {
-			const pivotCols = fieldProps.joinColumns;
-			const inverseCols = fieldProps.inverseJoinColumns;
-			const pivotSubquery = `select ${inverseCols.join(', ')} from ${fieldProps.pivotTable} where ${pivotCols.map((c, i) => `${parentAlias.toColumnName(entityMetadata.primaryKeys[i])} = ${fieldProps.pivotTable}.${c}`).join(' and ')}`;
-			joinCondition = `(${relatedMetadata.primaryKeys.map((c) => countAlias.toColumnName(c)).join(', ')}) in (${pivotSubquery})`;
-		}
+		// Build the join condition between parent and child — single source of
+		// truth in relation-dispatch.ts (encodes the 1:1 ownership rule of PR #46).
+		const { sql: joinCondition } = buildCorrelatedJoinCondition({
+			fieldProps,
+			relatedMetadata,
+			parentPrimaryKeys: entityMetadata.primaryKeys,
+			parentAlias,
+			relatedAlias: countAlias,
+		});
 
 		if (!joinCondition) {
 			return null;
@@ -1039,11 +1022,10 @@ export class FilterProcessor extends ClassOperations {
 			childAlias.toString()
 		);
 
-		// Handle different relationship types
-		if (
-			fieldProps.reference === ReferenceType.ONE_TO_MANY ||
-			(fieldProps.reference === ReferenceType.ONE_TO_ONE && !fieldProps.inversedBy)
-		) {
+		// Handle different relationship types — dispatch via the shared
+		// ownership rule (relation-dispatch.ts, PR #46).
+		const cardinality = getRelationCardinality(fieldProps);
+		if (cardinality === RelationCardinality.ONE_TO_X) {
 			this.mapFilterOneToX<T>(
 				referenceField,
 				fieldProps,
@@ -1057,10 +1039,7 @@ export class FilterProcessor extends ClassOperations {
 				mapping,
 				_or
 			);
-		} else if (
-			fieldProps.reference === ReferenceType.MANY_TO_ONE ||
-			(fieldProps.reference === ReferenceType.ONE_TO_ONE && fieldProps.inversedBy)
-		) {
+		} else if (cardinality === RelationCardinality.MANY_TO_ONE) {
 			this.mapFilterManyToOne<T>(
 				fieldProps,
 				referenceField,
@@ -1073,7 +1052,7 @@ export class FilterProcessor extends ClassOperations {
 				values,
 				_or
 			);
-		} else if (fieldProps.reference === ReferenceType.MANY_TO_MANY) {
+		} else if (cardinality === RelationCardinality.MANY_TO_MANY) {
 			this.mapFilterManyToMany<T>(
 				fieldProps,
 				primaryKeys,
@@ -1472,9 +1451,7 @@ export class FilterProcessor extends ClassOperations {
 		mapping: MappingsType,
 		_or: MappingsType[]
 	): void {
-		const referenceFieldProps = referenceField.properties[
-			fieldProps.mappedBy as keyof typeof referenceField.properties
-		] as EntityProperty;
+		const referenceFieldProps = resolveInverseProperty(fieldProps, referenceField);
 
 		const ons = referenceFieldProps.joinColumns;
 		const entityOns = referenceFieldProps.referencedColumnNames;
