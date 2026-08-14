@@ -2215,18 +2215,101 @@ describe('GQLtoSQLMapper - Unit Tests', () => {
 			expect(result.querySQL).toContain('e_a1.signature_weapon_id = e_o.id');
 		});
 
-		it('inverse-side 1:1 relation: falls back to flat resolution (single related row is FK-owned by the other side)', () => {
+		it('inverse-side 1:1 relation: resolves via the aggregated ONE_TO_X path (MIN/MAX)', () => {
 			// ring is the inverse side (mappedBy: 'bearer') — FK lives on rings.
-			// The m:1/owning-1:1 path does not apply; orderBy falls back to the
-			// regular field mapper which throws for unknown nested objects.
-			expect(() => {
-				mapper.buildQueryAndBindingsFor({
+			// With 1:m/m:m related orderBy support, inverse 1:1 resolves through
+			// the same aggregated branch (single related row collapsed via MIN asc).
+			const result = mapper.buildQueryAndBindingsFor({
+				fields: { id: {}, name: {} } as any,
+				entity: Person,
+				customFields: {},
+				pagination: { orderBy: [{ ring: { name: 'asc' } }] as any },
+			});
+
+			expect(result.querySQL).toContain('order by');
+			expect(result.querySQL).toContain('(select min(e_o.ring_name) from "rings" as e_o where');
+			expect(result.querySQL).toContain('e_a1.id = e_o.bearer_id');
+		});
+
+		describe('ORDER BY related columns (1:m and m:m via MIN/MAX aggregation)', () => {
+			it('should generate a MIN() correlated subquery for 1:m orderBy asc', () => {
+				const result = mapper.buildQueryAndBindingsFor({
 					fields: { id: {}, name: {} } as any,
-					entity: Person,
+					entity: Author,
 					customFields: {},
-					pagination: { orderBy: [{ ring: { name: 'asc' } }] as any },
+					pagination: { orderBy: [{ books: { title: 'asc' } }] as any },
 				});
-			}).toThrow();
+
+				expect(result.querySQL).toContain('order by');
+				expect(result.querySQL).toContain(
+					'(select min(e_o.book_title) from "books" as e_o where e_a1.id = e_o.author_id) asc'
+				);
+			});
+
+			it('should generate a MAX() correlated subquery for 1:m orderBy desc', () => {
+				const result = mapper.buildQueryAndBindingsFor({
+					fields: { id: {}, name: {} } as any,
+					entity: Author,
+					customFields: {},
+					pagination: { orderBy: [{ books: { pages: 'desc' } }] as any },
+				});
+
+				expect(result.querySQL).toContain(
+					'(select max(e_o.page_count) from "books" as e_o where e_a1.id = e_o.author_id) desc'
+				);
+			});
+
+			it('should generate a MIN() pivot-joined subquery for m:m orderBy asc', () => {
+				const result = mapper.buildQueryAndBindingsFor({
+					fields: { id: {}, name: {} } as any,
+					entity: Genre,
+					customFields: {},
+					pagination: { orderBy: [{ books: { title: 'asc' } }] as any },
+				});
+
+				expect(result.querySQL).toContain(
+					'(select min(e_o.book_title) from "books" as e_o inner join "book_genres" as p_o on e_o.id = p_o.book_id where p_o.genre_id = e_a1.id) asc'
+				);
+			});
+
+			it('should generate a MAX() pivot-joined subquery for m:m orderBy desc', () => {
+				const result = mapper.buildQueryAndBindingsFor({
+					fields: { id: {}, name: {} } as any,
+					entity: Genre,
+					customFields: {},
+					pagination: { orderBy: [{ books: { publishedYear: 'desc' } }] as any },
+				});
+
+				expect(result.querySQL).toContain(
+					'(select max(e_o.published_year) from "books" as e_o inner join "book_genres" as p_o on e_o.id = p_o.book_id where p_o.genre_id = e_a1.id) desc'
+				);
+			});
+
+			it('should not add the aggregated subquery to the SELECT columns', () => {
+				const result = mapper.buildQueryAndBindingsFor({
+					fields: { id: {}, name: {} } as any,
+					entity: Author,
+					customFields: {},
+					pagination: { orderBy: [{ books: { title: 'asc' } }] as any },
+				});
+
+				const selectClause = result.querySQL.substring(0, result.querySQL.indexOf(' from '));
+				expect(selectClause).not.toContain('(select min(e_o');
+			});
+
+			it('should support mixed 1:m related + flat orderBy', () => {
+				const result = mapper.buildQueryAndBindingsFor({
+					fields: { id: {}, name: {} } as any,
+					entity: Author,
+					customFields: {},
+					pagination: {
+						orderBy: [{ books: { title: 'asc' } }, { name: 'desc' }] as any,
+					},
+				});
+
+				expect(result.querySQL).toContain('(select min(e_o.book_title) from "books" as e_o where');
+				expect(result.querySQL).toContain('e_a1.author_name desc');
+			});
 		});
 	});
 });
