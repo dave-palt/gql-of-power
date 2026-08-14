@@ -279,11 +279,13 @@ export class GQLtoSQLMapper {
 		const relProp = metadata.properties[relationName];
 		if (!relProp) return null;
 
-		// Only support m:1 relations (clean, unambiguous — exactly one related row)
-		if (relProp.reference !== ReferenceType.MANY_TO_ONE) {
+		// Only support FK-on-this-table relations (m:1 + owning 1:1 — clean,
+		// unambiguous: exactly one related row). Dispatch via the shared
+		// ownership rule so owning-side 1:1 is not silently skipped.
+		if (getRelationCardinality(relProp) !== RelationCardinality.MANY_TO_ONE) {
 			logger.log(
 				'resolveRelatedOrderBy',
-				`Skipping orderBy on "${relationName}": relation is not m:1 (only m:1 supported for related orderBy)`
+				`Skipping orderBy on "${relationName}": relation is not m:1/owning-1:1 (only FK-on-this-table relations supported for related orderBy)`
 			);
 			return null;
 		}
@@ -352,7 +354,12 @@ export class GQLtoSQLMapper {
 										ob,
 										subKey
 									);
-									const columns = resolved ? [resolved.sql] : fieldMapper(ob);
+									if (!resolved) {
+										throw new Error(
+											`gql-of-power: orderBy key "${ob}.{${subKey}}" cannot be resolved — "${ob}" is not an m:1 / owning-side 1:1 relation and not a scalar field.`
+										);
+									}
+									const columns = [resolved.sql];
 									return columns.map((fn) => `${fn} ${direction}`).join(', ');
 								})
 								.filter((o) => o.length > 0)
