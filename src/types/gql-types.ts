@@ -142,6 +142,12 @@ export type GQLEntityPaginationInputType<T> = {
 	limit?: number;
 	offset?: number;
 	orderBy?: GQLEntityOrderByInputType<T>[];
+	/**
+	 * When true, the outermost SELECT is emitted as `SELECT DISTINCT`, deduplicating
+	 * the final user-facing rows. Useful when relationship JOINs could multiply parent
+	 * rows. Does not affect the structural `select distinct *` used inside UNION ALL.
+	 */
+	distinct?: boolean;
 };
 
 /**

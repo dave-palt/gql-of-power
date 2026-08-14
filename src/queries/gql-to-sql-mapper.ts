@@ -205,6 +205,7 @@ export class GQLtoSQLMapper {
 			: '';
 		const innerLimitSQL = pagination?.limit ? `limit ${this.namedParameterPrefix}limit` : '';
 		const innerOffsetSQL = pagination?.offset ? `offset ${this.namedParameterPrefix}offset` : '';
+		const distinctKeyword = pagination?.distinct ? 'distinct ' : '';
 
 		let queryBody: string;
 		if (unionAllEntries.length > 0) {
@@ -225,7 +226,7 @@ export class GQLtoSQLMapper {
 				? orderBySQL.replace(new RegExp(`\\b${alias.toString()}\\.`, 'g'), `${alias.toString()}_u.`)
 				: '';
 
-			queryBody = `select ${selectFields.join(', ')} from ( select distinct * from (${innerUnion}) as ${alias.toString()}_u ${unionOrderBySQL} ${innerLimitSQL} ${innerOffsetSQL} ) as ${alias.toString()} ${outerJoin.join(' \n')}`;
+			queryBody = `select ${distinctKeyword}${selectFields.join(', ')} from ( select distinct * from (${innerUnion}) as ${alias.toString()}_u ${unionOrderBySQL} ${innerLimitSQL} ${innerOffsetSQL} ) as ${alias.toString()} ${outerJoin.join(' \n')}`;
 		} else {
 			queryBody = SQLBuilder.buildSubQuery(
 				selectFields,
@@ -238,7 +239,8 @@ export class GQLtoSQLMapper {
 				undefined,
 				orderBySQL,
 				innerLimitSQL,
-				innerOffsetSQL
+				innerOffsetSQL,
+				distinctKeyword
 			);
 		}
 
@@ -914,6 +916,7 @@ export class GQLtoSQLMapper {
 		if (relationPagination?.orderBy) {
 			newMapping.orderBy = relationPagination.orderBy;
 		}
+		if (relationPagination?.distinct) newMapping.distinct = relationPagination.distinct;
 
 		const {
 			select: refSelect,
@@ -927,6 +930,7 @@ export class GQLtoSQLMapper {
 			orderBy,
 			_or: refOr,
 			_and: refAnd,
+			distinct,
 		} = QueriesUtils.mappingsReducer(newMappings, newMapping);
 
 		// For nested relation subqueries, class-level logical operators (_and,
@@ -972,7 +976,8 @@ export class GQLtoSQLMapper {
 			offset,
 			orderBy,
 			config,
-			ownerMetadata
+			ownerMetadata,
+			distinct
 		);
 	}
 
@@ -992,7 +997,8 @@ export class GQLtoSQLMapper {
 		offset: any,
 		orderBy: any,
 		config: RequireRelationConfig,
-		ownerMetadata: EntityMetadata<T> | undefined
+		ownerMetadata: EntityMetadata<T> | undefined,
+		distinct?: boolean
 	): void {
 		const primaryKeys = ownerMetadata?.primaryKeys ?? [];
 		const cardinality = getRelationCardinality(relFieldProps);
@@ -1012,7 +1018,8 @@ export class GQLtoSQLMapper {
 				refJson,
 				refSelect,
 				refInnerJoin,
-				refOuterJoin
+				refOuterJoin,
+				distinct
 			);
 		} else if (cardinality === RelationCardinality.MANY_TO_ONE) {
 			this.relationshipHandler.mapManyToOne(
@@ -1047,7 +1054,8 @@ export class GQLtoSQLMapper {
 				refValues,
 				limit,
 				offset,
-				orderBy
+				orderBy,
+				distinct
 			);
 		}
 	}
@@ -1369,6 +1377,9 @@ export class GQLtoSQLMapper {
 			if (mapping.orderBy) {
 				newMapping.orderBy = mapping.orderBy;
 			}
+			if (mapping.distinct) {
+				newMapping.distinct = mapping.distinct;
+			}
 			const {
 				select,
 				json,
@@ -1379,6 +1390,7 @@ export class GQLtoSQLMapper {
 				limit,
 				offset,
 				orderBy,
+				distinct,
 				...rest
 			} = QueriesUtils.mappingsReducer(newMappings, newMapping);
 
@@ -1435,7 +1447,8 @@ export class GQLtoSQLMapper {
 					json,
 					select,
 					innerJoin,
-					outerJoin
+					outerJoin,
+					distinct
 				);
 			} else if (fieldCardinality === RelationCardinality.MANY_TO_ONE) {
 				logger.warn(
@@ -1480,7 +1493,8 @@ export class GQLtoSQLMapper {
 					values,
 					limit,
 					offset,
-					orderBy
+					orderBy,
+					distinct
 				);
 			} else {
 				logger.warn(
@@ -1557,6 +1571,7 @@ export class GQLtoSQLMapper {
 
 			mapping.limit = pagination?.limit;
 			mapping.offset = pagination?.offset;
+			mapping.distinct = pagination?.distinct;
 			mapping.orderBy.push(...(pagination?.orderBy ?? []));
 			logger.log(
 				'GQLtoSQLMapper - handleFieldArguments - processed',

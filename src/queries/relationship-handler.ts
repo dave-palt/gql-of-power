@@ -28,7 +28,8 @@ export class RelationshipHandler {
 		json: string[],
 		select: Set<string>,
 		innerJoin: string[],
-		join: string[]
+		join: string[],
+		distinct?: boolean
 	): void {
 		const prefix = 'RelationshipHandler - mapOneToX';
 		logger.log(prefix);
@@ -91,7 +92,8 @@ export class RelationshipHandler {
 				whereWithValues,
 				orderBySQL,
 				limit,
-				offset
+				offset,
+				distinct
 			);
 
 			const leftOuterJoin = SQLBuilder.buildLateralJoin(
@@ -229,7 +231,8 @@ export class RelationshipHandler {
 		values: Record<string, any>,
 		limit?: number,
 		offset?: number,
-		orderBy?: GQLEntityOrderByInputType<any>[]
+		orderBy?: GQLEntityOrderByInputType<any>[],
+		distinct?: boolean
 	): void {
 		logger.log('RelationshipHandler - mapManyToMany');
 		const ons = fieldProps.joinColumns;
@@ -282,7 +285,8 @@ export class RelationshipHandler {
 				SQLBuilder.getFieldMapper(fieldMetadata, alias)
 			);
 
-			const innerSubquery = `( select ${selectFields.join(', ')} from "${fieldMetadata.tableName}" as ${refAlias} where (${fieldMetadata.primaryKeys.join(', ')}) in (${pivotTableSQL}) ${whereWithValues.length > 0 ? ` and ( ${whereWithValues.join(' and ')} )` : ''} ${orderByClause} ${limit && !isNaN(limit) ? `limit ${limit}` : ''} ${offset && !isNaN(offset) ? `offset ${offset}` : ''} ) as ${refAlias}`;
+			const distinctKeyword = distinct ? 'distinct ' : '';
+			const innerSubquery = `( select ${distinctKeyword}${selectFields.join(', ')} from "${fieldMetadata.tableName}" as ${refAlias} where (${fieldMetadata.primaryKeys.join(', ')}) in (${pivotTableSQL}) ${whereWithValues.length > 0 ? ` and ( ${whereWithValues.join(' and ')} )` : ''} ${orderByClause} ${limit && !isNaN(limit) ? `limit ${limit}` : ''} ${offset && !isNaN(offset) ? `offset ${offset}` : ''} ) as ${refAlias}`;
 			const fromBody =
 				outerJoin.length > 0 && json.length > 0
 					? `( select ${refAlias}.*, ${json.join(', ')} from ${innerSubquery} ${outerJoin.join(' \n')} ) as ${refAlias}`
@@ -315,10 +319,12 @@ export class RelationshipHandler {
 		whereWithValues: string[],
 		orderBySQL: string,
 		limit: number | undefined,
-		offset: number | undefined
+		offset: number | undefined,
+		distinct?: boolean
 	): string {
+		const distinctKeyword = distinct ? 'distinct ' : '';
 		return `(
-			select ${onFields.join(', ')}
+			select ${distinctKeyword}${onFields.join(', ')}
 				from "${tableName}" as ${alias.toString()}
 				${innerJoin.join(' \n')}
 			where ${where}

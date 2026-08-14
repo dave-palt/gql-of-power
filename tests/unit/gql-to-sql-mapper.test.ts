@@ -2313,3 +2313,121 @@ describe('GQLtoSQLMapper - Unit Tests', () => {
 		});
 	});
 });
+
+describe('DISTINCT query flag', () => {
+	const distinctMapper = new GQLtoSQLMapper(createMockMetadataProvider());
+
+	it('should emit SELECT DISTINCT when pagination.distinct is true', () => {
+		const result = distinctMapper.buildQueryAndBindingsFor({
+			fields: { id: {}, power: {} },
+			entity: Ring,
+			customFields: {},
+			pagination: { distinct: true },
+		});
+
+		expect(result.querySQL).toMatch(/^select distinct /i);
+		expect(result.querySQL.toLowerCase()).not.toContain('union all');
+	});
+
+	it('should NOT emit distinct when pagination.distinct is omitted', () => {
+		const result = distinctMapper.buildQueryAndBindingsFor({
+			fields: { id: {}, power: {} },
+			entity: Ring,
+			customFields: {},
+			pagination: {},
+		});
+
+		expect(result.querySQL).not.toMatch(/^select distinct /i);
+	});
+
+	it('should emit SELECT DISTINCT on the outer query of a UNION ALL path', () => {
+		const result = distinctMapper.buildQueryAndBindingsFor({
+			fields: { id: {}, power: {} },
+			entity: Ring,
+			customFields: {},
+			filter: { _or: [{ power: 'high' }, { forgedBy: 'Sauron' }] } as any,
+			pagination: { distinct: true },
+		});
+
+		expect(result.querySQL).toMatch(/^select distinct /i);
+		expect(result.querySQL.toLowerCase()).toContain('union all');
+		// The inner structural distinct should still be present
+		expect(result.querySQL).toContain('select distinct * from');
+	});
+
+	it('should emit SELECT DISTINCT inside nested 1:m relation subquery', () => {
+		const result = distinctMapper.buildQueryAndBindingsFor({
+			fields: {
+				id: {},
+				name: {},
+				books: {
+					args: {
+						pagination: { distinct: true },
+					},
+					fieldsByTypeName: {
+						Book: {
+							id: {},
+							title: {},
+						},
+					},
+				},
+			} as any,
+			entity: Author,
+			customFields: {},
+		});
+
+		// The nested books subquery should contain 'select distinct'
+		expect(result.querySQL).toMatch(/select distinct \w+\.\w+.*from "books"/i);
+		// The outer query should NOT have distinct (it was not requested at root level)
+		expect(result.querySQL).not.toMatch(/^select distinct /i);
+	});
+
+	it('should NOT emit distinct inside nested relation when not requested', () => {
+		const result = distinctMapper.buildQueryAndBindingsFor({
+			fields: {
+				id: {},
+				name: {},
+				books: {
+					fieldsByTypeName: {
+						Book: {
+							id: {},
+							title: {},
+						},
+					},
+				},
+			} as any,
+			entity: Author,
+			customFields: {},
+		});
+
+		// The nested books subquery should NOT contain 'select distinct'
+		expect(result.querySQL).not.toMatch(/select distinct \w+\.\w+.*from "books"/i);
+	});
+
+	it('should support both root and nested distinct simultaneously', () => {
+		const result = distinctMapper.buildQueryAndBindingsFor({
+			fields: {
+				id: {},
+				name: {},
+				books: {
+					args: {
+						pagination: { distinct: true },
+					},
+					fieldsByTypeName: {
+						Book: {
+							id: {},
+							title: {},
+						},
+					},
+				},
+			} as any,
+			entity: Author,
+			customFields: {},
+			pagination: { distinct: true },
+		});
+
+		// Both root and nested should have distinct
+		expect(result.querySQL).toMatch(/^select distinct /i);
+		expect(result.querySQL).toMatch(/select distinct \w+\.\w+.*from "books"/i);
+	});
+});

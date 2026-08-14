@@ -619,6 +619,7 @@ pagination: {
   limit: 20,
   offset: 40,
   orderBy: [{ publishedYear: 'desc' }],
+  distinct: true, // emit SELECT DISTINCT on the outermost query
 }
 ```
 
@@ -650,6 +651,53 @@ pagination: {
 
 > **Note:** Only m:1 relations are supported (unambiguous — exactly one related row per parent).
 > Sorting by 1:m or m:m related columns would require aggregation (MIN/MAX) and is not yet supported.
+
+### Distinct
+
+When `pagination.distinct` is `true`, the outermost SELECT is emitted as `SELECT DISTINCT`,
+deduplicating the final user-facing rows. This is useful when relationship JOINs could
+multiply parent rows and you only want unique parents back.
+
+```sql
+SELECT DISTINCT e_a1.id, e_a1.book_title AS "title" FROM ( ... ) AS e_a1
+```
+
+Works alongside `limit`, `offset`, `orderBy`, and `_or`/`_and` filters (the UNION ALL
+path also gets the outer `DISTINCT` — the inner structural `select distinct *` is
+preserved as well).
+
+#### Nested distinct
+
+The `distinct` flag also works on reference-list fields (1:m and m:m relations).
+Pass it via the field's `pagination` argument:
+
+```graphql
+query {
+	authors {
+		id
+		name
+		books(distinct: true) {
+			id
+			title
+		}
+	}
+}
+```
+
+This emits `SELECT DISTINCT` inside the correlated subquery for `books`:
+
+```sql
+SELECT ... COALESCE((
+  SELECT json_agg(row_to_json(e_a2)) FROM (
+    SELECT DISTINCT e_a2.id, e_a2.title
+    FROM "books" AS e_a2 WHERE e_a2.author_id = e_a1.id
+  ) AS e_a2
+), '[]') AS "books"
+FROM authors AS e_a1
+```
+
+Useful when a m:m pivot or a 1:m join fans out duplicate children. Both root and
+nested `distinct` can be used simultaneously.
 
 ---
 
