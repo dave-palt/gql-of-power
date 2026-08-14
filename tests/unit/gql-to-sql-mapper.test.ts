@@ -2143,4 +2143,90 @@ describe('GQLtoSQLMapper - Unit Tests', () => {
 			expect(result.querySQL.toLowerCase()).toContain('exists');
 		});
 	});
+
+	describe('ORDER BY related columns (m:1)', () => {
+		it('should generate a correlated subquery for m:1 orderBy', () => {
+			const result = mapper.buildQueryAndBindingsFor({
+				fields: { id: {}, title: {} } as any,
+				entity: Book,
+				customFields: {},
+				pagination: { orderBy: [{ author: { name: 'asc' } }] as any },
+			});
+
+			expect(result.querySQL).toContain('order by');
+			expect(result.querySQL).toContain('(select e_o.author_name from "authors" as e_o where');
+			expect(result.querySQL).toContain('e_a1.author_id = e_o.id');
+			expect(result.querySQL).toContain('asc');
+		});
+
+		it('should support mixed related + flat orderBy', () => {
+			const result = mapper.buildQueryAndBindingsFor({
+				fields: { id: {}, title: {} } as any,
+				entity: Book,
+				customFields: {},
+				pagination: {
+					orderBy: [{ author: { name: 'asc' } }, { title: 'desc' }] as any,
+				},
+			});
+
+			expect(result.querySQL).toContain('(select e_o.author_name from "authors" as e_o where');
+			expect(result.querySQL).toContain('e_a1.book_title desc');
+		});
+
+		it('should not add the subquery to the SELECT columns', () => {
+			const result = mapper.buildQueryAndBindingsFor({
+				fields: { id: {}, title: {} } as any,
+				entity: Book,
+				customFields: {},
+				pagination: { orderBy: [{ author: { name: 'asc' } }] as any },
+			});
+
+			// The correlated subquery must NOT appear in the SELECT list
+			const selectClause = result.querySQL.substring(0, result.querySQL.indexOf(' from '));
+			expect(selectClause).not.toContain('(select e_o');
+		});
+
+		it('should throw for non-existent relation keys', () => {
+			// A nested object where the key is NOT a m:1 relation
+			// should fall through to the regular field mapper (which throws)
+			expect(() => {
+				mapper.buildQueryAndBindingsFor({
+					fields: { id: {}, name: {} } as any,
+					entity: Person,
+					customFields: {},
+					pagination: { orderBy: [{ nonexistent: { field: 'asc' } }] as any },
+				});
+			}).toThrow();
+		});
+
+		it('owning-side 1:1 relation: generates a correlated subquery (not silently skipped)', () => {
+			// signatureWeapon is an owning-side 1:1 (inversedBy: 'owner') — structurally
+			// an m:1. It must resolve through the same related-orderBy path instead of
+			// being dropped as an "unsupported reference type".
+			const result = mapper.buildQueryAndBindingsFor({
+				fields: { id: {}, name: {} } as any,
+				entity: Person,
+				customFields: {},
+				pagination: { orderBy: [{ signatureWeapon: { name: 'asc' } }] as any },
+			});
+
+			expect(result.querySQL).toContain('order by');
+			expect(result.querySQL).toContain('(select e_o.weapon_name from "weapons" as e_o where');
+			expect(result.querySQL).toContain('e_a1.signature_weapon_id = e_o.id');
+		});
+
+		it('inverse-side 1:1 relation: falls back to flat resolution (single related row is FK-owned by the other side)', () => {
+			// ring is the inverse side (mappedBy: 'bearer') — FK lives on rings.
+			// The m:1/owning-1:1 path does not apply; orderBy falls back to the
+			// regular field mapper which throws for unknown nested objects.
+			expect(() => {
+				mapper.buildQueryAndBindingsFor({
+					fields: { id: {}, name: {} } as any,
+					entity: Person,
+					customFields: {},
+					pagination: { orderBy: [{ ring: { name: 'asc' } }] as any },
+				});
+			}).toThrow();
+		});
+	});
 });

@@ -538,6 +538,35 @@ pagination: {
 }
 ```
 
+### Order By Related Columns (m:1)
+
+For many-to-one relations, you can sort by columns on the related entity using
+dot notation:
+
+```typescript
+pagination: {
+  orderBy: [{ 'author.name': 'asc' }], // sort Books by Author name
+}
+```
+
+This generates a correlated subquery:
+
+```sql
+SELECT ... FROM books AS e_a1
+ORDER BY (SELECT e_o.author_name FROM "authors" AS e_o WHERE e_a1.author_id = e_o.id) ASC
+```
+
+Multiple related and flat sort keys can be combined:
+
+```typescript
+pagination: {
+  orderBy: [{ 'author.name': 'asc' }, { title: 'desc' }],
+}
+```
+
+> **Note:** Only m:1 relations are supported (unambiguous — exactly one related row per parent).
+> Sorting by 1:m or m:m related columns would require aggregation (MIN/MAX) and is not yet supported.
+
 ---
 
 ## Relationship Handling
@@ -827,6 +856,7 @@ Both modes produce identical JSON output: enum fields come back as string keys (
 ## Known Limitations
 
 - ⚠️ Order by columns on related/joined tables not supported
+- ⚠️ Order BY on 1:m / m:m related columns requires aggregation strategy (MIN/MAX) — only m:1 is supported
 - ⚠️ ACL pending async refactoring
 
 ---
