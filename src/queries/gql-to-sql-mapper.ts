@@ -5,6 +5,7 @@ import {
 	getMapEnumFieldsFor,
 	getMapEnumOutputFieldsFor,
 	getMapEnumOutputGlobal,
+	getOrStrategyGlobal,
 	getParseJsonFieldsFor,
 	getFieldsOptionsFor,
 	getFieldByAlias,
@@ -29,6 +30,7 @@ import {
 	GQLEntityFilterInputFieldType,
 	GQLEntityOrderByInputType,
 	GQLEntityPaginationInputType,
+	OrStrategy,
 } from '../types/gql-types';
 import { MappingsType, mappingsTypeToString } from '../types/gql-to-sql-types';
 import { keys } from '../utils/object';
@@ -58,6 +60,13 @@ export class GQLtoSQLMapper {
 	private exists: MetadataProviderType['exists'];
 	private getMetadata: MetadataProviderType['getMetadata'];
 	private namedParameterPrefix: string;
+
+	/**
+	 * Effective `_or`/`_and` combination strategy for the current query.
+	 * Resolved per `buildQueryAndBindingsFor` call:
+	 * `pagination.orStrategy` > global `setGlobalConfig({ orStrategy })` > 'union-all'.
+	 */
+	private orStrategy: OrStrategy = 'union-all';
 
 	constructor(
 		metadataProvider: MetadataProviderType,
@@ -92,6 +101,11 @@ export class GQLtoSQLMapper {
 		const logName = 'GQLtoSQLMapper - ' + entity.name;
 		logger.time(logName);
 		logger.timeLog(logName);
+
+		// Resolve the effective _or/_and combination strategy for this query:
+		// per-query pagination override > global config > default 'union-all'.
+		this.orStrategy = pagination?.orStrategy ?? getOrStrategyGlobal();
+		this.filterProcessor.orStrategy = this.orStrategy;
 
 		this.Alias = new AliasManager();
 		const alias = this.Alias.start('a');
@@ -208,7 +222,38 @@ export class GQLtoSQLMapper {
 		const distinctKeyword = pagination?.distinct ? 'distinct ' : '';
 
 		let queryBody: string;
-		if (unionAllEntries.length > 0) {
+		if (unionAllEntries.length > 0 && this.orStrategy === 'or') {
+			// OR strategy: flatten all union branches into ONE query. Each branch's
+			// WHERE conditions are AND-grouped in parens, branches combined with
+			// `or`; branch INNER JOINs are merged (see README caveat on
+			// relationship-based `_or` branches). Mirrors the nested lateral-join
+			// flattening used for child-entity filters.
+			const orClauses = unionAllEntries
+				.map(({ where: orWheres }) => (orWheres.length > 0 ? `(${orWheres.join(' and ')})` : ''))
+				.filter((c) => c.length > 0);
+			const mergedInnerJoin = [
+				...innerJoin,
+				...unionAllEntries.flatMap(({ innerJoin: orInnerJoin }) => orInnerJoin),
+			];
+			const whereParts = [...where];
+			if (orClauses.length > 0) {
+				whereParts.push(`(${orClauses.join(' or ')})`);
+			}
+			queryBody = SQLBuilder.buildSubQuery(
+				selectFields,
+				rawSelectArr,
+				metadata.tableName,
+				alias,
+				mergedInnerJoin,
+				outerJoin,
+				whereParts,
+				undefined,
+				orderBySQL,
+				innerLimitSQL,
+				innerOffsetSQL,
+				distinctKeyword
+			);
+		} else if (unionAllEntries.length > 0) {
 			const unionBranches = unionAllEntries.map(({ innerJoin: orInnerJoin, where: orWheres }) => {
 				const allInnerJoins = [...innerJoin, ...orInnerJoin];
 				const allWhere = [...where, ...orWheres];

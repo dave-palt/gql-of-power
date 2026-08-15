@@ -17,7 +17,7 @@ import {
 	EntityProperty,
 	MetadataProviderType,
 } from '../types/sql-types';
-import { GQLEntityFilterInputFieldType } from '../types/gql-types';
+import { GQLEntityFilterInputFieldType, OrStrategy } from '../types/gql-types';
 import { MappingsType } from '../types/gql-to-sql-types';
 import { keys } from '../utils/object';
 import { logger } from '../variables';
@@ -40,6 +40,12 @@ const isPrimitive = (filterValue: any): filterValue is string | number | boolean
 	filterValue === null;
 
 export class FilterProcessor extends ClassOperations {
+	/**
+	 * Effective `_or`/`_and` combination strategy for the current query.
+	 * Set by `GQLtoSQLMapper.buildQueryAndBindingsFor` before mapping starts.
+	 */
+	public orStrategy: OrStrategy = 'union-all';
+
 	constructor(
 		private aliasManager: AliasManager,
 		private metadataProvider: MetadataProviderType,

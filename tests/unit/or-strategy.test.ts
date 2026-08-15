@@ -52,11 +52,10 @@ describe('orStrategy', () => {
 			const { querySQL } = buildQuery({ orStrategy: 'or' });
 
 			expect(querySQL.toLowerCase()).not.toContain('union all');
+			// both branch conditions combined with OR, bound as named parameters
 			expect(querySQL.toLowerCase()).toContain(' or ');
-			// both branch conditions still present with named bindings
-			expect(querySQL).toContain(':v_');
-			expect(querySQL.toLowerCase()).toContain('frodo');
-			expect(querySQL.toLowerCase()).toContain('hobbit');
+			expect(querySQL).toContain(':v_name_eq');
+			expect(querySQL).toContain(':v_race_eq');
 		});
 
 		it("orStrategy: 'or' keeps results bound as named parameters", () => {
