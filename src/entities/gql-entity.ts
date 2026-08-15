@@ -23,7 +23,11 @@ import {
 	RequireRelationConfig,
 	Sort,
 } from '../types/sql-types';
-import { GQLEntityFilterInputFieldType, GQLEntityPaginationInputType } from '../types/gql-types';
+import {
+	GQLEntityFilterInputFieldType,
+	GQLEntityPaginationInputType,
+	OrStrategy,
+} from '../types/gql-types';
 import { AccessControlEntry, AccessControlList } from '../types/access-control';
 import { keys } from '../utils/object';
 
@@ -170,17 +174,37 @@ let sortEnumRegistered = false;
 let mapEnumOutputGlobal: 'raw' | 'key' =
 	(process.env.GQL_OF_POWER_MAP_ENUM_OUTPUT as 'raw' | 'key') || 'raw';
 
+/**
+ * Global `_or`/`_and` combination strategy.
+ *
+ * Resolved at module load from the `GQL_OF_POWER_OR_STRATEGY` env var.
+ * Per-query `pagination.orStrategy` takes precedence, then this global,
+ * then `'union-all'`.
+ *
+ * - `'union-all'` — each `_or` branch becomes a separate SELECT combined
+ *   with `union all` (historical default).
+ * - `'or'` — branches flatten into one query with `((w1) or (w2))` in the
+ *   WHERE clause (index-friendly single scan; see README for the
+ *   relationship-branch caveat).
+ */
+let orStrategyGlobal: OrStrategy =
+	(process.env.GQL_OF_POWER_OR_STRATEGY as OrStrategy) || 'union-all';
+
 export const setGlobalConfig = (config: {
 	gqlTypesSuffix?: string;
 	gqlSortSuffix?: string;
 	mapEnumOutput?: 'raw' | 'key';
+	orStrategy?: OrStrategy;
 }) => {
 	if (config.gqlTypesSuffix !== undefined) gqlTypesSuffix = config.gqlTypesSuffix;
 	if (config.gqlSortSuffix !== undefined) gqlSortSuffix = config.gqlSortSuffix;
 	if (config.mapEnumOutput !== undefined) mapEnumOutputGlobal = config.mapEnumOutput;
+	if (config.orStrategy !== undefined) orStrategyGlobal = config.orStrategy;
 };
 
 export const getMapEnumOutputGlobal = () => mapEnumOutputGlobal;
+
+export const getOrStrategyGlobal = () => orStrategyGlobal;
 
 // ─── Public accessors ────────────────────────────────────────────────────────
 

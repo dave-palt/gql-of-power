@@ -148,7 +148,26 @@ export type GQLEntityPaginationInputType<T> = {
 	 * rows. Does not affect the structural `select distinct *` used inside UNION ALL.
 	 */
 	distinct?: boolean;
+	/**
+	 * Strategy for combining `_or` / `_and` filter branches in generated SQL.
+	 *
+	 * - `'union-all'` (default) — each branch becomes a separate SELECT combined
+	 *   with `union all`. Branch-local INNER JOINs stay isolated per branch.
+	 * - `'or'` — branches are flattened into a single query with
+	 *   `((w1) or (w2) ...)` in the WHERE clause. Index-friendly single scan,
+	 *   but branch INNER JOINs are merged (see README caveat on
+	 *   relationship-based `_or` branches).
+	 *
+	 * Overrides the global `setGlobalConfig({ orStrategy })` for this query.
+	 */
+	orStrategy?: OrStrategy;
 };
+
+/**
+ * How `_or` / `_and` filter branches are combined into SQL.
+ * See `GQLEntityPaginationInputType.orStrategy` for the full description.
+ */
+export type OrStrategy = 'union-all' | 'or';
 
 /**
  * Represents the auto-generated Input type for CRUD operations.
