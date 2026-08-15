@@ -97,6 +97,24 @@ query ExistsFilters {
 }
 
 # ─────────────────────────────────────────────────────────────────────────────
+# 3b. ORDER BY — flat fields via GraphQL, related columns via the
+#     programmatic API. The generated *OrderBy input exposes flat Sort fields.
+#     Sorting by RELATED columns (nested objects like { author: { name: 'asc' } })
+#     is a SQL-engine feature used via getQueryResultsForInfo/Fields pagination —
+#     see resolvers.ts for the programmatic example in the comment on the pagination arg.
+# ─────────────────────────────────────────────────────────────────────────────
+query OrderedLibrary {
+  booksByTitle: books(pagination: { orderBy: [{ title: ASC }, { publishedYear: DESC }] }) {
+    id
+    title
+    publishedYear
+    author {
+      name
+    }
+  }
+}
+
+# ─────────────────────────────────────────────────────────────────────────────
 # 4. mapNumericEnum + excludeFromInput + parseJson
 #    Ring.status is stored in the DB as 100/200/300 but exposed as the
 #    RingStatus enum. forgedDate is excluded from the Input type but readable

@@ -229,9 +229,19 @@ export class AuthorResolver extends AuthorFieldsResolver {
 		@Arg('filter', () => AuthorGQL.GQLEntityFilterInput || Object, {
 			nullable: true,
 		})
-		filter?: GQLEntityFilterInputFieldType<Author>
+		filter?: GQLEntityFilterInputFieldType<Author>,
+		@Arg('pagination', () => AuthorGQL.GQLEntityPaginationInputField || Object, {
+			nullable: true,
+		})
+		pagination?: any // supports orderBy on related (incl. aggregated 1:m) columns, e.g. [{ books: { publishedYear: 'desc' } }]
 	) {
-		return await queryManager.getQueryResultsForInfo(metadataProvider, Author, info, filter);
+		return await queryManager.getQueryResultsForInfo(
+			metadataProvider,
+			Author,
+			info,
+			filter,
+			pagination
+		);
 	}
 }
 
@@ -251,7 +261,19 @@ export class BookResolver extends BookFieldsResolver {
 		@Arg('pagination', () => BookGQL.GQLEntityPaginationInputField || Object, {
 			nullable: true,
 		})
-		pagination?: any // supports orderBy with related m:1 columns, e.g. [{ 'author.name': 'asc' }]
+		pagination?: any /*
+		 * Flat orderBy works through GraphQL: { orderBy: [{ title: 'asc' }] }.
+		 * RELATED-column orderBy (nested objects) is SQL-engine-only for now —
+		 * the generated *OrderBy input exposes flat Sort fields only. Use the
+		 * programmatic API instead:
+		 *   queryManager.getQueryResultsForInfo(provider, Book, info, filter, {
+		 *     orderBy: [{ author: { name: 'asc' } }],        // m:1 / owning 1:1
+		 *   });
+		 *   // 1:m / m:m aggregate via MIN (asc) / MAX (desc):
+		 *   queryManager.getQueryResultsForInfo(provider, Author, info, filter, {
+		 *     orderBy: [{ books: { publishedYear: 'desc' } }],
+		 *   });
+		 */
 	) {
 		return await queryManager.getQueryResultsForInfo(
 			metadataProvider,

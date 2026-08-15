@@ -623,14 +623,14 @@ pagination: {
 }
 ```
 
-### Order By Related Columns (m:1)
+### Order By Related Columns
 
-For many-to-one relations, you can sort by columns on the related entity using
-dot notation:
+You can sort by columns on a related entity using **nested objects** (so
+TypeScript gives you autocomplete at every level):
 
 ```typescript
 pagination: {
-  orderBy: [{ 'author.name': 'asc' }], // sort Books by Author name
+  orderBy: [{ author: { name: 'asc' } }], // sort Books by Author name
 }
 ```
 
@@ -645,12 +645,40 @@ Multiple related and flat sort keys can be combined:
 
 ```typescript
 pagination: {
-  orderBy: [{ 'author.name': 'asc' }, { title: 'desc' }],
+  orderBy: [{ author: { name: 'asc' } }, { title: 'desc' }],
 }
 ```
 
-> **Note:** Only m:1 relations are supported (unambiguous — exactly one related row per parent).
-> Sorting by 1:m or m:m related columns would require aggregation (MIN/MAX) and is not yet supported.
+**All cardinalities are supported in the SQL engine.** The relation's join
+direction is resolved through the shared ownership dispatch
+(`src/queries/relation-dispatch.ts`):
+
+- **m:1** and **owning-side 1:1** (`inversedBy` set, FK on this entity): plain
+  scalar subquery — exactly one related row, no aggregation.
+- **1:m** and **inverse-side 1:1** (`mappedBy` set, FK on the related entity):
+  the many related rows are collapsed to a single sortable value via
+  aggregation — **MIN for ascending, MAX for descending** — so ordering stays
+  deterministic. Resolves the child FK through the `mappedBy` property.
+- **m:n**: same MIN/MAX aggregation, joining the related table to the pivot
+  table inside the subquery.
+
+```typescript
+// Books of each Author, oldest first (1:m, aggregated):
+pagination: { orderBy: [{ books: { publishedYear: 'asc' } }] }
+// → ORDER BY (SELECT MIN(e_o.published_year) FROM "books" e_o WHERE e_a1.id = e_o.author_id) ASC
+```
+
+Aggregated sorts (1:m / m:n) require a **single-column** related field —
+multi-column is ambiguous under aggregation. An orderBy key that resolves to
+neither a relation nor a scalar field throws a named error instead of silently
+producing broken SQL.
+
+> **GraphQL schema note:** the auto-generated `<Entity>OrderBy` input type
+> currently exposes **flat `Sort` fields only**. Nested related-column orderBy
+> works through the **programmatic pagination API** — pass `pagination` to
+> `getQueryResultsForInfo` / `getQueryResultsForFields` (or your resolver's
+> pagination arg typed as `any`) — the SQL engine handles the nested objects.
+> Exposing nested orderBy in the generated input types is a planned enhancement.
 
 ### Distinct
 
