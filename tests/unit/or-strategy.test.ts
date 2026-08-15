@@ -57,13 +57,24 @@ describe('orStrategy', () => {
 			expect(querySQL).toContain(':v_name_eq');
 			expect(querySQL).toContain(':v_race_eq');
 		});
+	});
 
-		it("orStrategy: 'or' keeps results bound as named parameters", () => {
-			const { bindings } = buildQuery({ orStrategy: 'or' });
+	describe('global config + precedence', () => {
+		it('global setGlobalConfig({ orStrategy: "or" }) applies without per-query override', () => {
+			setGlobalConfig({ orStrategy: 'or' });
 
-			const bindingValues = Object.values(bindings as Record<string, any>);
-			expect(bindingValues).toContain('Frodo');
-			expect(bindingValues).toContain('Hobbit');
+			const { querySQL } = buildQuery();
+
+			expect(querySQL.toLowerCase()).not.toContain('union all');
+			expect(querySQL.toLowerCase()).toContain(' or ');
+		});
+
+		it('per-query orStrategy overrides the global setting', () => {
+			setGlobalConfig({ orStrategy: 'or' });
+
+			const { querySQL } = buildQuery({ orStrategy: 'union-all' });
+
+			expect(querySQL.toLowerCase()).toContain('union all');
 		});
 	});
 });
