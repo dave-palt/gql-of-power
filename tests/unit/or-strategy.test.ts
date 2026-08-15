@@ -9,8 +9,9 @@
  */
 import { afterEach, beforeEach, describe, expect, it } from 'bun:test';
 import { setGlobalConfig } from '../../src';
+import { registerCountField } from '../../src/entities/gql-entity';
 import { GQLtoSQLMapper } from '../../src/queries/gql-to-sql-mapper';
-import { Fellowship, Person } from '../fixtures/middle-earth-schema';
+import { Author, Fellowship, Person } from '../fixtures/middle-earth-schema';
 import { createMockMetadataProvider } from '../fixtures/test-data';
 import '../setup';
 
@@ -141,6 +142,33 @@ describe('orStrategy', () => {
 
 			expect(querySQL.toLowerCase()).toContain('exists');
 			expect(querySQL.toLowerCase()).toContain('union all');
+		});
+	});
+
+	describe('count-field subquery', () => {
+		it("orStrategy: 'or' flattens UNION ALL inside the COUNT subquery", () => {
+			registerCountField('Author', 'bookCount', 'books', () => 'Book');
+
+			const { querySQL } = mapper.buildQueryAndBindingsFor({
+				fields: {
+					id: {},
+					name: {},
+					bookCount: {
+						args: {
+							filter: {
+								_or: [{ title: 'The Hobbit' }, { title: 'The Lord of the Rings' }],
+							},
+						},
+					},
+				},
+				entity: Author,
+				customFields: {},
+				pagination: { orStrategy: 'or' },
+			} as any);
+
+			expect(querySQL).toContain('count(*)');
+			expect(querySQL.toLowerCase()).not.toContain('union all');
+			expect(querySQL.toLowerCase()).toContain(' or ');
 		});
 	});
 });

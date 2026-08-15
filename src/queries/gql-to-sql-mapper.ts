@@ -1206,7 +1206,17 @@ export class GQLtoSQLMapper {
 		// Build the COUNT subquery
 		let subquery: string;
 
-		if (filterOr.length > 0) {
+		if (filterOr.length > 0 && this.orStrategy === 'or') {
+			// OR strategy: flatten branches into a single OR-combined WHERE
+			const orWhere = SQLBuilder.buildOrCombinedWhere(filterOr);
+			const mergedInnerJoin = [...filterInnerJoin, ...filterOr.flatMap((o) => o.innerJoin)];
+			const whereParts = [
+				joinCondition,
+				...filterWhere,
+				...(orWhere ? [`(${orWhere})`] : []),
+			].filter((w) => w.length > 0);
+			subquery = `select count(*) from \"${relatedMetadata.tableName}\" as ${countAlias.toString()} ${mergedInnerJoin.join(' \\n')} ${filterOuterJoin.join(' \\n')} ${whereParts.length > 0 ? `where ${whereParts.join(' and ')}` : ''}`;
+		} else if (filterOr.length > 0) {
 			// When filter has _or branches, use UNION ALL inside the count subquery
 			const branches = filterOr.map((orMapping) => {
 				const allWhere = [joinCondition, ...filterWhere, ...orMapping.where];
@@ -1317,7 +1327,17 @@ export class GQLtoSQLMapper {
 		const aggExpr = `${fn}(${aggAlias.toString()}.${sqlColumn})`;
 
 		let subquery: string;
-		if (filterOr.length > 0) {
+		if (filterOr.length > 0 && this.orStrategy === 'or') {
+			// OR strategy: flatten branches into a single OR-combined WHERE
+			const orWhere = SQLBuilder.buildOrCombinedWhere(filterOr);
+			const mergedInnerJoin = [...filterInnerJoin, ...filterOr.flatMap((o) => o.innerJoin)];
+			const whereParts = [
+				joinCondition,
+				...filterWhere,
+				...(orWhere ? [`(${orWhere})`] : []),
+			].filter((w) => w.length > 0);
+			subquery = `select ${aggExpr} from \"${relatedMetadata.tableName}\" as ${aggAlias.toString()} ${mergedInnerJoin.join(' \\n')} ${filterOuterJoin.join(' \\n')} ${whereParts.length > 0 ? `where ${whereParts.join(' and ')}` : ''}`;
+		} else if (filterOr.length > 0) {
 			// UNION ALL: aggregate over the unioned branches
 			const branches = filterOr.map((orMapping) => {
 				const allWhere = [joinCondition, ...filterWhere, ...orMapping.where];
