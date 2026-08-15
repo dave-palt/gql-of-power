@@ -77,4 +77,70 @@ describe('orStrategy', () => {
 			expect(querySQL.toLowerCase()).toContain('union all');
 		});
 	});
+
+	describe('EXISTS relationship filter paths', () => {
+		const personFields = { id: {}, name: {} };
+
+		it('m:1 relationship filter with nested _or uses plain OR inside EXISTS', () => {
+			const { querySQL } = mapper.buildQueryAndBindingsFor({
+				fields: personFields,
+				entity: Person,
+				customFields: {},
+				filter: {
+					Fellowship: { _or: [{ name_eq: 'Fellowship of the Ring' }, { name_eq: 'The Nine' }] },
+				} as any,
+				pagination: { orStrategy: 'or' },
+			});
+
+			expect(querySQL.toLowerCase()).toContain('exists');
+			expect(querySQL.toLowerCase()).not.toContain('union all');
+			expect(querySQL.toLowerCase()).toContain(' or ');
+		});
+
+		it('1:m relationship filter with nested _or uses plain OR inside EXISTS', () => {
+			const { querySQL } = mapper.buildQueryAndBindingsFor({
+				fields: { id: {}, name: {} },
+				entity: Fellowship,
+				customFields: {},
+				filter: {
+					members: { _or: [{ name_eq: 'Frodo' }, { name_eq: 'Gandalf' }] },
+				} as any,
+				pagination: { orStrategy: 'or' },
+			});
+
+			expect(querySQL.toLowerCase()).toContain('exists');
+			expect(querySQL.toLowerCase()).not.toContain('union all');
+			expect(querySQL.toLowerCase()).toContain(' or ');
+		});
+
+		it('m:m relationship filter with nested _or uses plain OR inside EXISTS', () => {
+			const { querySQL } = mapper.buildQueryAndBindingsFor({
+				fields: personFields,
+				entity: Person,
+				customFields: {},
+				filter: {
+					battles: { _or: [{ name_eq: 'Helms Deep' }, { name_eq: 'Pelennor' }] },
+				} as any,
+				pagination: { orStrategy: 'or' },
+			});
+
+			expect(querySQL.toLowerCase()).toContain('exists');
+			expect(querySQL.toLowerCase()).not.toContain('union all');
+			expect(querySQL.toLowerCase()).toContain(' or ');
+		});
+
+		it('default strategy still uses UNION ALL inside relationship EXISTS', () => {
+			const { querySQL } = mapper.buildQueryAndBindingsFor({
+				fields: personFields,
+				entity: Person,
+				customFields: {},
+				filter: {
+					Fellowship: { _or: [{ name_eq: 'Fellowship of the Ring' }, { name_eq: 'The Nine' }] },
+				} as any,
+			});
+
+			expect(querySQL.toLowerCase()).toContain('exists');
+			expect(querySQL.toLowerCase()).toContain('union all');
+		});
+	});
 });
