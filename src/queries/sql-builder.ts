@@ -112,6 +112,18 @@ export class SQLBuilder {
 			})
 			.filter((q): q is string => q !== null);
 	}
+	/**
+	 * Combines UNION-ALL branch WHEREs into a single OR expression for
+	 * `orStrategy: 'or'`. Each branch's conditions are AND-grouped in parens,
+	 * branches joined with `or`. Returns '' when no branch has conditions.
+	 */
+	public static buildOrCombinedWhere(branches: MappingsType[]): string {
+		return branches
+			.map(({ where }) => (where.length > 0 ? `(${where.join(' and ')})` : ''))
+			.filter((c) => c.length > 0)
+			.join(' or ');
+	}
+
 	public static buildInnerBranch(
 		rawSelect: string[],
 		tableName: string,

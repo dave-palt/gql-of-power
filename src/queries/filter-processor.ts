@@ -1389,30 +1389,46 @@ export class FilterProcessor extends ClassOperations {
 			joinCondition.length > 0 &&
 			(innerJoin.length > 0 || whereWithValues.length > 0 || outerJoin.length > 0 || _or.length > 0)
 		) {
-			const unionAll = SQLBuilder.buildUnionAll(
-				[],
-				refMetadata.tableName,
-				childAlias,
-				innerJoin,
-				outerJoin,
-				joinCondition,
-				whereWithValues,
-				_or,
-				this.buildManyToOneJoin.bind(this)
-			);
+			let subquery: string;
+			if (this.orStrategy === 'or' && _or.length > 0) {
+				// OR strategy: flatten branches into one EXISTS subquery with an
+				// OR-combined WHERE; branch INNER JOINs are merged.
+				const orWhere = SQLBuilder.buildOrCombinedWhere(_or);
+				subquery = this.buildManyToOneJoin(
+					[],
+					childAlias,
+					refMetadata.tableName,
+					[...innerJoin, ..._or.flatMap((o) => o.innerJoin)],
+					outerJoin,
+					joinCondition,
+					orWhere.length > 0 ? [...whereWithValues, `(${orWhere})`] : whereWithValues
+				);
+			} else {
+				const unionAll = SQLBuilder.buildUnionAll(
+					[],
+					refMetadata.tableName,
+					childAlias,
+					innerJoin,
+					outerJoin,
+					joinCondition,
+					whereWithValues,
+					_or,
+					this.buildManyToOneJoin.bind(this)
+				);
 
-			const subquery =
-				unionAll.length > 0
-					? unionAll.map((q: string) => `(${q})`).join(' union all ')
-					: this.buildManyToOneJoin(
-							[],
-							childAlias,
-							refMetadata.tableName,
-							innerJoin,
-							outerJoin,
-							joinCondition,
-							whereWithValues
-						);
+				subquery =
+					unionAll.length > 0
+						? unionAll.map((q: string) => `(${q})`).join(' union all ')
+						: this.buildManyToOneJoin(
+								[],
+								childAlias,
+								refMetadata.tableName,
+								innerJoin,
+								outerJoin,
+								joinCondition,
+								whereWithValues
+							);
+			}
 
 			const existsSQL = `exists (${subquery})`.replaceAll(/[ \n\t]+/gi, ' ');
 
@@ -1685,30 +1701,46 @@ export class FilterProcessor extends ClassOperations {
 			whereSQL.length > 0 &&
 			(innerJoin.length > 0 || whereWithValues.length > 0 || outerJoin.length > 0 || _or.length > 0)
 		) {
-			const unionAll = SQLBuilder.buildUnionAll(
-				[],
-				referenceField.tableName,
-				alias,
-				innerJoin,
-				outerJoin,
-				whereSQL,
-				whereWithValues,
-				_or,
-				this.buildOneToXJoin
-			);
+			let subquery: string;
+			if (this.orStrategy === 'or' && _or.length > 0) {
+				// OR strategy: flatten branches into one EXISTS subquery with an
+				// OR-combined WHERE; branch INNER JOINs are merged.
+				const orWhere = SQLBuilder.buildOrCombinedWhere(_or);
+				subquery = this.buildOneToXJoin(
+					[],
+					alias,
+					referenceField.tableName,
+					[...innerJoin, ..._or.flatMap((o) => o.innerJoin)],
+					outerJoin,
+					whereSQL,
+					orWhere.length > 0 ? [...whereWithValues, `(${orWhere})`] : whereWithValues
+				);
+			} else {
+				const unionAll = SQLBuilder.buildUnionAll(
+					[],
+					referenceField.tableName,
+					alias,
+					innerJoin,
+					outerJoin,
+					whereSQL,
+					whereWithValues,
+					_or,
+					this.buildOneToXJoin
+				);
 
-			const subquery =
-				unionAll.length > 0
-					? unionAll.map((q) => `(${q})`).join(' union all ')
-					: this.buildOneToXJoin(
-							[],
-							alias,
-							referenceField.tableName,
-							innerJoin,
-							outerJoin,
-							whereSQL,
-							whereWithValues
-						);
+				subquery =
+					unionAll.length > 0
+						? unionAll.map((q) => `(${q})`).join(' union all ')
+						: this.buildOneToXJoin(
+								[],
+								alias,
+								referenceField.tableName,
+								innerJoin,
+								outerJoin,
+								whereSQL,
+								whereWithValues
+							);
+			}
 
 			const existsSQL = `exists (${subquery})`.replaceAll(/[ \n\t]+/gi, ' ');
 
@@ -1769,32 +1801,48 @@ export class FilterProcessor extends ClassOperations {
 					outerJoin.length > 0 ||
 					_or.length > 0)
 			) {
-				const unionAll = SQLBuilder.buildUnionAll(
-					[],
-					referenceField.tableName,
-					alias,
-					innerJoin,
-					outerJoin,
-					whereSQL,
-					whereWithValues,
-					_or,
-					this.buildManyToOneJoin
-				);
+				let subquery: string;
+				if (this.orStrategy === 'or' && _or.length > 0) {
+					// OR strategy: flatten branches into one EXISTS subquery with an
+					// OR-combined WHERE; branch INNER JOINs are merged.
+					const orWhere = SQLBuilder.buildOrCombinedWhere(_or);
+					subquery = this.buildManyToOneJoin(
+						[],
+						alias,
+						referenceField.tableName,
+						[...innerJoin, ..._or.flatMap((o) => o.innerJoin)],
+						outerJoin,
+						whereSQL,
+						orWhere.length > 0 ? [...whereWithValues, `(${orWhere})`] : whereWithValues
+					);
+				} else {
+					const unionAll = SQLBuilder.buildUnionAll(
+						[],
+						referenceField.tableName,
+						alias,
+						innerJoin,
+						outerJoin,
+						whereSQL,
+						whereWithValues,
+						_or,
+						this.buildManyToOneJoin
+					);
 
-				logger.log('FilterProcessor - mapFilterManyToOne: whereSQL', alias.toString(), unionAll);
+					logger.log('FilterProcessor - mapFilterManyToOne: whereSQL', alias.toString(), unionAll);
 
-				const subquery =
-					unionAll.length > 0
-						? unionAll.map((q) => `(${q})`).join(' union all ')
-						: this.buildManyToOneJoin(
-								[],
-								alias,
-								referenceField.tableName,
-								innerJoin,
-								outerJoin,
-								whereSQL,
-								whereWithValues
-							);
+					subquery =
+						unionAll.length > 0
+							? unionAll.map((q) => `(${q})`).join(' union all ')
+							: this.buildManyToOneJoin(
+									[],
+									alias,
+									referenceField.tableName,
+									innerJoin,
+									outerJoin,
+									whereSQL,
+									whereWithValues
+								);
+				}
 
 				const existsSQL = `exists (${subquery})`.replaceAll(/[ \n\t]+/gi, ' ');
 
@@ -1861,33 +1909,51 @@ export class FilterProcessor extends ClassOperations {
 				.map((c) => ptAlias.toColumnName(c))
 				.join(', ')}) in (${referenceField.primaryKeys
 				.map((c) => alias.toColumnName(c))
-				.join(', ')})`.replaceAll(/[ \n\t]+/gi, ' ');
-
-			const unionAll = SQLBuilder.buildUnionAll(
-				[alias.toColumnName('*')],
-				referenceField.tableName,
-				alias,
-				innerJoin,
-				outerJoin.concat(`inner join ${ptAlias} on ${onSQL}`),
-				'',
-				whereWithValues,
-				_or,
-				this.buildManyToManyPivotTable
-			);
+				.join(', ')})`.replaceAll(/[ \n	]+/gi, ' ');
 
 			const whereSQL = `(${referenceField.primaryKeys.join(', ')}) in (${ptSQL})`;
-			const subquery =
-				unionAll.length > 0
-					? `with ${ptAlias} as (${ptSQL}) ${unionAll.map((q) => `(${q})`).join(' union all ')}`
-					: this.buildManyToManyPivotTable(
-							[alias.toColumnName('*')],
-							alias,
-							referenceField.tableName,
-							innerJoin,
-							outerJoin,
-							whereSQL,
-							whereWithValues
-						);
+			let subquery: string;
+			if (this.orStrategy === 'or' && _or.length > 0) {
+				// OR strategy: flatten branches into one EXISTS subquery with an
+				// OR-combined WHERE; branch INNER JOINs are merged. The pivot-table
+				// CTE wrapper is only needed for the UNION ALL path — use the
+				// plain fallback builder here.
+				const orWhere = SQLBuilder.buildOrCombinedWhere(_or);
+				subquery = this.buildManyToManyPivotTable(
+					[alias.toColumnName('*')],
+					alias,
+					referenceField.tableName,
+					[...innerJoin, ..._or.flatMap((o) => o.innerJoin)],
+					outerJoin.concat(`inner join ${ptAlias} on ${onSQL}`),
+					whereSQL,
+					orWhere.length > 0 ? [...whereWithValues, `(${orWhere})`] : whereWithValues
+				);
+			} else {
+				const unionAll = SQLBuilder.buildUnionAll(
+					[alias.toColumnName('*')],
+					referenceField.tableName,
+					alias,
+					innerJoin,
+					outerJoin.concat(`inner join ${ptAlias} on ${onSQL}`),
+					'',
+					whereWithValues,
+					_or,
+					this.buildManyToManyPivotTable
+				);
+
+				subquery =
+					unionAll.length > 0
+						? `with ${ptAlias} as (${ptSQL}) ${unionAll.map((q) => `(${q})`).join(' union all ')}`
+						: this.buildManyToManyPivotTable(
+								[alias.toColumnName('*')],
+								alias,
+								referenceField.tableName,
+								innerJoin,
+								outerJoin,
+								whereSQL,
+								whereWithValues
+							);
+			}
 
 			const existsSQL = `exists (${subquery})`.replaceAll(/[ \n\t]+/gi, ' ');
 
