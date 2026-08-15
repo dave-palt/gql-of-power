@@ -79,6 +79,46 @@ Filter operators auto-generate too: `totalPages_gt`, `totalPages_lte`, etc. (sam
 
 **Requires:** `array: true` + `relatedEntityName`.
 
+## orderBy on related columns — nested objects, all cardinalities
+
+`pagination.orderBy` accepts **nested-object** keys (not dot-notation) so
+TypeScript gives autocomplete at every level. The join direction is resolved by
+the shared ownership dispatch (`src/queries/relation-dispatch.ts`), so every
+cardinality works:
+
+```typescript
+// m:1 or owning-side 1:1 — plain scalar subquery (one related row):
+await queryManager.getQueryResultsForFields(provider, Book, fields, undefined, {
+  orderBy: [{ author: { name: 'asc' } }],
+});
+
+// 1:m / inverse-1:1 / m:n — MIN-for-asc / MAX-for-desc aggregated subquery:
+await queryManager.getQueryResultsForFields(provider, Author, fields, undefined, {
+  orderBy: [{ books: { publishedYear: 'desc' } }],
+});
+```
+
+```sql
+-- m:1:            ORDER BY (SELECT e_o.author_name FROM "authors" e_o WHERE e_a1.author_id = e_o.id) ASC
+-- 1:m (desc→MAX): ORDER BY (SELECT MAX(e_o.published_year) FROM "books" e_o WHERE e_a1.id = e_o.author_id) DESC
+```
+
+Rules:
+
+- Aggregated sorts (1:m / inverse-1:1 / m:n) need a **single-column** related
+  field — multi-column is ambiguous under aggregation.
+- An orderBy key that is neither a relation nor a scalar field throws a named
+  error (`gql-of-power: orderBy key "…" cannot be resolved`) instead of
+  silently producing malformed SQL.
+- Works with `limit`/`offset` (the correlated parent columns are projected
+  through the wrapping subquery) and inside `_or`/`_and` UNION ALL branches.
+
+> **GraphQL schema note:** the generated `<Entity>OrderBy` input type exposes
+> flat `Sort` fields only. Nested related-column orderBy is a **programmatic
+> pagination API** feature (`getQueryResultsForInfo` / `getQueryResultsForFields`
+> — or a resolver pagination arg typed `any`); the GraphQL input does not yet
+> express nested objects.
+
 ## _exists / _not_exists — filter by related-row existence
 
 These are **class-level** filter operators (not field settings). They work automatically on relationship fields — no schema change needed.

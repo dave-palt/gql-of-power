@@ -1,4 +1,5 @@
 import { FieldsSettings } from '@dav3/gql-of-power';
+import { GraphQLJSON } from 'graphql-type-json';
 import {
 	ArmyGQL,
 	AuthorGQL,
@@ -102,8 +103,11 @@ export const RingFields: Partial<FieldsSettings<Ring>> = {
 		mapNumericEnum: true,
 	},
 	// jsonb column wrapped with a JSON-parsing expression in SQL.
+	// NOTE: parseJson fields MUST use GraphQLJSON, not `type: () => Object` —
+	// type-graphql's scalar map has no entry for Object and schema build fails
+	// with "Cannot determine GraphQL output type for 'metadata'".
 	metadata: {
-		type: () => Object,
+		type: () => GraphQLJSON,
 		options: { nullable: true },
 		generateFilter: false,
 		parseJson: true,
