@@ -383,32 +383,32 @@ filter: {
 
 ### Filter operations
 
-| Operation      | Meaning                                                 |
-| -------------- | ------------------------------------------------------- |
-| `_eq`          | Equal                                                   |
-| `_ne`          | Not equal                                               |
-| `_in`          | In array                                                |
-| `_nin`         | Not in array                                            |
-| `_like`        | LIKE (case-sensitive contains)                          |
-| `_nlike`       | NOT LIKE                                                |
-| `_ilike`       | ILIKE (case-insensitive contains)                       |
-| `_nilike`      | NOT ILIKE                                               |
-| `_startsWith`  | LIKE prefix (case-sensitive)                            |
-| `_istartsWith` | ILIKE prefix (case-insensitive)                         |
-| `_endsWith`    | LIKE suffix (case-sensitive)                            |
-| `_iendsWith`   | ILIKE suffix (case-insensitive)                         |
-| `_re`          | Regex match (`~`)                                       |
-| `_nre`         | Regex non-match (`!~`)                                  |
-| `_gt` / `_gte` | Greater than / greater than or equal                    |
-| `_lt` / `_lte` | Less than / less than or equal                          |
-| `_between`     | BETWEEN low AND high                                    |
-| `_nbetween`    | NOT BETWEEN low AND high                                |
-| `_is_null`     | IS NULL (true) / IS NOT NULL (false)                    |
-| `_and`         | Logical AND                                             |
-| `_or`          | Logical OR (generates UNION ALL)                        |
-| `_not`         | Negates a conjunction of conditions (NOT (...) wrapper) |
-| `_exists`      | Check related entities exist (AND-combined per key)     |
-| `_not_exists`  | Check no related entities exist (AND-combined per key)  |
+| Operation      | Meaning                                                                                        |
+| -------------- | ---------------------------------------------------------------------------------------------- |
+| `_eq`          | Equal                                                                                          |
+| `_ne`          | Not equal                                                                                      |
+| `_in`          | In array                                                                                       |
+| `_nin`         | Not in array                                                                                   |
+| `_like`        | LIKE (case-sensitive contains)                                                                 |
+| `_nlike`       | NOT LIKE                                                                                       |
+| `_ilike`       | ILIKE (case-insensitive contains)                                                              |
+| `_nilike`      | NOT ILIKE                                                                                      |
+| `_startsWith`  | LIKE prefix (case-sensitive)                                                                   |
+| `_istartsWith` | ILIKE prefix (case-insensitive)                                                                |
+| `_endsWith`    | LIKE suffix (case-sensitive)                                                                   |
+| `_iendsWith`   | ILIKE suffix (case-insensitive)                                                                |
+| `_re`          | Regex match (`~`)                                                                              |
+| `_nre`         | Regex non-match (`!~`)                                                                         |
+| `_gt` / `_gte` | Greater than / greater than or equal                                                           |
+| `_lt` / `_lte` | Less than / less than or equal                                                                 |
+| `_between`     | BETWEEN low AND high                                                                           |
+| `_nbetween`    | NOT BETWEEN low AND high                                                                       |
+| `_is_null`     | IS NULL (true) / IS NOT NULL (false)                                                           |
+| `_and`         | Logical AND                                                                                    |
+| `_or`          | Logical OR (UNION ALL by default; plain `OR` via [`orStrategy`](#or-strategy-union-all-vs-or)) |
+| `_not`         | Negates a conjunction of conditions (NOT (...) wrapper)                                        |
+| `_exists`      | Check related entities exist (AND-combined per key)                                            |
+| `_not_exists`  | Check no related entities exist (AND-combined per key)                                         |
 
 ### Existence Filters (`_exists` / `_not_exists`)
 
@@ -664,7 +664,9 @@ direction is resolved through the shared ownership dispatch
 
 ```typescript
 // Books of each Author, oldest first (1:m, aggregated):
-pagination: { orderBy: [{ books: { publishedYear: 'asc' } }] }
+pagination: {
+	orderBy: [{ books: { publishedYear: 'asc' } }];
+}
 // → ORDER BY (SELECT MIN(e_o.published_year) FROM "books" e_o WHERE e_a1.id = e_o.author_id) ASC
 ```
 
@@ -727,6 +729,80 @@ FROM authors AS e_a1
 Useful when a m:m pivot or a 1:m join fans out duplicate children. Both root and
 nested `distinct` can be used simultaneously.
 
+### OR Strategy (`union-all` vs `or`)
+
+By default, `_or` (and `_and`-combination) filters are compiled into separate
+SELECTs combined with `UNION ALL` — each branch keeps its own INNER JOINs
+isolated. Some workloads prefer a single index-friendly scan with a plain `OR`
+in the WHERE clause instead. Set `orStrategy` to switch:
+
+```typescript
+// Per query (via pagination):
+const rings = await queryManager.getQueryResultsForFields(provider, Ring, fields, filter, {
+	orStrategy: 'or',
+});
+
+// Or globally (also readable from env GQL_OF_POWER_OR_STRATEGY):
+setGlobalConfig({ orStrategy: 'or' });
+```
+
+**Exposing it to clients (optional).** `orStrategy` is server-side by default.
+To let clients pick the strategy per query, add an optional arg using the
+exported `GQLOrStrategy` enum (value names are GraphQL-safe; the values carry
+the raw `'union-all' | 'or'` strings):
+
+```typescript
+import { GQLOrStrategy, ensureOrStrategyRegistered } from '@dav3/gql-of-power';
+
+ensureOrStrategyRegistered(); // idempotent — registers the enum with type-graphql
+
+@Query(() => [RingGQL])
+async rings(
+	@Arg('filter', () => RingGQL.FilterInput, { nullable: true }) filter?: any,
+	@Arg('orStrategy', () => GQLOrStrategy, { nullable: true }) orStrategy?: GQLOrStrategy,
+	@Arg('pagination', () => RingGQL.PaginationInput, { nullable: true }) pagination?: any,
+) {
+	return queryManager.getQueryResultsForInfo(provider, Ring, info, filter, {
+		...pagination,
+		orStrategy, // resolved value drops straight in
+	});
+}
+```
+
+```graphql
+query {
+	rings(
+		orStrategy: OR
+		filter: { _or: [{ power_like: "%corruption%" }, { forgedBy_eq: "Sauron" }] }
+	) {
+		id
+	}
+}
+```
+
+Generated SQL for `filter: { _or: [{ name_eq: 'Frodo' }, { race_eq: 'Elf' }] }`:
+
+```sql
+-- orStrategy: 'or' (default 'union-all' emits one SELECT per branch instead)
+SELECT ... FROM persons AS e_a1
+WHERE ((e_a1.person_name = :v_name_eq1_1) OR (e_a1.race = :v_race_eq1_1))
+```
+
+The strategy applies everywhere `_or` branches are compiled: the root query,
+relationship `EXISTS` subqueries (m:1 / 1:m / m:m / mapped custom-field), and
+count/aggregate correlated subqueries.
+
+**Caveat — relationship-based `_or` branches.** A UNION ALL branch carries its
+own INNER JOINs (e.g. `_or: [{ Fellowship: { name_eq: 'X' } }, { battles: { name_eq: 'Y' } }]`
+joins the fellowship table in branch 1 and the battle table in branch 2). In
+`'or'` mode all branch JOINs are merged into a single SELECT, so a JOIN that
+existed only in one branch now constrains every branch — a row with no
+fellowship can be dropped even when the `battles` branch matches, and join
+fan-out can duplicate parent rows (pair with `distinct: true` if needed). For
+**scalar-field** `_or` conditions the two strategies are equivalent (verified
+by integration tests). Also note `count(*)` over UNION ALL can double-count
+parents matching multiple branches; `'or'` mode counts each parent once.
+
 ---
 
 ## Relationship Handling
@@ -745,14 +821,15 @@ nested `distinct` can be used simultaneously.
 
 ### Environment Variables
 
-| Variable                       | Purpose                                                                                                   |
-| ------------------------------ | --------------------------------------------------------------------------------------------------------- |
-| `D3GOP_TYPES_SUFFIX`           | Suffix appended to all generated GQL entity type names (e.g. `'V2'` → `BookV2`, `AuthorV2`)               |
-| `D3GOP_SORT_SUFFIX`            | Suffix appended to sort/pagination types only (e.g. `'V2'` → `SortV2`, `BookV2OrderBy`)                   |
-| `D3GOP_LOG_TYPE`               | Logging level: `debug` or `disabled`                                                                      |
-| `D3GOP_DEFAULT_QUERY_LIMIT`    | Default query limit when pagination is not specified (default: `3000`)                                    |
-| `D3GOP_USE_STRING_FOR_JSONB`   | Toggle between JSONB and string concatenation for JSON aggregation                                        |
-| `GQL_OF_POWER_MAP_ENUM_OUTPUT` | Enum output mode: `raw` (default) or `key`. See [mapEnumOutput](#mapenumoutput-sdl-schema-support) below. |
+| Variable                       | Purpose                                                                                                           |
+| ------------------------------ | ----------------------------------------------------------------------------------------------------------------- |
+| `D3GOP_TYPES_SUFFIX`           | Suffix appended to all generated GQL entity type names (e.g. `'V2'` → `BookV2`, `AuthorV2`)                       |
+| `D3GOP_SORT_SUFFIX`            | Suffix appended to sort/pagination types only (e.g. `'V2'` → `SortV2`, `BookV2OrderBy`)                           |
+| `D3GOP_LOG_TYPE`               | Logging level: `debug` or `disabled`                                                                              |
+| `D3GOP_DEFAULT_QUERY_LIMIT`    | Default query limit when pagination is not specified (default: `3000`)                                            |
+| `D3GOP_USE_STRING_FOR_JSONB`   | Toggle between JSONB and string concatenation for JSON aggregation                                                |
+| `GQL_OF_POWER_MAP_ENUM_OUTPUT` | Enum output mode: `raw` (default) or `key`. See [mapEnumOutput](#mapenumoutput-sdl-schema-support) below.         |
+| `GQL_OF_POWER_OR_STRATEGY`     | `_or` combination strategy: `union-all` (default) or `or`. See [OR Strategy](#or-strategy-union-all-vs-or) above. |
 
 > **Type name collision**: If you have both v1 (`createGQLTypes`) and v2 (`@GQLEntityClass`) entities in the same schema, set `D3GOP_TYPES_SUFFIX` so v2 entity names are distinct (e.g. `Hobbit` → `HobbitV2`). Use `D3GOP_SORT_SUFFIX` separately if sort/pagination types also need a suffix. No `setGlobalConfig()` call is required — the env vars are read automatically.
 

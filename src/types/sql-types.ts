@@ -65,6 +65,28 @@ export enum Sort {
 	// fallow-ignore-next-line unused-enum-member -- members are the values registered with GraphQL via registerEnumType(Sort) in gql-entity.ts
 	DESC = 'desc',
 }
+
+/**
+ * GraphQL-usable form of `OrStrategy`. Enum value names can't contain hyphens,
+ * so `UNION_ALL` maps to the string value `'union-all'` that the SQL mapper
+ * compares against. Registered with type-graphql (deferred, suffix-aware —
+ * same pattern as `Sort`) via `ensureOrStrategyRegistered()`; import it from
+ * the package root to expose `orStrategy` as an optional arg on any query:
+ *
+ * ```typescript
+ * @Arg('orStrategy', () => GQLOrStrategy, { nullable: true })
+ * orStrategy?: GQLOrStrategy,
+ * ```
+ *
+ * The resolved value ('union-all' | 'or') drops straight into
+ * `pagination.orStrategy`.
+ */
+export enum GQLOrStrategy {
+	// fallow-ignore-next-line unused-enum-member -- members are the values registered with GraphQL via registerEnumType(GQLOrStrategy) in gql-entity.ts
+	UNION_ALL = 'union-all',
+	// fallow-ignore-next-line unused-enum-member -- members are the values registered with GraphQL via registerEnumType(GQLOrStrategy) in gql-entity.ts
+	OR = 'or',
+}
 export type OrderByOptions = {
 	[x: string]: Sort;
 };

@@ -18,6 +18,7 @@ import {
 	CustomFieldSettings,
 	FieldSettings,
 	FieldsSettings,
+	GQLOrStrategy,
 	OrderByOptions,
 	RelatedFieldSettings,
 	RequireRelationConfig,
@@ -161,6 +162,7 @@ function buildFilterFieldParameter(
 let gqlTypesSuffix = '';
 let gqlSortSuffix = '';
 let sortEnumRegistered = false;
+let orStrategyEnumRegistered = false;
 
 /**
  * Global enum output mode.
@@ -370,6 +372,19 @@ function ensureSortRegistered() {
 	const suffix = gqlSortSuffix || process.env['D3GOP_SORT_SUFFIX'] || '';
 	registerEnumType(Sort, { name: `Sort${suffix}` });
 	sortEnumRegistered = true;
+}
+
+/**
+ * Registers the GQLOrStrategy enum with type-graphql using the current sort suffix.
+ * Same deferred, idempotent pattern as ensureSortRegistered — call it from any
+ * resolver that exposes `orStrategy` as a GraphQL arg; type-graphql requires the
+ * enum to be registered before the schema references it.
+ */
+export function ensureOrStrategyRegistered() {
+	if (orStrategyEnumRegistered) return;
+	const suffix = gqlSortSuffix || process.env['D3GOP_SORT_SUFFIX'] || '';
+	registerEnumType(GQLOrStrategy, { name: `OrStrategy${suffix}` });
+	orStrategyEnumRegistered = true;
 }
 
 // ─── Static members type ──────────────────────────────────────────────────────
