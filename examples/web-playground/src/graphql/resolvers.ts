@@ -273,6 +273,16 @@ export class BookResolver extends BookFieldsResolver {
 		 *   queryManager.getQueryResultsForInfo(provider, Author, info, filter, {
 		 *     orderBy: [{ books: { publishedYear: 'desc' } }],
 		 *   });
+		 *
+		 * orStrategy (server-side tuning knob, not a GQL field) switches _or
+		 * compilation from UNION ALL branches (default) to a single query with
+		 * a plain OR — index-friendly. Scalar _or branches are equivalent in
+		 * both modes; relationship-based _or branches merge their INNER JOINs
+		 * (see README "OR Strategy"):
+		 *   queryManager.getQueryResultsForInfo(provider, Book, info, {
+		 *     _or: [{ title_like: '%Ring%' }, { publishedYear_lt: 1960 }],
+		 *   }, { orStrategy: 'or' });
+		 *   // or globally: setGlobalConfig({ orStrategy: 'or' });
 		 */
 	) {
 		return await queryManager.getQueryResultsForInfo(

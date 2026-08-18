@@ -144,6 +144,8 @@ For each new entity, verify:
 
 8. **`fieldNames` in metadata are SQL columns, not JS props.** `properties.name.fieldNames: ['person_name']` means the SQL column is `person_name`. Getting this wrong produces wrong SQL that may silently return nulls.
 
+9. **`_or` compiles to UNION ALL by default; `orStrategy: 'or'` switches to plain OR.** Each `_or` branch normally becomes a separate SELECT. Pass `pagination: { orStrategy: 'or' }` (or `setGlobalConfig({ orStrategy: 'or' })` / env `GQL_OF_POWER_OR_STRATEGY=or`) to flatten branches into one `((w1) or (w2))` WHERE — index-friendly. Both modes are verified equivalent by integration tests, including relationship-based branches (they compile to self-contained EXISTS subqueries) and count/aggregate subqueries (they dedupe on child PKs). See `references/advanced-features.md` → "orStrategy" and the README's "OR Strategy" section.
+
 ## Verification
 
 - [ ] `bunx tsc --noEmit` passes (type-graphql decorator typing is strict)

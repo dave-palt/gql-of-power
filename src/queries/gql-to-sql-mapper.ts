@@ -5,6 +5,7 @@ import {
 	getMapEnumFieldsFor,
 	getMapEnumOutputFieldsFor,
 	getMapEnumOutputGlobal,
+	getOrStrategyGlobal,
 	getParseJsonFieldsFor,
 	getFieldsOptionsFor,
 	getFieldByAlias,
@@ -29,6 +30,7 @@ import {
 	GQLEntityFilterInputFieldType,
 	GQLEntityOrderByInputType,
 	GQLEntityPaginationInputType,
+	OrStrategy,
 } from '../types/gql-types';
 import { MappingsType, mappingsTypeToString } from '../types/gql-to-sql-types';
 import { keys } from '../utils/object';
@@ -58,6 +60,13 @@ export class GQLtoSQLMapper {
 	private exists: MetadataProviderType['exists'];
 	private getMetadata: MetadataProviderType['getMetadata'];
 	private namedParameterPrefix: string;
+
+	/**
+	 * Effective `_or`/`_and` combination strategy for the current query.
+	 * Resolved per `buildQueryAndBindingsFor` call:
+	 * `pagination.orStrategy` > global `setGlobalConfig({ orStrategy })` > 'union-all'.
+	 */
+	private orStrategy: OrStrategy = 'union-all';
 
 	constructor(
 		metadataProvider: MetadataProviderType,
@@ -92,6 +101,11 @@ export class GQLtoSQLMapper {
 		const logName = 'GQLtoSQLMapper - ' + entity.name;
 		logger.time(logName);
 		logger.timeLog(logName);
+
+		// Resolve the effective _or/_and combination strategy for this query:
+		// per-query pagination override > global config > default 'union-all'.
+		this.orStrategy = pagination?.orStrategy ?? getOrStrategyGlobal();
+		this.filterProcessor.orStrategy = this.orStrategy;
 
 		this.Alias = new AliasManager();
 		const alias = this.Alias.start('a');
@@ -208,7 +222,38 @@ export class GQLtoSQLMapper {
 		const distinctKeyword = pagination?.distinct ? 'distinct ' : '';
 
 		let queryBody: string;
-		if (unionAllEntries.length > 0) {
+		if (unionAllEntries.length > 0 && this.orStrategy === 'or') {
+			// OR strategy: flatten all union branches into ONE query. Each branch's
+			// WHERE conditions are AND-grouped in parens, branches combined with
+			// `or`; branch INNER JOINs are merged (see README caveat on
+			// relationship-based `_or` branches). Mirrors the nested lateral-join
+			// flattening used for child-entity filters.
+			const orClauses = unionAllEntries
+				.map(({ where: orWheres }) => (orWheres.length > 0 ? `(${orWheres.join(' and ')})` : ''))
+				.filter((c) => c.length > 0);
+			const mergedInnerJoin = [
+				...innerJoin,
+				...unionAllEntries.flatMap(({ innerJoin: orInnerJoin }) => orInnerJoin),
+			];
+			const whereParts = [...where];
+			if (orClauses.length > 0) {
+				whereParts.push(`(${orClauses.join(' or ')})`);
+			}
+			queryBody = SQLBuilder.buildSubQuery(
+				selectFields,
+				rawSelectArr,
+				metadata.tableName,
+				alias,
+				mergedInnerJoin,
+				outerJoin,
+				whereParts,
+				undefined,
+				orderBySQL,
+				innerLimitSQL,
+				innerOffsetSQL,
+				distinctKeyword
+			);
+		} else if (unionAllEntries.length > 0) {
 			const unionBranches = unionAllEntries.map(({ innerJoin: orInnerJoin, where: orWheres }) => {
 				const allInnerJoins = [...innerJoin, ...orInnerJoin];
 				const allWhere = [...where, ...orWheres];
@@ -1161,14 +1206,37 @@ export class GQLtoSQLMapper {
 		// Build the COUNT subquery
 		let subquery: string;
 
-		if (filterOr.length > 0) {
-			// When filter has _or branches, use UNION ALL inside the count subquery
+		if (filterOr.length > 0 && this.orStrategy === 'or') {
+			// OR strategy: flatten branches into a single OR-combined WHERE
+			const orWhere = SQLBuilder.buildOrCombinedWhere(filterOr);
+			const mergedInnerJoin = [...filterInnerJoin, ...filterOr.flatMap((o) => o.innerJoin)];
+			const whereParts = [
+				joinCondition,
+				...filterWhere,
+				...(orWhere ? [`(${orWhere})`] : []),
+			].filter((w) => w.length > 0);
+			subquery = `select count(*) from \"${relatedMetadata.tableName}\" as ${countAlias.toString()} ${mergedInnerJoin.join(' \\n')} ${filterOuterJoin.join(' \\n')} ${whereParts.length > 0 ? `where ${whereParts.join(' and ')}` : ''}`;
+		} else if (filterOr.length > 0) {
+			// UNION ALL: count distinct children matching ANY branch. Branches project
+			// the child's PK columns (not the constant 1) and the outer count dedupes
+			// on them — a child matching N branches (e.g. two overlapping _or
+			// conditions) must be counted once. count(*) over select-1 branches
+			// double-counts; select distinct 1 collapses to 1 (verified on PG).
+			const pkCols = (relatedMetadata.primaryKeys ?? ['id']).map(
+				(pk) => `${countAlias.toString()}.${relatedMetadata.properties[pk]?.fieldNames?.[0] ?? pk}`
+			);
+			const distinctArg = pkCols.length === 1 ? pkCols[0] : `(${pkCols.join(', ')})`;
+			// Project PKs AS unqualified names so the outer count(distinct) can
+			// reference them (a derived table's columns are NOT qualified by the
+			// inner alias — "missing FROM-clause entry" otherwise).
+			const pkSelects = pkCols.map((c) => `${c} as ${c.split('.').pop()}`);
 			const branches = filterOr.map((orMapping) => {
 				const allWhere = [joinCondition, ...filterWhere, ...orMapping.where];
 				const allInnerJoin = [...filterInnerJoin, ...orMapping.innerJoin];
-				return `select 1 from "${relatedMetadata.tableName}" as ${countAlias.toString()} ${allInnerJoin.join(' \n')} where ${allWhere.join(' and ')}`;
+				return `select ${pkSelects.join(', ')} from "${relatedMetadata.tableName}" as ${countAlias.toString()} ${allInnerJoin.join(' \n')} where ${allWhere.join(' and ')}`;
 			});
-			subquery = `select count(*) from (${branches.map((b) => `(${b})`).join(' union all ')}) as ${countAlias.toString()}_cnt`;
+			const pkNames = pkCols.map((c) => c.split('.').pop());
+			subquery = `select count(distinct ${pkNames.length === 1 ? pkNames[0] : `(${pkNames.join(', ')})`}) from (${branches.map((b) => `(${b})`).join(' union all ')}) as ${countAlias.toString()}_cnt`;
 		} else {
 			const whereParts = [joinCondition, ...filterWhere].filter((w) => w.length > 0);
 			subquery = `select count(*) from "${relatedMetadata.tableName}" as ${countAlias.toString()} ${filterInnerJoin.join(' \n')} ${filterOuterJoin.join(' \n')} ${whereParts.length > 0 ? `where ${whereParts.join(' and ')}` : ''}`;
@@ -1272,14 +1340,37 @@ export class GQLtoSQLMapper {
 		const aggExpr = `${fn}(${aggAlias.toString()}.${sqlColumn})`;
 
 		let subquery: string;
-		if (filterOr.length > 0) {
-			// UNION ALL: aggregate over the unioned branches
+		if (filterOr.length > 0 && this.orStrategy === 'or') {
+			// OR strategy: flatten branches into a single OR-combined WHERE
+			const orWhere = SQLBuilder.buildOrCombinedWhere(filterOr);
+			const mergedInnerJoin = [...filterInnerJoin, ...filterOr.flatMap((o) => o.innerJoin)];
+			const whereParts = [
+				joinCondition,
+				...filterWhere,
+				...(orWhere ? [`(${orWhere})`] : []),
+			].filter((w) => w.length > 0);
+			subquery = `select ${aggExpr} from \"${relatedMetadata.tableName}\" as ${aggAlias.toString()} ${mergedInnerJoin.join(' \\n')} ${filterOuterJoin.join(' \\n')} ${whereParts.length > 0 ? `where ${whereParts.join(' and ')}` : ''}`;
+		} else if (filterOr.length > 0) {
+			// UNION ALL: aggregate over distinct children matching ANY branch.
+			// Branches project (PK..., value) and the outer select dedupes on the
+			// PKs before aggregating — a child matching N branches contributes its
+			// value once. NOT sum(distinct value): that would wrongly collapse
+			// equal values from different children (two books, both 300 pages).
+			const pkCols = (relatedMetadata.primaryKeys ?? ['id']).map(
+				(pk) => `${aggAlias.toString()}.${relatedMetadata.properties[pk]?.fieldNames?.[0] ?? pk}`
+			);
+			const distinctArg = pkCols.length === 1 ? pkCols[0] : `(${pkCols.join(', ')})`;
+			// Project (PK..., value) AS unqualified names; dedupe in a derived
+			// table, then aggregate — see count site for the aliasing rationale.
+			const pkSelects = pkCols.map((c) => `${c} as ${c.split('.').pop()}`);
+			const valueCol = `${aggAlias.toString()}.${sqlColumn}`;
 			const branches = filterOr.map((orMapping) => {
 				const allWhere = [joinCondition, ...filterWhere, ...orMapping.where];
 				const allInnerJoin = [...filterInnerJoin, ...orMapping.innerJoin];
-				return `select ${aggAlias.toString()}.${sqlColumn} from "${relatedMetadata.tableName}" as ${aggAlias.toString()} ${allInnerJoin.join(' \n')} where ${allWhere.join(' and ')}`;
+				return `select ${pkSelects.join(', ')}, ${valueCol} as value from "${relatedMetadata.tableName}" as ${aggAlias.toString()} ${allInnerJoin.join(' \n')} where ${allWhere.join(' and ')}`;
 			});
-			subquery = `select ${aggExpr} from (${branches.map((b) => `(${b})`).join(' union all ')}) as ${aggAlias.toString()}_cnt`;
+			const pkNames = pkCols.map((c) => c.split('.').pop());
+			subquery = `select ${fn}(value) from (select distinct ${pkNames.length === 1 ? pkNames[0] : `(${pkNames.join(', ')})`}, value from (${branches.map((b) => `(${b})`).join(' union all ')}) as ${aggAlias.toString()}_u) as ${aggAlias.toString()}_cnt`;
 		} else {
 			const whereParts = [joinCondition, ...filterWhere].filter((w) => w.length > 0);
 			subquery = `select ${aggExpr} from "${relatedMetadata.tableName}" as ${aggAlias.toString()} ${filterInnerJoin.join(' \n')} ${filterOuterJoin.join(' \n')} ${whereParts.length > 0 ? `where ${whereParts.join(' and ')}` : ''}`;

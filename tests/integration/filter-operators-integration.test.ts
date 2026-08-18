@@ -17,6 +17,7 @@ import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it } from
 import { join } from 'path';
 import knex from 'knex';
 import { GQLtoSQLMapper } from '../../src/queries/gql-to-sql-mapper';
+import { registerCountField } from '../../src/entities/gql-entity';
 import { Person, Ring, Fellowship, Battle } from '../fixtures/middle-earth-schema';
 import { DatabaseMetadataProvider } from '../fixtures/database-metadata-provider';
 import { AllSampleData } from '../fixtures/test-data';
@@ -527,6 +528,168 @@ describe('Filter Operators Integration Tests (PR #23)', () => {
 
 		// ── Helper ─────────────────────────────────────────────────────────
 
+		// ── orStrategy option ────────────────────────────────────────────
+
+		describe('orStrategy', () => {
+			it(
+				'scalar root _or: or-mode returns the same rows as union-all mode',
+				async () => {
+					const fields = { id: {}, name: {}, race: {} };
+					const filter = {
+						_or: [{ name_eq: 'Frodo Baggins' }, { race_eq: 'Elf' }],
+					};
+
+					const unionResult = mapper.buildQueryAndBindingsFor({
+						fields,
+						entity: Person,
+						customFields: {},
+						filter: filter as any,
+					});
+					const orResult = mapper.buildQueryAndBindingsFor({
+						fields,
+						entity: Person,
+						customFields: {},
+						filter: filter as any,
+						pagination: { orStrategy: 'or' },
+					});
+
+					expect(unionResult.querySQL.toLowerCase()).toContain('union all');
+					expect(orResult.querySQL.toLowerCase()).not.toContain('union all');
+
+					const unionRows = await metadataProvider.executeQuery(
+						k.raw(unionResult.querySQL, unionResult.bindings).toString()
+					);
+					const orRows = await metadataProvider.executeQuery(
+						k.raw(orResult.querySQL, orResult.bindings).toString()
+					);
+
+					const sortById = (rows: any[]) => [...rows].sort((a, b) => a.id - b.id);
+					const unionIds = sortById(unionRows).map((r: any) => r.id);
+					const orIds = sortById(orRows).map((r: any) => r.id);
+					expect(orIds).toEqual(unionIds);
+					expect(orRows.length).toBeGreaterThan(0);
+					// Frodo (Hobbit, name match) + all Elves must be present
+					expect(orIds).toContain(1); // Frodo
+				},
+				TEST_TIMEOUT
+			);
+
+			it(
+				'relationship filter with nested _or executes in or-mode and matches union-all semantics',
+				async () => {
+					const fields = { id: {}, name: {} };
+					const filter = {
+						Fellowship: { _or: [{ name_eq: 'Fellowship of the Ring' }, { name_eq: 'The Nine' }] },
+					};
+
+					const unionResult = mapper.buildQueryAndBindingsFor({
+						fields,
+						entity: Person,
+						customFields: {},
+						filter: filter as any,
+					});
+					const orResult = mapper.buildQueryAndBindingsFor({
+						fields,
+						entity: Person,
+						customFields: {},
+						filter: filter as any,
+						pagination: { orStrategy: 'or' },
+					});
+
+					expect(unionResult.querySQL.toLowerCase()).toContain('union all');
+					expect(orResult.querySQL.toLowerCase()).not.toContain('union all');
+
+					const unionRows = await metadataProvider.executeQuery(
+						k.raw(unionResult.querySQL, unionResult.bindings).toString()
+					);
+					const orRows = await metadataProvider.executeQuery(
+						k.raw(orResult.querySQL, orResult.bindings).toString()
+					);
+
+					const toIdSet = (rows: any[]) => new Set(rows.map((r: any) => r.id));
+					expect(toIdSet(orRows)).toEqual(toIdSet(unionRows));
+				},
+				TEST_TIMEOUT
+			);
+
+			it(
+				'_and + _or combo executes in or-mode',
+				async () => {
+					const fields = { id: {}, name: {}, race: {} };
+					const filter = {
+						_and: [{ _or: [{ name_eq: 'Frodo Baggins' }, { race_eq: 'Elf' }] }, { race_ne: 'Orc' }],
+					};
+
+					const orResult = mapper.buildQueryAndBindingsFor({
+						fields,
+						entity: Person,
+						customFields: {},
+						filter: filter as any,
+						pagination: { orStrategy: 'or' },
+					});
+
+					expect(orResult.querySQL.toLowerCase()).not.toContain('union all');
+
+					const orRows = await metadataProvider.executeQuery(
+						k.raw(orResult.querySQL, orResult.bindings).toString()
+					);
+
+					// Only Frodo + Elves, no Orcs
+					orRows.forEach((row: any) => {
+						const isFrodo = row.name === 'Frodo Baggins';
+						const isElf = row.race === 'Elf';
+						expect(isFrodo || isElf).toBe(true);
+					});
+					expect(orRows.length).toBeGreaterThan(0);
+				},
+				TEST_TIMEOUT
+			);
+		});
+
+		it('count field with _or filter: union-all does not double-count children', async () => {
+			registerCountField('Fellowship', 'memberCount', 'members', () => 'Person');
+
+			const fields = { id: {}, name: {} };
+			const filterArg = {
+				_or: [{ name_eq: 'Frodo Baggins' }, { race_eq: 'Hobbit' }],
+			};
+			const countFields = {
+				id: {},
+				name: {},
+				memberCount: { args: { filter: filterArg } },
+			};
+
+			// union-all (default): a member matching both branches must count once
+			const unionResult = mapper.buildQueryAndBindingsFor({
+				fields: countFields,
+				entity: Fellowship,
+				customFields: {},
+			} as any);
+			const orResult = mapper.buildQueryAndBindingsFor({
+				fields: countFields,
+				entity: Fellowship,
+				customFields: {},
+				pagination: { orStrategy: 'or' },
+			} as any);
+
+			expect(unionResult.querySQL).toContain('count(distinct');
+
+			const unionRows = await metadataProvider.executeQuery(
+				k.raw(unionResult.querySQL, unionResult.bindings).toString()
+			);
+			const orRows = await metadataProvider.executeQuery(
+				k.raw(orResult.querySQL, orResult.bindings).toString()
+			);
+
+			const unionCounts = unionRows.map((r: any) => r.memberCount);
+			const orCounts = orRows.map((r: any) => r.memberCount);
+			// Frodo matches both branches — both strategies must agree
+			expect(unionCounts).toEqual(orCounts);
+			// and the expected answer is 4, not 5 (Frodo counted once)
+			// (PG bigint count arrives as a string)
+			const frodoRow = unionRows.find((r: any) => r.name === 'Fellowship of the Ring');
+			expect(Number(frodoRow.memberCount)).toBe(4);
+		});
 		async function insertTestData(): Promise<void> {
 			const insertOrder = [
 				{ table: 'regions', data: AllSampleData.regions || [] },

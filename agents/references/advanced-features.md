@@ -89,12 +89,12 @@ cardinality works:
 ```typescript
 // m:1 or owning-side 1:1 — plain scalar subquery (one related row):
 await queryManager.getQueryResultsForFields(provider, Book, fields, undefined, {
-  orderBy: [{ author: { name: 'asc' } }],
+	orderBy: [{ author: { name: 'asc' } }],
 });
 
 // 1:m / inverse-1:1 / m:n — MIN-for-asc / MAX-for-desc aggregated subquery:
 await queryManager.getQueryResultsForFields(provider, Author, fields, undefined, {
-  orderBy: [{ books: { publishedYear: 'desc' } }],
+	orderBy: [{ books: { publishedYear: 'desc' } }],
 });
 ```
 
@@ -136,6 +136,41 @@ persons(filter: { _not_exists: { Battle: {} } })
 - The library auto-generates `EntityExistsFilterInput` types.
 
 - `_not` takes an array of filter objects, AND-combines them, and wraps the result in `NOT (...)`: `{ _not: [{ name: "Sauron" }, { race: "Maiar" }] }` produces `NOT (name = 'Sauron' AND race = 'Maiar')`. Enum values inside `_not` are converted recursively (same path as `_and`/`_or`). Note: nesting `_or` inside `_not` is not fully negated (UNION ALL is not invertible) — use De Morgan's law instead.
+
+## orStrategy — plain OR instead of UNION ALL
+
+By default `_or` branches compile to separate SELECTs joined with `union all`
+(each branch keeps its INNER JOINs isolated). Set `orStrategy: 'or'` to
+flatten branches into one query with `((w1) or (w2))` in the WHERE instead —
+an index-friendly single scan:
+
+```typescript
+// per query (pagination arg):
+getQueryResultsForFields(provider, Person, fields, filter, { orStrategy: 'or' });
+
+// or globally:
+setGlobalConfig({ orStrategy: 'or' });
+// or env: GQL_OF_POWER_OR_STRATEGY=or
+```
+
+Same filter, two strategies:
+
+```sql
+-- union-all (default):
+(select ... where (name = :v1)) union all (select ... where (race = :v2))
+-- or:
+select ... where ((name = :v1) or (race = :v2))
+```
+
+Applies at every `_or` compilation site: root query, relationship `EXISTS`
+subqueries, and count/aggregate correlated subqueries.
+
+**Note on relationship branches:** relationship filter branches compile to
+self-contained correlated `EXISTS` subqueries (not parent-level INNER JOINs),
+so both strategies are semantically equivalent for them — verified by PG
+integration tests (mixed relationship+scalar, dual-relationship). Count and
+aggregate fields over `_or`-filtered children dedupe on the child PKs, so a
+child matching multiple branches is counted/summed once in both modes.
 
 ## mapNumericEnum — DB stores number, GQL wants the string key
 

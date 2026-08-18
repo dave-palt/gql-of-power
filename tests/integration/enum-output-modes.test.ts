@@ -37,10 +37,7 @@ import { addResolversToSchema } from '@graphql-tools/schema';
 import { getResolversFromSchema } from '@graphql-tools/utils';
 import { SQL } from 'bun';
 import { join } from 'path';
-import {
-	createGQLTypes,
-	setGlobalConfig,
-} from '../../src/entities/gql-entity';
+import { createGQLTypes, setGlobalConfig } from '../../src/entities/gql-entity';
 import { GQLQueryManager } from '../../src/query-manager';
 import { DatabaseMetadataProvider } from '../fixtures/database-metadata-provider';
 import { Fellowship, Person, Ring } from '../fixtures/middle-earth-schema';
@@ -212,11 +209,7 @@ async function buildSDLRebuiltSchema() {
 	// Only pass Query/ObjectType resolvers — NOT enum type resolvers.
 	// This mirrors the real-world Apollo Server + SDL file pattern where
 	// the enum value mapping is lost.
-	const {
-		RingBearerStatus: _rbs,
-		PersonRank: _pr,
-		...resolversWithoutEnums
-	} = resolvers as any;
+	const { RingBearerStatus: _rbs, PersonRank: _pr, ...resolversWithoutEnums } = resolvers as any;
 	return addResolversToSchema({ schema: astSchema, resolvers: resolversWithoutEnums });
 }
 
@@ -294,10 +287,7 @@ describeOrSkip('mapNumericEnum output modes — live schema vs SDL-rebuilt', () 
 		});
 
 		it('should serialize rank as string key', async () => {
-			const result = await gql(
-				LIVE_URL,
-				`{ persons(filter: { name: "Gandalf" }) { name rank } }`
-			);
+			const result = await gql(LIVE_URL, `{ persons(filter: { name: "Gandalf" }) { name rank } }`);
 			expect(result.errors).toBeUndefined();
 			expect(result.data.persons).toBeArrayOfSize(1);
 			expect(result.data.persons[0].rank).toBe('Officer');
@@ -305,10 +295,7 @@ describeOrSkip('mapNumericEnum output modes — live schema vs SDL-rebuilt', () 
 		});
 
 		it('should filter persons by rank_eq', async () => {
-			const result = await gql(
-				LIVE_URL,
-				`{ persons(filter: { rank_eq: Leader }) { name rank } }`
-			);
+			const result = await gql(LIVE_URL, `{ persons(filter: { rank_eq: Leader }) { name rank } }`);
 			expect(result.errors).toBeUndefined();
 			expect(result.data.persons).toBeArray();
 			for (const p of result.data.persons) {
@@ -332,10 +319,7 @@ describeOrSkip('mapNumericEnum output modes — live schema vs SDL-rebuilt', () 
 		});
 
 		it('should filter by enum string key via CASE WHEN', async () => {
-			const result = await gql(
-				SDL_URL,
-				`{ rings(filter: { status: Forged }) { id name status } }`
-			);
+			const result = await gql(SDL_URL, `{ rings(filter: { status: Forged }) { id name status } }`);
 			expect(result.errors).toBeUndefined();
 			expect(result.data.rings).toBeArrayOfSize(1);
 			expect(result.data.rings[0].status).toBe('Forged');
@@ -352,10 +336,7 @@ describeOrSkip('mapNumericEnum output modes — live schema vs SDL-rebuilt', () 
 		});
 
 		it('should serialize rank as string key via CASE WHEN', async () => {
-			const result = await gql(
-				SDL_URL,
-				`{ persons(filter: { name: "Gandalf" }) { name rank } }`
-			);
+			const result = await gql(SDL_URL, `{ persons(filter: { name: "Gandalf" }) { name rank } }`);
 			expect(result.errors).toBeUndefined();
 			expect(result.data.persons).toBeArrayOfSize(1);
 			expect(result.data.persons[0].rank).toBe('Officer');
@@ -363,10 +344,7 @@ describeOrSkip('mapNumericEnum output modes — live schema vs SDL-rebuilt', () 
 		});
 
 		it('should filter persons by rank_eq via CASE WHEN', async () => {
-			const result = await gql(
-				SDL_URL,
-				`{ persons(filter: { rank_eq: Leader }) { name rank } }`
-			);
+			const result = await gql(SDL_URL, `{ persons(filter: { rank_eq: Leader }) { name rank } }`);
 			expect(result.errors).toBeUndefined();
 			expect(result.data.persons).toBeArray();
 			for (const p of result.data.persons) {
