@@ -165,12 +165,12 @@ select ... where ((name = :v1) or (race = :v2))
 Applies at every `_or` compilation site: root query, relationship `EXISTS`
 subqueries, and count/aggregate correlated subqueries.
 
-**Caveat:** with relationship-based `_or` branches (e.g.
-`_or: [{ Fellowship: { name_eq: 'X' } }, { battles: { name_eq: 'Y' } }]`),
-`'or'` mode merges all branch INNER JOINs into one SELECT — a JOIN from one
-branch constrains every branch, and join fan-out can duplicate parent rows
-(pair with `distinct: true`). Scalar-field `_or` conditions are exactly
-equivalent in both modes.
+**Note on relationship branches:** relationship filter branches compile to
+self-contained correlated `EXISTS` subqueries (not parent-level INNER JOINs),
+so both strategies are semantically equivalent for them — verified by PG
+integration tests (mixed relationship+scalar, dual-relationship). Count and
+aggregate fields over `_or`-filtered children dedupe on the child PKs, so a
+child matching multiple branches is counted/summed once in both modes.
 
 ## mapNumericEnum — DB stores number, GQL wants the string key
 

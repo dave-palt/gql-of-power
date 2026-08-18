@@ -10,6 +10,7 @@
 import { afterEach, beforeEach, describe, expect, it } from 'bun:test';
 import { setGlobalConfig } from '../../src';
 import { registerCountField } from '../../src/entities/gql-entity';
+import { registerAggregateField } from '../../src/entities/gql-entity';
 import { GQLtoSQLMapper } from '../../src/queries/gql-to-sql-mapper';
 import { Author, Fellowship, Person } from '../fixtures/middle-earth-schema';
 import { createMockMetadataProvider } from '../fixtures/test-data';
@@ -169,6 +170,61 @@ describe('orStrategy', () => {
 			expect(querySQL).toContain('count(*)');
 			expect(querySQL.toLowerCase()).not.toContain('union all');
 			expect(querySQL.toLowerCase()).toContain(' or ');
+		});
+	});
+
+	describe('count-field subquery — union-all mode must not double-count', () => {
+		it('projects child PKs and counts distinct so a child matching N branches counts once', () => {
+			registerCountField('Author', 'bookCount', 'books', () => 'Book');
+
+			const { querySQL } = mapper.buildQueryAndBindingsFor({
+				fields: {
+					id: {},
+					name: {},
+					bookCount: {
+						args: {
+							filter: {
+								_or: [{ title: 'The Hobbit' }, { title: 'The Lord of the Rings' }],
+							},
+						},
+					},
+				},
+				entity: Author,
+				customFields: {},
+			} as any);
+
+			// Branches must project the child's PK columns, not the constant 1
+			expect(querySQL).toContain('select e_w1.id as id');
+			expect(querySQL).toContain('count(distinct');
+			expect(querySQL).not.toContain('select 1 from');
+			// single-column PK: distinct on the bare projected name
+			expect(querySQL).toContain('count(distinct id)');
+		});
+
+		it('aggregate field with _or branches must not double-sum children', () => {
+			registerAggregateField('Author', 'totalPages', 'sum', 'pages', 'books', () => 'Book');
+
+			const { querySQL } = mapper.buildQueryAndBindingsFor({
+				fields: {
+					id: {},
+					name: {},
+					totalPages: {
+						args: {
+							filter: {
+								_or: [{ pages_gt: 300 }, { title: 'The Hobbit' }],
+							},
+						},
+					},
+				},
+				entity: Author,
+				customFields: {},
+			} as any);
+
+			// dedup happens via select-distinct over (PK, value) — NOT sum(distinct),
+			// which would wrongly collapse equal values from different children
+			expect(querySQL).toContain('select distinct id, value');
+			expect(querySQL).toContain('sum(value)');
+			expect(querySQL).not.toContain('select 1 from');
 		});
 	});
 });

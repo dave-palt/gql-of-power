@@ -792,16 +792,13 @@ The strategy applies everywhere `_or` branches are compiled: the root query,
 relationship `EXISTS` subqueries (m:1 / 1:m / m:m / mapped custom-field), and
 count/aggregate correlated subqueries.
 
-**Caveat — relationship-based `_or` branches.** A UNION ALL branch carries its
-own INNER JOINs (e.g. `_or: [{ Fellowship: { name_eq: 'X' } }, { battles: { name_eq: 'Y' } }]`
-joins the fellowship table in branch 1 and the battle table in branch 2). In
-`'or'` mode all branch JOINs are merged into a single SELECT, so a JOIN that
-existed only in one branch now constrains every branch — a row with no
-fellowship can be dropped even when the `battles` branch matches, and join
-fan-out can duplicate parent rows (pair with `distinct: true` if needed). For
-**scalar-field** `_or` conditions the two strategies are equivalent (verified
-by integration tests). Also note `count(*)` over UNION ALL can double-count
-parents matching multiple branches; `'or'` mode counts each parent once.
+**Note on relationship-based `_or` branches.** Relationship filter branches
+compile to self-contained correlated `EXISTS` subqueries (not parent-level
+INNER JOINs), so `'or'` mode is equivalent to UNION ALL for them too —
+verified by PG integration tests covering mixed relationship+scalar branches
+and dual-relationship branches on different tables. Counts and aggregates over
+`_or`-filtered children dedupe on the child's primary keys, so a child
+matching multiple branches is counted/summed exactly once in both modes.
 
 ---
 

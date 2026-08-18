@@ -1217,13 +1217,26 @@ export class GQLtoSQLMapper {
 			].filter((w) => w.length > 0);
 			subquery = `select count(*) from \"${relatedMetadata.tableName}\" as ${countAlias.toString()} ${mergedInnerJoin.join(' \\n')} ${filterOuterJoin.join(' \\n')} ${whereParts.length > 0 ? `where ${whereParts.join(' and ')}` : ''}`;
 		} else if (filterOr.length > 0) {
-			// When filter has _or branches, use UNION ALL inside the count subquery
+			// UNION ALL: count distinct children matching ANY branch. Branches project
+			// the child's PK columns (not the constant 1) and the outer count dedupes
+			// on them — a child matching N branches (e.g. two overlapping _or
+			// conditions) must be counted once. count(*) over select-1 branches
+			// double-counts; select distinct 1 collapses to 1 (verified on PG).
+			const pkCols = (relatedMetadata.primaryKeys ?? ['id']).map(
+				(pk) => `${countAlias.toString()}.${relatedMetadata.properties[pk]?.fieldNames?.[0] ?? pk}`
+			);
+			const distinctArg = pkCols.length === 1 ? pkCols[0] : `(${pkCols.join(', ')})`;
+			// Project PKs AS unqualified names so the outer count(distinct) can
+			// reference them (a derived table's columns are NOT qualified by the
+			// inner alias — "missing FROM-clause entry" otherwise).
+			const pkSelects = pkCols.map((c) => `${c} as ${c.split('.').pop()}`);
 			const branches = filterOr.map((orMapping) => {
 				const allWhere = [joinCondition, ...filterWhere, ...orMapping.where];
 				const allInnerJoin = [...filterInnerJoin, ...orMapping.innerJoin];
-				return `select 1 from "${relatedMetadata.tableName}" as ${countAlias.toString()} ${allInnerJoin.join(' \n')} where ${allWhere.join(' and ')}`;
+				return `select ${pkSelects.join(', ')} from "${relatedMetadata.tableName}" as ${countAlias.toString()} ${allInnerJoin.join(' \n')} where ${allWhere.join(' and ')}`;
 			});
-			subquery = `select count(*) from (${branches.map((b) => `(${b})`).join(' union all ')}) as ${countAlias.toString()}_cnt`;
+			const pkNames = pkCols.map((c) => c.split('.').pop());
+			subquery = `select count(distinct ${pkNames.length === 1 ? pkNames[0] : `(${pkNames.join(', ')})`}) from (${branches.map((b) => `(${b})`).join(' union all ')}) as ${countAlias.toString()}_cnt`;
 		} else {
 			const whereParts = [joinCondition, ...filterWhere].filter((w) => w.length > 0);
 			subquery = `select count(*) from "${relatedMetadata.tableName}" as ${countAlias.toString()} ${filterInnerJoin.join(' \n')} ${filterOuterJoin.join(' \n')} ${whereParts.length > 0 ? `where ${whereParts.join(' and ')}` : ''}`;
@@ -1338,13 +1351,26 @@ export class GQLtoSQLMapper {
 			].filter((w) => w.length > 0);
 			subquery = `select ${aggExpr} from \"${relatedMetadata.tableName}\" as ${aggAlias.toString()} ${mergedInnerJoin.join(' \\n')} ${filterOuterJoin.join(' \\n')} ${whereParts.length > 0 ? `where ${whereParts.join(' and ')}` : ''}`;
 		} else if (filterOr.length > 0) {
-			// UNION ALL: aggregate over the unioned branches
+			// UNION ALL: aggregate over distinct children matching ANY branch.
+			// Branches project (PK..., value) and the outer select dedupes on the
+			// PKs before aggregating — a child matching N branches contributes its
+			// value once. NOT sum(distinct value): that would wrongly collapse
+			// equal values from different children (two books, both 300 pages).
+			const pkCols = (relatedMetadata.primaryKeys ?? ['id']).map(
+				(pk) => `${aggAlias.toString()}.${relatedMetadata.properties[pk]?.fieldNames?.[0] ?? pk}`
+			);
+			const distinctArg = pkCols.length === 1 ? pkCols[0] : `(${pkCols.join(', ')})`;
+			// Project (PK..., value) AS unqualified names; dedupe in a derived
+			// table, then aggregate — see count site for the aliasing rationale.
+			const pkSelects = pkCols.map((c) => `${c} as ${c.split('.').pop()}`);
+			const valueCol = `${aggAlias.toString()}.${sqlColumn}`;
 			const branches = filterOr.map((orMapping) => {
 				const allWhere = [joinCondition, ...filterWhere, ...orMapping.where];
 				const allInnerJoin = [...filterInnerJoin, ...orMapping.innerJoin];
-				return `select ${aggAlias.toString()}.${sqlColumn} from "${relatedMetadata.tableName}" as ${aggAlias.toString()} ${allInnerJoin.join(' \n')} where ${allWhere.join(' and ')}`;
+				return `select ${pkSelects.join(', ')}, ${valueCol} as value from "${relatedMetadata.tableName}" as ${aggAlias.toString()} ${allInnerJoin.join(' \n')} where ${allWhere.join(' and ')}`;
 			});
-			subquery = `select ${aggExpr} from (${branches.map((b) => `(${b})`).join(' union all ')}) as ${aggAlias.toString()}_cnt`;
+			const pkNames = pkCols.map((c) => c.split('.').pop());
+			subquery = `select ${fn}(value) from (select distinct ${pkNames.length === 1 ? pkNames[0] : `(${pkNames.join(', ')})`}, value from (${branches.map((b) => `(${b})`).join(' union all ')}) as ${aggAlias.toString()}_u) as ${aggAlias.toString()}_cnt`;
 		} else {
 			const whereParts = [joinCondition, ...filterWhere].filter((w) => w.length > 0);
 			subquery = `select ${aggExpr} from "${relatedMetadata.tableName}" as ${aggAlias.toString()} ${filterInnerJoin.join(' \n')} ${filterOuterJoin.join(' \n')} ${whereParts.length > 0 ? `where ${whereParts.join(' and ')}` : ''}`;

@@ -17,6 +17,7 @@ import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it } from
 import { join } from 'path';
 import knex from 'knex';
 import { GQLtoSQLMapper } from '../../src/queries/gql-to-sql-mapper';
+import { registerCountField } from '../../src/entities/gql-entity';
 import { Person, Ring, Fellowship, Battle } from '../fixtures/middle-earth-schema';
 import { DatabaseMetadataProvider } from '../fixtures/database-metadata-provider';
 import { AllSampleData } from '../fixtures/test-data';
@@ -643,6 +644,51 @@ describe('Filter Operators Integration Tests (PR #23)', () => {
 				},
 				TEST_TIMEOUT
 			);
+		});
+
+		it('count field with _or filter: union-all does not double-count children', async () => {
+			registerCountField('Fellowship', 'memberCount', 'members', () => 'Person');
+
+			const fields = { id: {}, name: {} };
+			const filterArg = {
+				_or: [{ name_eq: 'Frodo Baggins' }, { race_eq: 'Hobbit' }],
+			};
+			const countFields = {
+				id: {},
+				name: {},
+				memberCount: { args: { filter: filterArg } },
+			};
+
+			// union-all (default): a member matching both branches must count once
+			const unionResult = mapper.buildQueryAndBindingsFor({
+				fields: countFields,
+				entity: Fellowship,
+				customFields: {},
+			} as any);
+			const orResult = mapper.buildQueryAndBindingsFor({
+				fields: countFields,
+				entity: Fellowship,
+				customFields: {},
+				pagination: { orStrategy: 'or' },
+			} as any);
+
+			expect(unionResult.querySQL).toContain('count(distinct');
+
+			const unionRows = await metadataProvider.executeQuery(
+				k.raw(unionResult.querySQL, unionResult.bindings).toString()
+			);
+			const orRows = await metadataProvider.executeQuery(
+				k.raw(orResult.querySQL, orResult.bindings).toString()
+			);
+
+			const unionCounts = unionRows.map((r: any) => r.memberCount);
+			const orCounts = orRows.map((r: any) => r.memberCount);
+			// Frodo matches both branches — both strategies must agree
+			expect(unionCounts).toEqual(orCounts);
+			// and the expected answer is 4, not 5 (Frodo counted once)
+			// (PG bigint count arrives as a string)
+			const frodoRow = unionRows.find((r: any) => r.name === 'Fellowship of the Ring');
+			expect(Number(frodoRow.memberCount)).toBe(4);
 		});
 		async function insertTestData(): Promise<void> {
 			const insertOrder = [
