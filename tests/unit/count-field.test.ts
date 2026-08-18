@@ -211,7 +211,7 @@ describe('Count Field Feature', () => {
 				customFields: {},
 			});
 
-			expect(result.querySQL).toContain('count(*)');
+			expect(result.querySQL).toContain('count(distinct');
 			expect(result.querySQL.toLowerCase()).toContain('union all');
 		});
 	});

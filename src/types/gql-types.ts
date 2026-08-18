@@ -123,13 +123,51 @@ export type GQLEntityFilterInputFieldValueType<T> = Partial<
 	GQLEntityFilterInputFieldType<T>[keyof GQLEntityFilterInputFieldType<T>]
 >;
 
-export type GQLEntityOrderByInputType<T> = Partial<Record<string & keyof T, 'asc' | 'desc'>>;
+/**
+ * ORDER BY input type. Scalar fields map to 'asc' | 'desc'.
+ * Relationship fields (m:1, 1:m, m:m) accept a nested object so TypeScript
+ * provides autocomplete at every level, e.g.:
+ *   orderBy: [{ fellowship: { name: 'asc' } }]
+ *
+ * The recursion is bounded by the entity's own relationship properties —
+ * at the leaf level the value is always 'asc' | 'desc'.
+ */
+export type GQLEntityOrderByInputType<T> = Partial<{
+	[K in keyof T]: T[K] extends object
+		? GQLEntityOrderByInputType<T[K]> | 'asc' | 'desc'
+		: 'asc' | 'desc';
+}>;
 
 export type GQLEntityPaginationInputType<T> = {
 	limit?: number;
 	offset?: number;
 	orderBy?: GQLEntityOrderByInputType<T>[];
+	/**
+	 * When true, the outermost SELECT is emitted as `SELECT DISTINCT`, deduplicating
+	 * the final user-facing rows. Useful when relationship JOINs could multiply parent
+	 * rows. Does not affect the structural `select distinct *` used inside UNION ALL.
+	 */
+	distinct?: boolean;
+	/**
+	 * Strategy for combining `_or` / `_and` filter branches in generated SQL.
+	 *
+	 * - `'union-all'` (default) — each branch becomes a separate SELECT combined
+	 *   with `union all`. Branch-local INNER JOINs stay isolated per branch.
+	 * - `'or'` — branches are flattened into a single query with
+	 *   `((w1) or (w2) ...)` in the WHERE clause. Index-friendly single scan,
+	 *   but branch INNER JOINs are merged (see README caveat on
+	 *   relationship-based `_or` branches).
+	 *
+	 * Overrides the global `setGlobalConfig({ orStrategy })` for this query.
+	 */
+	orStrategy?: OrStrategy;
 };
+
+/**
+ * How `_or` / `_and` filter branches are combined into SQL.
+ * See `GQLEntityPaginationInputType.orStrategy` for the full description.
+ */
+export type OrStrategy = 'union-all' | 'or';
 
 /**
  * Represents the auto-generated Input type for CRUD operations.

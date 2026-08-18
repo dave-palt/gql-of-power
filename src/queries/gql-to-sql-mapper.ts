@@ -1,9 +1,11 @@
 import {
 	getCustomFieldsFor,
+	getAggregateFieldsFor,
 	getCountFieldsFor,
 	getMapEnumFieldsFor,
 	getMapEnumOutputFieldsFor,
 	getMapEnumOutputGlobal,
+	getOrStrategyGlobal,
 	getParseJsonFieldsFor,
 	getFieldsOptionsFor,
 	getFieldByAlias,
@@ -11,6 +13,7 @@ import {
 	getRelationFieldsFor,
 } from '../entities/gql-entity';
 import {
+	AggregateFieldMeta,
 	CountFieldMeta,
 	CustomFieldSettings,
 	CustomFieldsSettings,
@@ -23,11 +26,21 @@ import {
 	RelatedFieldSettings,
 	RequireRelationConfig,
 } from '../types/sql-types';
-import { GQLEntityFilterInputFieldType, GQLEntityPaginationInputType } from '../types/gql-types';
+import {
+	GQLEntityFilterInputFieldType,
+	GQLEntityOrderByInputType,
+	GQLEntityPaginationInputType,
+	OrStrategy,
+} from '../types/gql-types';
 import { MappingsType, mappingsTypeToString } from '../types/gql-to-sql-types';
 import { keys } from '../utils/object';
 import { logger } from '../variables';
 import { Alias, AliasManager, AliasType } from './alias';
+import {
+	buildCorrelatedJoinCondition,
+	getRelationCardinality,
+	RelationCardinality,
+} from './relation-dispatch';
 import { convertFilterEnumValues } from './enum-filter-converter';
 import { FilterProcessor } from './filter-processor';
 import { RelationshipHandler } from './relationship-handler';
@@ -47,6 +60,13 @@ export class GQLtoSQLMapper {
 	private exists: MetadataProviderType['exists'];
 	private getMetadata: MetadataProviderType['getMetadata'];
 	private namedParameterPrefix: string;
+
+	/**
+	 * Effective `_or`/`_and` combination strategy for the current query.
+	 * Resolved per `buildQueryAndBindingsFor` call:
+	 * `pagination.orStrategy` > global `setGlobalConfig({ orStrategy })` > 'union-all'.
+	 */
+	private orStrategy: OrStrategy = 'union-all';
 
 	constructor(
 		metadataProvider: MetadataProviderType,
@@ -82,6 +102,11 @@ export class GQLtoSQLMapper {
 		logger.time(logName);
 		logger.timeLog(logName);
 
+		// Resolve the effective _or/_and combination strategy for this query:
+		// per-query pagination override > global config > default 'union-all'.
+		this.orStrategy = pagination?.orStrategy ?? getOrStrategyGlobal();
+		this.filterProcessor.orStrategy = this.orStrategy;
+
 		this.Alias = new AliasManager();
 		const alias = this.Alias.start('a');
 		const metadata = this.getMetadata(entity.name) as EntityMetadata<T>;
@@ -115,37 +140,120 @@ export class GQLtoSQLMapper {
 			{ select }
 		);
 
+		// Resolve orderBy fields, including nested-object related columns for m:1 relations
 		const orderByFields = (pagination?.orderBy ?? [])
 			.map((obs) =>
 				keys(obs)
 					.map((ob) => {
+						const value = obs[ob];
+						// Handle nested object for related columns (e.g. { author: { name: 'asc' } })
+						if (value !== null && typeof value === 'object' && !Array.isArray(value)) {
+							const nestedValue = value as Record<string, any>;
+							const subExprs = keys(nestedValue)
+								.map((subKey) => {
+									const resolved = this.resolveRelatedOrderBy(
+										entity.name,
+										metadata,
+										alias,
+										ob,
+										subKey,
+										typeof nestedValue[subKey] === 'string'
+											? (nestedValue[subKey] as any)
+											: undefined
+									);
+									if (!resolved) return null;
+									return {
+										expr: resolved.sql,
+										isSubquery: true,
+										parentColumns: resolved.parentColumns,
+									};
+								})
+								.filter(Boolean) as {
+								expr: string;
+								isSubquery: true;
+								parentColumns: string[];
+							}[];
+							if (subExprs.length > 0) {
+								return subExprs;
+							}
+						}
 						const fieldName = getFieldByAlias(entity.name, ob);
-						return (
+						const expr =
 							metadata.properties[fieldName]?.fieldNames
-								?.map((fieldName) => `${alias.toString()}.${fieldName}`)
-								?.join(', ') ?? `${alias.toString()}.${fieldName}`
-						);
+								?.map((fn) => `${alias.toString()}.${fn}`)
+								?.join(', ') ?? `${alias.toString()}.${fieldName}`;
+						return [{ expr, isSubquery: false, parentColumns: [] }];
 					})
 					.flat()
 			)
 			.flat();
 
-		// Order-by fields must also be in the inner rawSelect subquery so the outer query can reference them
-		orderByFields.forEach((f) => rawSelect.add(f));
+		// Order-by fields must also be in the inner rawSelect subquery so the outer query can reference them.
+		// Correlated subqueries (related columns) reference parent columns (e.g. e_a1.fellowship_id)
+		// that may not be in the SELECT list — those parent columns must also be projected.
+		orderByFields.forEach((f) => {
+			if (!f.isSubquery) {
+				rawSelect.add(f.expr);
+			} else if (f.parentColumns) {
+				f.parentColumns.forEach((col) => rawSelect.add(col));
+			}
+		});
 		logger.log('orderByFields', orderByFields, 'select', select, 'orderBy');
-		const selectFields = [...new Set(orderByFields.concat(Array.from(select)).concat(json))];
+		// Only flat columns go into selectFields — subquery expressions are ORDER BY-only
+		const selectFields = [
+			...new Set(
+				orderByFields
+					.filter((f) => !f.isSubquery)
+					.map((f) => f.expr)
+					.concat(Array.from(select))
+					.concat(json)
+			),
+		];
 
 		const rawSelectArr = [...rawSelect];
 		const unionAllEntries = [..._or, ..._and];
 
+		// Build orderBy SQL — use a custom field mapper that handles related dot-notation
 		const orderBySQL = pagination?.orderBy
-			? SQLBuilder.buildOrderBySQL(pagination.orderBy, SQLBuilder.getFieldMapper(metadata, alias))
+			? this.buildOrderBySQLWithRelated(metadata, alias, pagination.orderBy)
 			: '';
 		const innerLimitSQL = pagination?.limit ? `limit ${this.namedParameterPrefix}limit` : '';
 		const innerOffsetSQL = pagination?.offset ? `offset ${this.namedParameterPrefix}offset` : '';
+		const distinctKeyword = pagination?.distinct ? 'distinct ' : '';
 
 		let queryBody: string;
-		if (unionAllEntries.length > 0) {
+		if (unionAllEntries.length > 0 && this.orStrategy === 'or') {
+			// OR strategy: flatten all union branches into ONE query. Each branch's
+			// WHERE conditions are AND-grouped in parens, branches combined with
+			// `or`; branch INNER JOINs are merged (see README caveat on
+			// relationship-based `_or` branches). Mirrors the nested lateral-join
+			// flattening used for child-entity filters.
+			const orClauses = unionAllEntries
+				.map(({ where: orWheres }) => (orWheres.length > 0 ? `(${orWheres.join(' and ')})` : ''))
+				.filter((c) => c.length > 0);
+			const mergedInnerJoin = [
+				...innerJoin,
+				...unionAllEntries.flatMap(({ innerJoin: orInnerJoin }) => orInnerJoin),
+			];
+			const whereParts = [...where];
+			if (orClauses.length > 0) {
+				whereParts.push(`(${orClauses.join(' or ')})`);
+			}
+			queryBody = SQLBuilder.buildSubQuery(
+				selectFields,
+				rawSelectArr,
+				metadata.tableName,
+				alias,
+				mergedInnerJoin,
+				outerJoin,
+				whereParts,
+				undefined,
+				orderBySQL,
+				innerLimitSQL,
+				innerOffsetSQL,
+				distinctKeyword
+			);
+		} else if (unionAllEntries.length > 0) {
 			const unionBranches = unionAllEntries.map(({ innerJoin: orInnerJoin, where: orWheres }) => {
 				const allInnerJoins = [...innerJoin, ...orInnerJoin];
 				const allWhere = [...where, ...orWheres];
@@ -163,7 +271,7 @@ export class GQLtoSQLMapper {
 				? orderBySQL.replace(new RegExp(`\\b${alias.toString()}\\.`, 'g'), `${alias.toString()}_u.`)
 				: '';
 
-			queryBody = `select ${selectFields.join(', ')} from ( select distinct * from (${innerUnion}) as ${alias.toString()}_u ${unionOrderBySQL} ${innerLimitSQL} ${innerOffsetSQL} ) as ${alias.toString()} ${outerJoin.join(' \n')}`;
+			queryBody = `select ${distinctKeyword}${selectFields.join(', ')} from ( select distinct * from (${innerUnion}) as ${alias.toString()}_u ${unionOrderBySQL} ${innerLimitSQL} ${innerOffsetSQL} ) as ${alias.toString()} ${outerJoin.join(' \n')}`;
 		} else {
 			queryBody = SQLBuilder.buildSubQuery(
 				selectFields,
@@ -176,7 +284,8 @@ export class GQLtoSQLMapper {
 				undefined,
 				orderBySQL,
 				innerLimitSQL,
-				innerOffsetSQL
+				innerOffsetSQL,
+				distinctKeyword
 			);
 		}
 
@@ -196,6 +305,198 @@ export class GQLtoSQLMapper {
 
 		logger.timeEnd(logName);
 		return { querySQL, bindings };
+	}
+
+	/**
+	 * Resolves a nested-object orderBy key (e.g. orderBy: [{ author: { name: 'asc' } }])
+	 * into a correlated subquery SQL expression for related columns.
+	 *
+	 * Cardinality determines the subquery shape:
+	 *  - m:1 (exactly one related row): plain scalar subquery
+	 *      (SELECT e_o.col FROM rel_table e_o WHERE parent.fk = e_o.pk)
+	 *  - 1:m / m:m (many related rows): the rows are collapsed to a single sortable
+	 *    value via aggregation — MIN for ascending sorts, MAX for descending — so
+	 *    the parent row can be ordered deterministically.
+	 *
+	 * Returns { sql, parentColumns } where parentColumns are the parent-table columns
+	 * referenced in the WHERE clause. The caller must ensure these columns are
+	 * projected by any wrapping subquery so the correlated reference resolves in
+	 * the outer query too.
+	 *
+	 * @param sortDir sort direction ('asc'|'desc') — picks MIN vs MAX for 1:m/m:m.
+	 *   Ignored for m:1.
+	 * Returns null if not a resolvable related field (caller falls back to flat resolution).
+	 */
+	private resolveRelatedOrderBy<T>(
+		entityName: string,
+		metadata: EntityMetadata<T>,
+		parentAlias: Alias,
+		relationName: string,
+		relatedFieldName: string,
+		sortDir?: string
+	): { sql: string; parentColumns: string[] } | null {
+		// Look up the relation property on the current entity
+		const relProp = metadata.properties[relationName];
+		if (!relProp) return null;
+
+		// Get the related entity metadata (shared by all cardinalities)
+		const relEntityName = relProp.type;
+		if (!this.exists(relEntityName)) return null;
+		const relMetadata = this.getMetadata<any, EntityMetadata<any>>(relEntityName);
+		if (!relMetadata?.tableName) return null;
+
+		// Resolve the related field's actual column name(s)
+		const relFieldMeta = relMetadata.properties[relatedFieldName];
+		if (!relFieldMeta || relFieldMeta.fieldNames.length === 0) return null;
+
+		const relAlias = 'e_o'; // stable alias for orderBy subqueries
+
+		// --- m:1 / owning-side 1:1: exactly one related row, no aggregation ---
+		// Dispatch via the shared ownership rule so owning-side 1:1 (inversedBy)
+		// resolves like m:1 instead of falling to the aggregated branch.
+		if (getRelationCardinality(relProp) === RelationCardinality.MANY_TO_ONE) {
+			// Resolve the FK columns: parent.fieldNames → related.referencedColumnNames
+			const fkColumns = relProp.fieldNames; // e.g. ['author_id'] on the parent table
+			const refPkColumns =
+				relProp.referencedColumnNames.length > 0
+					? relProp.referencedColumnNames
+					: relMetadata.primaryKeys;
+			if (fkColumns.length === 0 || fkColumns.length !== refPkColumns.length) return null;
+
+			const parentColumns = fkColumns.map((fk) => parentAlias.toColumnName(fk));
+			const joinCondition = fkColumns
+				.map((fk, i) => `${parentAlias.toColumnName(fk)} = ${relAlias}.${refPkColumns[i]}`)
+				.join(' and ');
+
+			const relColumns = relFieldMeta.fieldNames.map((fn) => `${relAlias}.${fn}`).join(', ');
+
+			return {
+				sql: `(select ${relColumns} from "${relMetadata.tableName}" as ${relAlias} where ${joinCondition})`,
+				parentColumns,
+			};
+		}
+
+		// Aggregated cases collapse many related rows into one sortable value.
+		// Multi-column related fields are ambiguous under aggregation — bail out.
+		if (relFieldMeta.fieldNames.length !== 1) return null;
+		const aggFn = (sortDir ?? 'asc').toLowerCase() === 'desc' ? 'max' : 'min';
+		const relColumn = `${aggFn}(${relAlias}.${relFieldMeta.fieldNames[0]})`;
+
+		// --- 1:m / inverse-1:1: child holds the FK; join parent.pk = child.fk ---
+		if (getRelationCardinality(relProp) === RelationCardinality.ONE_TO_X) {
+			if (!relProp.mappedBy) return null;
+			const childFkProp = relMetadata.properties[relProp.mappedBy];
+			if (!childFkProp) return null;
+
+			const childFkColumns = childFkProp.joinColumns;
+			const parentPkColumns =
+				childFkProp.referencedColumnNames.length > 0
+					? childFkProp.referencedColumnNames
+					: metadata.primaryKeys;
+			if (childFkColumns.length === 0 || childFkColumns.length !== parentPkColumns.length)
+				return null;
+
+			const parentColumns = parentPkColumns.map((pk) => parentAlias.toColumnName(pk));
+			const joinCondition = parentPkColumns
+				.map((pk, i) => `${parentAlias.toColumnName(pk)} = ${relAlias}.${childFkColumns[i]}`)
+				.join(' and ');
+
+			return {
+				sql: `(select ${relColumn} from "${relMetadata.tableName}" as ${relAlias} where ${joinCondition})`,
+				parentColumns,
+			};
+		}
+
+		// --- m:m: join related to pivot, correlate pivot to parent ---
+		if (getRelationCardinality(relProp) === RelationCardinality.MANY_TO_MANY) {
+			const pivotTable = relProp.pivotTable;
+			const joinColumns = relProp.joinColumns; // pivot cols referencing the parent side
+			const inverseJoinColumns = relProp.inverseJoinColumns; // pivot cols referencing the related side
+			if (!pivotTable || joinColumns.length === 0 || inverseJoinColumns.length === 0) return null;
+
+			const parentPkColumns =
+				relProp.referencedColumnNames.length > 0
+					? relProp.referencedColumnNames
+					: metadata.primaryKeys;
+			if (joinColumns.length !== parentPkColumns.length) return null;
+			if (inverseJoinColumns.length !== relMetadata.primaryKeys.length) return null;
+
+			const parentColumns = parentPkColumns.map((pk) => parentAlias.toColumnName(pk));
+			const pivotAlias = 'p_o';
+			const pivotJoinCondition = relMetadata.primaryKeys
+				.map((pk, i) => `${relAlias}.${pk} = ${pivotAlias}.${inverseJoinColumns[i]}`)
+				.join(' and ');
+			const parentJoinCondition = joinColumns
+				.map((jc, i) => `${pivotAlias}.${jc} = ${parentAlias.toColumnName(parentPkColumns[i])}`)
+				.join(' and ');
+
+			return {
+				sql: `(select ${relColumn} from "${relMetadata.tableName}" as ${relAlias} inner join "${pivotTable}" as ${pivotAlias} on ${pivotJoinCondition} where ${parentJoinCondition})`,
+				parentColumns,
+			};
+		}
+
+		logger.log(
+			'resolveRelatedOrderBy',
+			`Skipping orderBy on "${relationName}": relation has unsupported reference type "${relProp.reference}"`
+		);
+		return null;
+	}
+
+	/**
+	 * Builds ORDER BY SQL that handles both flat fields and nested-object related columns.
+	 * For nested objects (e.g. { author: { name: 'asc' } }), delegates to resolveRelatedOrderBy.
+	 * For flat fields (e.g. { title: 'asc' }), uses the standard field mapper.
+	 */
+	private buildOrderBySQLWithRelated<T>(
+		metadata: EntityMetadata<T>,
+		alias: Alias,
+		orderBy: GQLEntityOrderByInputType<any>[]
+	): string {
+		const entityName = metadata.name ?? '';
+		const fieldMapper = SQLBuilder.getFieldMapper(metadata, alias);
+
+		const orderClauses = orderBy
+			.map((obs) =>
+				keys(obs)
+					.map((ob) => {
+						const value = obs[ob];
+						if (value !== null && typeof value === 'object' && !Array.isArray(value)) {
+							// Nested object: { relationName: { fieldName: 'asc' } }
+							const subKeys = keys(value);
+							return subKeys
+								.map((subKey) => {
+									const direction = value[subKey];
+									const resolved = this.resolveRelatedOrderBy(
+										entityName,
+										metadata,
+										alias,
+										ob,
+										subKey,
+										typeof direction === 'string' ? direction : undefined
+									);
+									if (!resolved) {
+										throw new Error(
+											`gql-of-power: orderBy key "${ob}.{${subKey}}" cannot be resolved — "${ob}" is not a relation with a supported join (m:1, owning 1:1, 1:m, m:m) and not a scalar field.`
+										);
+									}
+									const columns = [resolved.sql];
+									return columns.map((fn) => `${fn} ${direction}`).join(', ');
+								})
+								.filter((o) => o.length > 0)
+								.join(', ');
+						}
+						// Flat field: { fieldName: 'asc' }
+						const columns = fieldMapper(ob);
+						return columns.map((fn) => `${fn} ${value}`).join(', ');
+					})
+					.filter((o) => o.length > 0)
+					.join(', ')
+			)
+			.filter((o) => o.length > 0)
+			.join(', ');
+
+		return orderClauses ? `order by ${orderClauses}` : '';
 	}
 
 	public recursiveMap = <T>({
@@ -305,6 +606,14 @@ export class GQLtoSQLMapper {
 				];
 				if (countFieldMeta) {
 					this.mapCountField<T>(countFieldMeta, mapping, alias, entityMetadata, args);
+					return { mappings };
+				}
+
+				const aggregateFieldMeta = getAggregateFieldsFor(
+					getGQLEntityNameFor(entityMetadata.name ?? '')
+				)[fieldName];
+				if (aggregateFieldMeta) {
+					this.mapAggregateField<T>(aggregateFieldMeta, mapping, alias, entityMetadata, args);
 					return { mappings };
 				}
 
@@ -652,6 +961,7 @@ export class GQLtoSQLMapper {
 		if (relationPagination?.orderBy) {
 			newMapping.orderBy = relationPagination.orderBy;
 		}
+		if (relationPagination?.distinct) newMapping.distinct = relationPagination.distinct;
 
 		const {
 			select: refSelect,
@@ -665,6 +975,7 @@ export class GQLtoSQLMapper {
 			orderBy,
 			_or: refOr,
 			_and: refAnd,
+			distinct,
 		} = QueriesUtils.mappingsReducer(newMappings, newMapping);
 
 		// For nested relation subqueries, class-level logical operators (_and,
@@ -710,7 +1021,8 @@ export class GQLtoSQLMapper {
 			offset,
 			orderBy,
 			config,
-			ownerMetadata
+			ownerMetadata,
+			distinct
 		);
 	}
 
@@ -730,13 +1042,12 @@ export class GQLtoSQLMapper {
 		offset: any,
 		orderBy: any,
 		config: RequireRelationConfig,
-		ownerMetadata: EntityMetadata<T> | undefined
+		ownerMetadata: EntityMetadata<T> | undefined,
+		distinct?: boolean
 	): void {
 		const primaryKeys = ownerMetadata?.primaryKeys ?? [];
-		if (
-			relFieldProps.reference === ReferenceType.ONE_TO_MANY ||
-			(relFieldProps.reference === ReferenceType.ONE_TO_ONE && !relFieldProps.inversedBy)
-		) {
+		const cardinality = getRelationCardinality(relFieldProps);
+		if (cardinality === RelationCardinality.ONE_TO_X) {
 			this.relationshipHandler.mapOneToX(
 				refMetadata,
 				relFieldProps,
@@ -752,12 +1063,10 @@ export class GQLtoSQLMapper {
 				refJson,
 				refSelect,
 				refInnerJoin,
-				refOuterJoin
+				refOuterJoin,
+				distinct
 			);
-		} else if (
-			relFieldProps.reference === ReferenceType.MANY_TO_ONE ||
-			(relFieldProps.reference === ReferenceType.ONE_TO_ONE && relFieldProps.inversedBy)
-		) {
+		} else if (cardinality === RelationCardinality.MANY_TO_ONE) {
 			this.relationshipHandler.mapManyToOne(
 				relFieldProps,
 				refMetadata,
@@ -774,7 +1083,7 @@ export class GQLtoSQLMapper {
 				refJson,
 				refOuterJoin
 			);
-		} else if (relFieldProps.reference === ReferenceType.MANY_TO_MANY) {
+		} else if (cardinality === RelationCardinality.MANY_TO_MANY) {
 			this.relationshipHandler.mapManyToMany(
 				refMetadata,
 				primaryKeys,
@@ -790,7 +1099,8 @@ export class GQLtoSQLMapper {
 				refValues,
 				limit,
 				offset,
-				orderBy
+				orderBy,
+				distinct
 			);
 		}
 	}
@@ -852,39 +1162,15 @@ export class GQLtoSQLMapper {
 
 		const countAlias = this.Alias.next(AliasType.entity, 'w');
 
-		// Build the join condition between parent and child, same logic as FilterProcessor
-		let joinCondition = '';
-		if (
-			fieldProps.reference === ReferenceType.ONE_TO_MANY ||
-			(fieldProps.reference === ReferenceType.ONE_TO_ONE && !fieldProps.inversedBy)
-		) {
-			const refFieldProps = relatedMetadata.properties[
-				fieldProps.mappedBy as keyof typeof relatedMetadata.properties
-			] as EntityProperty;
-			const ons = refFieldProps.joinColumns;
-			const entityOns = refFieldProps.referencedColumnNames;
-			joinCondition = entityOns
-				.map((o, i) => `${parentAlias.toColumnName(o)} = ${countAlias.toColumnName(ons[i])}`)
-				.join(' and ');
-		} else if (
-			fieldProps.reference === ReferenceType.MANY_TO_ONE ||
-			(fieldProps.reference === ReferenceType.ONE_TO_ONE && fieldProps.inversedBy)
-		) {
-			const ons =
-				fieldProps.referencedColumnNames.length > 0
-					? fieldProps.referencedColumnNames
-					: relatedMetadata.primaryKeys;
-			const entityOns = fieldProps.fieldNames;
-			joinCondition = entityOns
-				.map((o, i) => `${parentAlias.toColumnName(o)} = ${countAlias.toColumnName(ons[i])}`)
-				.join(' and ');
-		} else if (fieldProps.reference === ReferenceType.MANY_TO_MANY) {
-			// For m:n, use a pivot subquery in the join condition
-			const pivotCols = fieldProps.joinColumns;
-			const inverseCols = fieldProps.inverseJoinColumns;
-			const pivotSubquery = `select ${inverseCols.join(', ')} from ${fieldProps.pivotTable} where ${pivotCols.map((c, i) => `${parentAlias.toColumnName(entityMetadata.primaryKeys[i])} = ${fieldProps.pivotTable}.${c}`).join(' and ')}`;
-			joinCondition = `(${relatedMetadata.primaryKeys.map((c) => countAlias.toColumnName(c)).join(', ')}) in (${pivotSubquery})`;
-		}
+		// Build the join condition between parent and child — single source of
+		// truth in relation-dispatch.ts (encodes the 1:1 ownership rule of PR #46).
+		const { sql: joinCondition } = buildCorrelatedJoinCondition({
+			fieldProps,
+			relatedMetadata,
+			parentPrimaryKeys: entityMetadata.primaryKeys,
+			parentAlias,
+			relatedAlias: countAlias,
+		});
 
 		// Process optional filter args
 		let filterWhere: string[] = [];
@@ -920,14 +1206,37 @@ export class GQLtoSQLMapper {
 		// Build the COUNT subquery
 		let subquery: string;
 
-		if (filterOr.length > 0) {
-			// When filter has _or branches, use UNION ALL inside the count subquery
+		if (filterOr.length > 0 && this.orStrategy === 'or') {
+			// OR strategy: flatten branches into a single OR-combined WHERE
+			const orWhere = SQLBuilder.buildOrCombinedWhere(filterOr);
+			const mergedInnerJoin = [...filterInnerJoin, ...filterOr.flatMap((o) => o.innerJoin)];
+			const whereParts = [
+				joinCondition,
+				...filterWhere,
+				...(orWhere ? [`(${orWhere})`] : []),
+			].filter((w) => w.length > 0);
+			subquery = `select count(*) from \"${relatedMetadata.tableName}\" as ${countAlias.toString()} ${mergedInnerJoin.join(' \\n')} ${filterOuterJoin.join(' \\n')} ${whereParts.length > 0 ? `where ${whereParts.join(' and ')}` : ''}`;
+		} else if (filterOr.length > 0) {
+			// UNION ALL: count distinct children matching ANY branch. Branches project
+			// the child's PK columns (not the constant 1) and the outer count dedupes
+			// on them — a child matching N branches (e.g. two overlapping _or
+			// conditions) must be counted once. count(*) over select-1 branches
+			// double-counts; select distinct 1 collapses to 1 (verified on PG).
+			const pkCols = (relatedMetadata.primaryKeys ?? ['id']).map(
+				(pk) => `${countAlias.toString()}.${relatedMetadata.properties[pk]?.fieldNames?.[0] ?? pk}`
+			);
+			const distinctArg = pkCols.length === 1 ? pkCols[0] : `(${pkCols.join(', ')})`;
+			// Project PKs AS unqualified names so the outer count(distinct) can
+			// reference them (a derived table's columns are NOT qualified by the
+			// inner alias — "missing FROM-clause entry" otherwise).
+			const pkSelects = pkCols.map((c) => `${c} as ${c.split('.').pop()}`);
 			const branches = filterOr.map((orMapping) => {
 				const allWhere = [joinCondition, ...filterWhere, ...orMapping.where];
 				const allInnerJoin = [...filterInnerJoin, ...orMapping.innerJoin];
-				return `select 1 from "${relatedMetadata.tableName}" as ${countAlias.toString()} ${allInnerJoin.join(' \n')} where ${allWhere.join(' and ')}`;
+				return `select ${pkSelects.join(', ')} from "${relatedMetadata.tableName}" as ${countAlias.toString()} ${allInnerJoin.join(' \n')} where ${allWhere.join(' and ')}`;
 			});
-			subquery = `select count(*) from (${branches.map((b) => `(${b})`).join(' union all ')}) as ${countAlias.toString()}_cnt`;
+			const pkNames = pkCols.map((c) => c.split('.').pop());
+			subquery = `select count(distinct ${pkNames.length === 1 ? pkNames[0] : `(${pkNames.join(', ')})`}) from (${branches.map((b) => `(${b})`).join(' union all ')}) as ${countAlias.toString()}_cnt`;
 		} else {
 			const whereParts = [joinCondition, ...filterWhere].filter((w) => w.length > 0);
 			subquery = `select count(*) from "${relatedMetadata.tableName}" as ${countAlias.toString()} ${filterInnerJoin.join(' \n')} ${filterOuterJoin.join(' \n')} ${whereParts.length > 0 ? `where ${whereParts.join(' and ')}` : ''}`;
@@ -938,6 +1247,140 @@ export class GQLtoSQLMapper {
 		mapping.values = { ...mapping.values, ...filterValues };
 
 		logger.log('mapCountField', countFieldName, 'subquery', subquery);
+	}
+
+	/**
+	 * Generates a correlated aggregate subquery for an aggregate field.
+	 *
+	 * Produces SQL like:
+	 * ```sql
+	 * (SELECT SUM(pages) FROM "books" AS e_w1 WHERE e_w1.author_id = a_1.id AND <filter>) AS "totalPages"
+	 * ```
+	 */
+	protected mapAggregateField<T>(
+		aggregateFieldMeta: AggregateFieldMeta,
+		mapping: MappingsType,
+		parentAlias: Alias,
+		entityMetadata: EntityMetadata<T>,
+		args?: any
+	): void {
+		const { aggregateFieldName, fn, column, relationshipFieldName, relatedEntityName } =
+			aggregateFieldMeta;
+
+		const relatedName = relatedEntityName();
+		if (!this.exists(relatedName)) {
+			mapping.select.add(`null AS "${aggregateFieldName}"`);
+			return;
+		}
+
+		const relatedMetadata = this.getMetadata<any, EntityMetadata<any>>(relatedName);
+		const fieldProps =
+			entityMetadata.properties[relationshipFieldName as keyof typeof entityMetadata.properties];
+
+		if (!fieldProps) {
+			logger.warn('mapAggregateField: relationship field not found', relationshipFieldName);
+			mapping.select.add(`null AS "${aggregateFieldName}"`);
+			return;
+		}
+
+		// Resolve the SQL column name from the related entity's property metadata
+		const colProps = relatedMetadata.properties[column as keyof typeof relatedMetadata.properties];
+		const sqlColumn = colProps?.fieldNames?.[0] ?? column;
+
+		const aggAlias = this.Alias.next(AliasType.entity, 'w');
+
+		// Build the join condition between parent and child — single source of
+		// truth in relation-dispatch.ts (encodes the 1:1 ownership rule of PR #46).
+		// The previous inline dispatch lumped ALL 1:1 into the child-side branch,
+		// so an owning-side 1:1 (inversedBy) crashed with TypeError — same bug
+		// class as issue #45.
+		const { sql: joinCondition } = buildCorrelatedJoinCondition({
+			fieldProps,
+			relatedMetadata,
+			parentPrimaryKeys: entityMetadata.primaryKeys,
+			parentAlias,
+			relatedAlias: aggAlias,
+		});
+
+		// Process optional filter args
+		let filterWhere: string[] = [];
+		let filterValues: Record<string, any> = [];
+		let filterInnerJoin: string[] = [];
+		let filterOuterJoin: string[] = [];
+		let filterOr: MappingsType[] = [];
+
+		if (args?.filter) {
+			// Convert mapNumericEnum string keys → raw DB values before SQL
+			// generation, matching the count-field path. Without this, enum-typed
+			// fields in inline aggregate subquery filters bypass conversion and
+			// silently produce wrong SQL (same bug class fixed for count fields).
+			const aggGqlEntityName = getGQLEntityNameFor(relatedMetadata.name ?? '');
+			const aggConvertedFilter = convertFilterEnumValues(
+				args.filter,
+				getMapEnumFieldsFor(aggGqlEntityName),
+				getCustomFieldsFor(aggGqlEntityName),
+				getRelationFieldsFor(aggGqlEntityName)
+			);
+			const filterMapped = this.recursiveMap({
+				entityMetadata: relatedMetadata,
+				parentAlias: aggAlias,
+				alias: aggAlias,
+				gqlFilters: [aggConvertedFilter],
+				isFieldFilter: true,
+			});
+
+			const reduced = QueriesUtils.mappingsReducer(filterMapped);
+			filterWhere = reduced.where;
+			filterValues = reduced.values as Record<string, any>;
+			filterInnerJoin = reduced.innerJoin;
+			filterOuterJoin = reduced.outerJoin;
+			filterOr = reduced._or;
+		}
+
+		const aggExpr = `${fn}(${aggAlias.toString()}.${sqlColumn})`;
+
+		let subquery: string;
+		if (filterOr.length > 0 && this.orStrategy === 'or') {
+			// OR strategy: flatten branches into a single OR-combined WHERE
+			const orWhere = SQLBuilder.buildOrCombinedWhere(filterOr);
+			const mergedInnerJoin = [...filterInnerJoin, ...filterOr.flatMap((o) => o.innerJoin)];
+			const whereParts = [
+				joinCondition,
+				...filterWhere,
+				...(orWhere ? [`(${orWhere})`] : []),
+			].filter((w) => w.length > 0);
+			subquery = `select ${aggExpr} from \"${relatedMetadata.tableName}\" as ${aggAlias.toString()} ${mergedInnerJoin.join(' \\n')} ${filterOuterJoin.join(' \\n')} ${whereParts.length > 0 ? `where ${whereParts.join(' and ')}` : ''}`;
+		} else if (filterOr.length > 0) {
+			// UNION ALL: aggregate over distinct children matching ANY branch.
+			// Branches project (PK..., value) and the outer select dedupes on the
+			// PKs before aggregating — a child matching N branches contributes its
+			// value once. NOT sum(distinct value): that would wrongly collapse
+			// equal values from different children (two books, both 300 pages).
+			const pkCols = (relatedMetadata.primaryKeys ?? ['id']).map(
+				(pk) => `${aggAlias.toString()}.${relatedMetadata.properties[pk]?.fieldNames?.[0] ?? pk}`
+			);
+			const distinctArg = pkCols.length === 1 ? pkCols[0] : `(${pkCols.join(', ')})`;
+			// Project (PK..., value) AS unqualified names; dedupe in a derived
+			// table, then aggregate — see count site for the aliasing rationale.
+			const pkSelects = pkCols.map((c) => `${c} as ${c.split('.').pop()}`);
+			const valueCol = `${aggAlias.toString()}.${sqlColumn}`;
+			const branches = filterOr.map((orMapping) => {
+				const allWhere = [joinCondition, ...filterWhere, ...orMapping.where];
+				const allInnerJoin = [...filterInnerJoin, ...orMapping.innerJoin];
+				return `select ${pkSelects.join(', ')}, ${valueCol} as value from "${relatedMetadata.tableName}" as ${aggAlias.toString()} ${allInnerJoin.join(' \n')} where ${allWhere.join(' and ')}`;
+			});
+			const pkNames = pkCols.map((c) => c.split('.').pop());
+			subquery = `select ${fn}(value) from (select distinct ${pkNames.length === 1 ? pkNames[0] : `(${pkNames.join(', ')})`}, value from (${branches.map((b) => `(${b})`).join(' union all ')}) as ${aggAlias.toString()}_u) as ${aggAlias.toString()}_cnt`;
+		} else {
+			const whereParts = [joinCondition, ...filterWhere].filter((w) => w.length > 0);
+			subquery = `select ${aggExpr} from "${relatedMetadata.tableName}" as ${aggAlias.toString()} ${filterInnerJoin.join(' \n')} ${filterOuterJoin.join(' \n')} ${whereParts.length > 0 ? `where ${whereParts.join(' and ')}` : ''}`;
+		}
+
+		subquery = subquery.replaceAll(/[ \n	]+/gi, ' ').trim();
+		mapping.select.add(`(${subquery}) AS "${aggregateFieldName}"`);
+		mapping.values = { ...mapping.values, ...filterValues };
+
+		logger.log('mapAggregateField', aggregateFieldName, 'subquery', subquery);
 	}
 
 	protected mapField<T>(
@@ -1025,6 +1468,9 @@ export class GQLtoSQLMapper {
 			if (mapping.orderBy) {
 				newMapping.orderBy = mapping.orderBy;
 			}
+			if (mapping.distinct) {
+				newMapping.distinct = mapping.distinct;
+			}
 			const {
 				select,
 				json,
@@ -1035,6 +1481,7 @@ export class GQLtoSQLMapper {
 				limit,
 				offset,
 				orderBy,
+				distinct,
 				...rest
 			} = QueriesUtils.mappingsReducer(newMappings, newMapping);
 
@@ -1073,10 +1520,8 @@ export class GQLtoSQLMapper {
 				fieldProps.reference,
 				'fields'
 			);
-			if (
-				fieldProps.reference === ReferenceType.ONE_TO_MANY ||
-				(fieldProps.reference === ReferenceType.ONE_TO_ONE && !fieldProps.inversedBy)
-			) {
+			const fieldCardinality = getRelationCardinality(fieldProps);
+			if (fieldCardinality === RelationCardinality.ONE_TO_X) {
 				logger.warn('[DIAG mapField dispatch]', gqlFieldName, '→ mapOneToX');
 				this.relationshipHandler.mapOneToX(
 					referenceField,
@@ -1093,12 +1538,10 @@ export class GQLtoSQLMapper {
 					json,
 					select,
 					innerJoin,
-					outerJoin
+					outerJoin,
+					distinct
 				);
-			} else if (
-				fieldProps.reference === ReferenceType.MANY_TO_ONE ||
-				(fieldProps.reference === ReferenceType.ONE_TO_ONE && fieldProps.inversedBy)
-			) {
+			} else if (fieldCardinality === RelationCardinality.MANY_TO_ONE) {
 				logger.warn(
 					'[DIAG mapField dispatch]',
 					gqlFieldName,
@@ -1124,7 +1567,7 @@ export class GQLtoSQLMapper {
 					json,
 					outerJoin
 				);
-			} else if (fieldProps.reference === ReferenceType.MANY_TO_MANY) {
+			} else if (fieldCardinality === RelationCardinality.MANY_TO_MANY) {
 				logger.warn('[DIAG mapField dispatch]', gqlFieldName, '→ mapManyToMany');
 				this.relationshipHandler.mapManyToMany(
 					referenceField,
@@ -1141,7 +1584,8 @@ export class GQLtoSQLMapper {
 					values,
 					limit,
 					offset,
-					orderBy
+					orderBy,
+					distinct
 				);
 			} else {
 				logger.warn(
@@ -1218,6 +1662,7 @@ export class GQLtoSQLMapper {
 
 			mapping.limit = pagination?.limit;
 			mapping.offset = pagination?.offset;
+			mapping.distinct = pagination?.distinct;
 			mapping.orderBy.push(...(pagination?.orderBy ?? []));
 			logger.log(
 				'GQLtoSQLMapper - handleFieldArguments - processed',

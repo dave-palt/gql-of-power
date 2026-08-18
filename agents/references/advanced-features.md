@@ -34,6 +34,91 @@ Filter operators auto-generate too: `bookCount_gt`, `bookCount_lte`, etc.
 
 **Requires:** `array: true` + `relatedEntityName`.
 
+## aggregateFields — sum/avg/min/max of related columns
+
+Set on an **array relation field** to auto-generate numeric fields returning aggregated values of a column on the related entities. Each aggregate is a correlated subquery.
+
+```typescript
+// FieldsSettings — Author
+books: {
+  type: () => BookGQL.GQLEntity,
+  generateFilter: true,
+  array: true,
+  relatedEntityName: () => Book.name,
+  countFieldName: 'bookCount',
+  aggregateFields: [
+    { fn: 'sum', column: 'pages', fieldName: 'totalPages' }, // Float
+    { fn: 'avg', column: 'pages', fieldName: 'avgPages' }, // Float
+    { fn: 'min', column: 'publishedYear', fieldName: 'oldestBookYear' }, // Float
+    { fn: 'max', column: 'publishedYear', fieldName: 'newestBookYear' }, // Float
+  ],
+},
+```
+
+Generated SQL (per aggregate):
+
+```sql
+(SELECT SUM(page_count) FROM "books" AS e_w1 WHERE e_w1.author_id = a_1.id) AS "totalPages"
+```
+
+Query it:
+
+```graphql
+authors {
+  id
+  totalPages
+  avgPages
+  oldestBookYear
+  newestBookYear
+}
+```
+
+Filter operators auto-generate too: `totalPages_gt`, `totalPages_lte`, etc. (same numeric operators as count fields).
+
+> The `column` is the **property name** on the related entity (resolved to the SQL column via metadata).
+
+**Requires:** `array: true` + `relatedEntityName`.
+
+## orderBy on related columns — nested objects, all cardinalities
+
+`pagination.orderBy` accepts **nested-object** keys (not dot-notation) so
+TypeScript gives autocomplete at every level. The join direction is resolved by
+the shared ownership dispatch (`src/queries/relation-dispatch.ts`), so every
+cardinality works:
+
+```typescript
+// m:1 or owning-side 1:1 — plain scalar subquery (one related row):
+await queryManager.getQueryResultsForFields(provider, Book, fields, undefined, {
+	orderBy: [{ author: { name: 'asc' } }],
+});
+
+// 1:m / inverse-1:1 / m:n — MIN-for-asc / MAX-for-desc aggregated subquery:
+await queryManager.getQueryResultsForFields(provider, Author, fields, undefined, {
+	orderBy: [{ books: { publishedYear: 'desc' } }],
+});
+```
+
+```sql
+-- m:1:            ORDER BY (SELECT e_o.author_name FROM "authors" e_o WHERE e_a1.author_id = e_o.id) ASC
+-- 1:m (desc→MAX): ORDER BY (SELECT MAX(e_o.published_year) FROM "books" e_o WHERE e_a1.id = e_o.author_id) DESC
+```
+
+Rules:
+
+- Aggregated sorts (1:m / inverse-1:1 / m:n) need a **single-column** related
+  field — multi-column is ambiguous under aggregation.
+- An orderBy key that is neither a relation nor a scalar field throws a named
+  error (`gql-of-power: orderBy key "…" cannot be resolved`) instead of
+  silently producing malformed SQL.
+- Works with `limit`/`offset` (the correlated parent columns are projected
+  through the wrapping subquery) and inside `_or`/`_and` UNION ALL branches.
+
+> **GraphQL schema note:** the generated `<Entity>OrderBy` input type exposes
+> flat `Sort` fields only. Nested related-column orderBy is a **programmatic
+> pagination API** feature (`getQueryResultsForInfo` / `getQueryResultsForFields`
+> — or a resolver pagination arg typed `any`); the GraphQL input does not yet
+> express nested objects.
+
 ## _exists / _not_exists — filter by related-row existence
 
 These are **class-level** filter operators (not field settings). They work automatically on relationship fields — no schema change needed.
@@ -51,6 +136,41 @@ persons(filter: { _not_exists: { Battle: {} } })
 - The library auto-generates `EntityExistsFilterInput` types.
 
 - `_not` takes an array of filter objects, AND-combines them, and wraps the result in `NOT (...)`: `{ _not: [{ name: "Sauron" }, { race: "Maiar" }] }` produces `NOT (name = 'Sauron' AND race = 'Maiar')`. Enum values inside `_not` are converted recursively (same path as `_and`/`_or`). Note: nesting `_or` inside `_not` is not fully negated (UNION ALL is not invertible) — use De Morgan's law instead.
+
+## orStrategy — plain OR instead of UNION ALL
+
+By default `_or` branches compile to separate SELECTs joined with `union all`
+(each branch keeps its INNER JOINs isolated). Set `orStrategy: 'or'` to
+flatten branches into one query with `((w1) or (w2))` in the WHERE instead —
+an index-friendly single scan:
+
+```typescript
+// per query (pagination arg):
+getQueryResultsForFields(provider, Person, fields, filter, { orStrategy: 'or' });
+
+// or globally:
+setGlobalConfig({ orStrategy: 'or' });
+// or env: GQL_OF_POWER_OR_STRATEGY=or
+```
+
+Same filter, two strategies:
+
+```sql
+-- union-all (default):
+(select ... where (name = :v1)) union all (select ... where (race = :v2))
+-- or:
+select ... where ((name = :v1) or (race = :v2))
+```
+
+Applies at every `_or` compilation site: root query, relationship `EXISTS`
+subqueries, and count/aggregate correlated subqueries.
+
+**Note on relationship branches:** relationship filter branches compile to
+self-contained correlated `EXISTS` subqueries (not parent-level INNER JOINs),
+so both strategies are semantically equivalent for them — verified by PG
+integration tests (mixed relationship+scalar, dual-relationship). Count and
+aggregate fields over `_or`-filtered children dedupe on the child PKs, so a
+child matching multiple branches is counted/summed once in both modes.
 
 ## mapNumericEnum — DB stores number, GQL wants the string key
 

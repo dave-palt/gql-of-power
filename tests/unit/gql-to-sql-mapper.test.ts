@@ -2143,4 +2143,291 @@ describe('GQLtoSQLMapper - Unit Tests', () => {
 			expect(result.querySQL.toLowerCase()).toContain('exists');
 		});
 	});
+
+	describe('ORDER BY related columns (m:1)', () => {
+		it('should generate a correlated subquery for m:1 orderBy', () => {
+			const result = mapper.buildQueryAndBindingsFor({
+				fields: { id: {}, title: {} } as any,
+				entity: Book,
+				customFields: {},
+				pagination: { orderBy: [{ author: { name: 'asc' } }] as any },
+			});
+
+			expect(result.querySQL).toContain('order by');
+			expect(result.querySQL).toContain('(select e_o.author_name from "authors" as e_o where');
+			expect(result.querySQL).toContain('e_a1.author_id = e_o.id');
+			expect(result.querySQL).toContain('asc');
+		});
+
+		it('should support mixed related + flat orderBy', () => {
+			const result = mapper.buildQueryAndBindingsFor({
+				fields: { id: {}, title: {} } as any,
+				entity: Book,
+				customFields: {},
+				pagination: {
+					orderBy: [{ author: { name: 'asc' } }, { title: 'desc' }] as any,
+				},
+			});
+
+			expect(result.querySQL).toContain('(select e_o.author_name from "authors" as e_o where');
+			expect(result.querySQL).toContain('e_a1.book_title desc');
+		});
+
+		it('should not add the subquery to the SELECT columns', () => {
+			const result = mapper.buildQueryAndBindingsFor({
+				fields: { id: {}, title: {} } as any,
+				entity: Book,
+				customFields: {},
+				pagination: { orderBy: [{ author: { name: 'asc' } }] as any },
+			});
+
+			// The correlated subquery must NOT appear in the SELECT list
+			const selectClause = result.querySQL.substring(0, result.querySQL.indexOf(' from '));
+			expect(selectClause).not.toContain('(select e_o');
+		});
+
+		it('should throw for non-existent relation keys', () => {
+			// A nested object where the key is NOT a m:1 relation
+			// should fall through to the regular field mapper (which throws)
+			expect(() => {
+				mapper.buildQueryAndBindingsFor({
+					fields: { id: {}, name: {} } as any,
+					entity: Person,
+					customFields: {},
+					pagination: { orderBy: [{ nonexistent: { field: 'asc' } }] as any },
+				});
+			}).toThrow();
+		});
+
+		it('owning-side 1:1 relation: generates a correlated subquery (not silently skipped)', () => {
+			// signatureWeapon is an owning-side 1:1 (inversedBy: 'owner') — structurally
+			// an m:1. It must resolve through the same related-orderBy path instead of
+			// being dropped as an "unsupported reference type".
+			const result = mapper.buildQueryAndBindingsFor({
+				fields: { id: {}, name: {} } as any,
+				entity: Person,
+				customFields: {},
+				pagination: { orderBy: [{ signatureWeapon: { name: 'asc' } }] as any },
+			});
+
+			expect(result.querySQL).toContain('order by');
+			expect(result.querySQL).toContain('(select e_o.weapon_name from "weapons" as e_o where');
+			expect(result.querySQL).toContain('e_a1.signature_weapon_id = e_o.id');
+		});
+
+		it('inverse-side 1:1 relation: resolves via the aggregated ONE_TO_X path (MIN/MAX)', () => {
+			// ring is the inverse side (mappedBy: 'bearer') — FK lives on rings.
+			// With 1:m/m:m related orderBy support, inverse 1:1 resolves through
+			// the same aggregated branch (single related row collapsed via MIN asc).
+			const result = mapper.buildQueryAndBindingsFor({
+				fields: { id: {}, name: {} } as any,
+				entity: Person,
+				customFields: {},
+				pagination: { orderBy: [{ ring: { name: 'asc' } }] as any },
+			});
+
+			expect(result.querySQL).toContain('order by');
+			expect(result.querySQL).toContain('(select min(e_o.ring_name) from "rings" as e_o where');
+			expect(result.querySQL).toContain('e_a1.id = e_o.bearer_id');
+		});
+
+		describe('ORDER BY related columns (1:m and m:m via MIN/MAX aggregation)', () => {
+			it('should generate a MIN() correlated subquery for 1:m orderBy asc', () => {
+				const result = mapper.buildQueryAndBindingsFor({
+					fields: { id: {}, name: {} } as any,
+					entity: Author,
+					customFields: {},
+					pagination: { orderBy: [{ books: { title: 'asc' } }] as any },
+				});
+
+				expect(result.querySQL).toContain('order by');
+				expect(result.querySQL).toContain(
+					'(select min(e_o.book_title) from "books" as e_o where e_a1.id = e_o.author_id) asc'
+				);
+			});
+
+			it('should generate a MAX() correlated subquery for 1:m orderBy desc', () => {
+				const result = mapper.buildQueryAndBindingsFor({
+					fields: { id: {}, name: {} } as any,
+					entity: Author,
+					customFields: {},
+					pagination: { orderBy: [{ books: { pages: 'desc' } }] as any },
+				});
+
+				expect(result.querySQL).toContain(
+					'(select max(e_o.page_count) from "books" as e_o where e_a1.id = e_o.author_id) desc'
+				);
+			});
+
+			it('should generate a MIN() pivot-joined subquery for m:m orderBy asc', () => {
+				const result = mapper.buildQueryAndBindingsFor({
+					fields: { id: {}, name: {} } as any,
+					entity: Genre,
+					customFields: {},
+					pagination: { orderBy: [{ books: { title: 'asc' } }] as any },
+				});
+
+				expect(result.querySQL).toContain(
+					'(select min(e_o.book_title) from "books" as e_o inner join "book_genres" as p_o on e_o.id = p_o.book_id where p_o.genre_id = e_a1.id) asc'
+				);
+			});
+
+			it('should generate a MAX() pivot-joined subquery for m:m orderBy desc', () => {
+				const result = mapper.buildQueryAndBindingsFor({
+					fields: { id: {}, name: {} } as any,
+					entity: Genre,
+					customFields: {},
+					pagination: { orderBy: [{ books: { publishedYear: 'desc' } }] as any },
+				});
+
+				expect(result.querySQL).toContain(
+					'(select max(e_o.published_year) from "books" as e_o inner join "book_genres" as p_o on e_o.id = p_o.book_id where p_o.genre_id = e_a1.id) desc'
+				);
+			});
+
+			it('should not add the aggregated subquery to the SELECT columns', () => {
+				const result = mapper.buildQueryAndBindingsFor({
+					fields: { id: {}, name: {} } as any,
+					entity: Author,
+					customFields: {},
+					pagination: { orderBy: [{ books: { title: 'asc' } }] as any },
+				});
+
+				const selectClause = result.querySQL.substring(0, result.querySQL.indexOf(' from '));
+				expect(selectClause).not.toContain('(select min(e_o');
+			});
+
+			it('should support mixed 1:m related + flat orderBy', () => {
+				const result = mapper.buildQueryAndBindingsFor({
+					fields: { id: {}, name: {} } as any,
+					entity: Author,
+					customFields: {},
+					pagination: {
+						orderBy: [{ books: { title: 'asc' } }, { name: 'desc' }] as any,
+					},
+				});
+
+				expect(result.querySQL).toContain('(select min(e_o.book_title) from "books" as e_o where');
+				expect(result.querySQL).toContain('e_a1.author_name desc');
+			});
+		});
+	});
+});
+
+describe('DISTINCT query flag', () => {
+	const distinctMapper = new GQLtoSQLMapper(createMockMetadataProvider());
+
+	it('should emit SELECT DISTINCT when pagination.distinct is true', () => {
+		const result = distinctMapper.buildQueryAndBindingsFor({
+			fields: { id: {}, power: {} },
+			entity: Ring,
+			customFields: {},
+			pagination: { distinct: true },
+		});
+
+		expect(result.querySQL).toMatch(/^select distinct /i);
+		expect(result.querySQL.toLowerCase()).not.toContain('union all');
+	});
+
+	it('should NOT emit distinct when pagination.distinct is omitted', () => {
+		const result = distinctMapper.buildQueryAndBindingsFor({
+			fields: { id: {}, power: {} },
+			entity: Ring,
+			customFields: {},
+			pagination: {},
+		});
+
+		expect(result.querySQL).not.toMatch(/^select distinct /i);
+	});
+
+	it('should emit SELECT DISTINCT on the outer query of a UNION ALL path', () => {
+		const result = distinctMapper.buildQueryAndBindingsFor({
+			fields: { id: {}, power: {} },
+			entity: Ring,
+			customFields: {},
+			filter: { _or: [{ power: 'high' }, { forgedBy: 'Sauron' }] } as any,
+			pagination: { distinct: true },
+		});
+
+		expect(result.querySQL).toMatch(/^select distinct /i);
+		expect(result.querySQL.toLowerCase()).toContain('union all');
+		// The inner structural distinct should still be present
+		expect(result.querySQL).toContain('select distinct * from');
+	});
+
+	it('should emit SELECT DISTINCT inside nested 1:m relation subquery', () => {
+		const result = distinctMapper.buildQueryAndBindingsFor({
+			fields: {
+				id: {},
+				name: {},
+				books: {
+					args: {
+						pagination: { distinct: true },
+					},
+					fieldsByTypeName: {
+						Book: {
+							id: {},
+							title: {},
+						},
+					},
+				},
+			} as any,
+			entity: Author,
+			customFields: {},
+		});
+
+		// The nested books subquery should contain 'select distinct'
+		expect(result.querySQL).toMatch(/select distinct \w+\.\w+.*from "books"/i);
+		// The outer query should NOT have distinct (it was not requested at root level)
+		expect(result.querySQL).not.toMatch(/^select distinct /i);
+	});
+
+	it('should NOT emit distinct inside nested relation when not requested', () => {
+		const result = distinctMapper.buildQueryAndBindingsFor({
+			fields: {
+				id: {},
+				name: {},
+				books: {
+					fieldsByTypeName: {
+						Book: {
+							id: {},
+							title: {},
+						},
+					},
+				},
+			} as any,
+			entity: Author,
+			customFields: {},
+		});
+
+		// The nested books subquery should NOT contain 'select distinct'
+		expect(result.querySQL).not.toMatch(/select distinct \w+\.\w+.*from "books"/i);
+	});
+
+	it('should support both root and nested distinct simultaneously', () => {
+		const result = distinctMapper.buildQueryAndBindingsFor({
+			fields: {
+				id: {},
+				name: {},
+				books: {
+					args: {
+						pagination: { distinct: true },
+					},
+					fieldsByTypeName: {
+						Book: {
+							id: {},
+							title: {},
+						},
+					},
+				},
+			} as any,
+			entity: Author,
+			customFields: {},
+			pagination: { distinct: true },
+		});
+
+		// Both root and nested should have distinct
+		expect(result.querySQL).toMatch(/^select distinct /i);
+		expect(result.querySQL).toMatch(/select distinct \w+\.\w+.*from "books"/i);
+	});
 });

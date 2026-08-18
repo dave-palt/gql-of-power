@@ -229,9 +229,19 @@ export class AuthorResolver extends AuthorFieldsResolver {
 		@Arg('filter', () => AuthorGQL.GQLEntityFilterInput || Object, {
 			nullable: true,
 		})
-		filter?: GQLEntityFilterInputFieldType<Author>
+		filter?: GQLEntityFilterInputFieldType<Author>,
+		@Arg('pagination', () => AuthorGQL.GQLEntityPaginationInputField || Object, {
+			nullable: true,
+		})
+		pagination?: any // supports orderBy on related (incl. aggregated 1:m) columns, e.g. [{ books: { publishedYear: 'desc' } }]
 	) {
-		return await queryManager.getQueryResultsForInfo(metadataProvider, Author, info, filter);
+		return await queryManager.getQueryResultsForInfo(
+			metadataProvider,
+			Author,
+			info,
+			filter,
+			pagination
+		);
 	}
 }
 
@@ -247,9 +257,41 @@ export class BookResolver extends BookFieldsResolver {
 		@Arg('filter', () => BookGQL.GQLEntityFilterInput || Object, {
 			nullable: true,
 		})
-		filter?: GQLEntityFilterInputFieldType<Book>
+		filter?: GQLEntityFilterInputFieldType<Book>,
+		@Arg('pagination', () => BookGQL.GQLEntityPaginationInputField || Object, {
+			nullable: true,
+		})
+		pagination?: any /*
+		 * Flat orderBy works through GraphQL: { orderBy: [{ title: 'asc' }] }.
+		 * RELATED-column orderBy (nested objects) is SQL-engine-only for now —
+		 * the generated *OrderBy input exposes flat Sort fields only. Use the
+		 * programmatic API instead:
+		 *   queryManager.getQueryResultsForInfo(provider, Book, info, filter, {
+		 *     orderBy: [{ author: { name: 'asc' } }],        // m:1 / owning 1:1
+		 *   });
+		 *   // 1:m / m:m aggregate via MIN (asc) / MAX (desc):
+		 *   queryManager.getQueryResultsForInfo(provider, Author, info, filter, {
+		 *     orderBy: [{ books: { publishedYear: 'desc' } }],
+		 *   });
+		 *
+		 * orStrategy (server-side tuning knob, not a GQL field) switches _or
+		 * compilation from UNION ALL branches (default) to a single query with
+		 * a plain OR — index-friendly. Scalar _or branches are equivalent in
+		 * both modes; relationship-based _or branches merge their INNER JOINs
+		 * (see README "OR Strategy"):
+		 *   queryManager.getQueryResultsForInfo(provider, Book, info, {
+		 *     _or: [{ title_like: '%Ring%' }, { publishedYear_lt: 1960 }],
+		 *   }, { orStrategy: 'or' });
+		 *   // or globally: setGlobalConfig({ orStrategy: 'or' });
+		 */
 	) {
-		return await queryManager.getQueryResultsForInfo(metadataProvider, Book, info, filter);
+		return await queryManager.getQueryResultsForInfo(
+			metadataProvider,
+			Book,
+			info,
+			filter,
+			pagination
+		);
 	}
 }
 

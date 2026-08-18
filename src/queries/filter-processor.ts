@@ -1,4 +1,8 @@
-import { getCountFieldsFor, getGQLEntityNameFor } from '../entities/gql-entity';
+import {
+	getAggregateFieldsFor,
+	getCountFieldsFor,
+	getGQLEntityNameFor,
+} from '../entities/gql-entity';
 import {
 	ClassOperationInputType,
 	ClassOperations,
@@ -6,18 +10,24 @@ import {
 	FieldOperationsType,
 } from '../operations';
 import {
+	AggregateFieldMeta,
 	CountFieldMeta,
 	CustomFieldsSettings,
 	EntityMetadata,
 	EntityProperty,
 	MetadataProviderType,
-	ReferenceType,
 } from '../types/sql-types';
-import { GQLEntityFilterInputFieldType } from '../types/gql-types';
+import { GQLEntityFilterInputFieldType, OrStrategy } from '../types/gql-types';
 import { MappingsType } from '../types/gql-to-sql-types';
 import { keys } from '../utils/object';
 import { logger } from '../variables';
 import { Alias, AliasManager, AliasType } from './alias';
+import {
+	buildCorrelatedJoinCondition,
+	getRelationCardinality,
+	RelationCardinality,
+	resolveInverseProperty,
+} from './relation-dispatch';
 import { SQLBuilder } from './sql-builder';
 import { QueriesUtils } from './utils';
 
@@ -30,6 +40,12 @@ const isPrimitive = (filterValue: any): filterValue is string | number | boolean
 	filterValue === null;
 
 export class FilterProcessor extends ClassOperations {
+	/**
+	 * Effective `_or`/`_and` combination strategy for the current query.
+	 * Set by `GQLtoSQLMapper.buildQueryAndBindingsFor` before mapping starts.
+	 */
+	public orStrategy: OrStrategy = 'union-all';
+
 	constructor(
 		private aliasManager: AliasManager,
 		private metadataProvider: MetadataProviderType,
@@ -114,6 +130,19 @@ export class FilterProcessor extends ClassOperations {
 			isFieldFilter
 		);
 		if (countFilterResult) {
+			return;
+		}
+
+		// Check if this filter key matches an aggregate field (e.g. totalPages_gt: 500)
+		const aggregateFilterResult = this.tryMapAggregateFieldFilter<T>(
+			gqlFieldNameKey,
+			filterValue,
+			entityMetadata,
+			parentAlias,
+			alias,
+			mappings
+		);
+		if (aggregateFilterResult) {
 			return;
 		}
 
@@ -841,44 +870,202 @@ export class FilterProcessor extends ClassOperations {
 
 		const countAlias = this.aliasManager.next(AliasType.entity, 'w');
 
-		let joinCondition = '';
-		if (
-			fieldProps.reference === ReferenceType.ONE_TO_MANY ||
-			(fieldProps.reference === ReferenceType.ONE_TO_ONE && !fieldProps.inversedBy)
-		) {
-			const refFieldProps = relatedMetadata.properties[
-				fieldProps.mappedBy as keyof typeof relatedMetadata.properties
-			] as EntityProperty;
-			const ons = refFieldProps.joinColumns;
-			const entityOns = refFieldProps.referencedColumnNames;
-			joinCondition = entityOns
-				.map((o, i) => `${parentAlias.toColumnName(o)} = ${countAlias.toColumnName(ons[i])}`)
-				.join(' and ');
-		} else if (
-			fieldProps.reference === ReferenceType.MANY_TO_ONE ||
-			(fieldProps.reference === ReferenceType.ONE_TO_ONE && fieldProps.inversedBy)
-		) {
-			const ons =
-				fieldProps.referencedColumnNames.length > 0
-					? fieldProps.referencedColumnNames
-					: relatedMetadata.primaryKeys;
-			const entityOns = fieldProps.fieldNames;
-			joinCondition = entityOns
-				.map((o, i) => `${parentAlias.toColumnName(o)} = ${countAlias.toColumnName(ons[i])}`)
-				.join(' and ');
-		} else if (fieldProps.reference === ReferenceType.MANY_TO_MANY) {
-			const pivotCols = fieldProps.joinColumns;
-			const inverseCols = fieldProps.inverseJoinColumns;
-			const pivotSubquery = `select ${inverseCols.join(', ')} from ${fieldProps.pivotTable} where ${pivotCols.map((c, i) => `${parentAlias.toColumnName(entityMetadata.primaryKeys[i])} = ${fieldProps.pivotTable}.${c}`).join(' and ')}`;
-			joinCondition = `(${relatedMetadata.primaryKeys.map((c) => countAlias.toColumnName(c)).join(', ')}) in (${pivotSubquery})`;
-		}
+		// Build the join condition between parent and child — single source of
+		// truth in relation-dispatch.ts (encodes the 1:1 ownership rule of PR #46).
+		const { sql: joinCondition } = buildCorrelatedJoinCondition({
+			fieldProps,
+			relatedMetadata,
+			parentPrimaryKeys: entityMetadata.primaryKeys,
+			parentAlias,
+			relatedAlias: countAlias,
+		});
 
 		if (!joinCondition) {
 			return null;
 		}
 
 		return `(select count(*) from "${relatedMetadata.tableName}" as ${countAlias.toString()} where ${joinCondition})`.replaceAll(
-			/[ \n\t]+/gi,
+			/[ \n	]+/gi,
+			' '
+		);
+	}
+
+	// ─── Aggregate field filters ────────────────────────────────────────────────
+
+	/**
+	 * Tries to match a filter key against aggregate field names (e.g. totalPages_gt, TotalPages).
+	 * Returns true if the filter was handled.
+	 */
+	protected tryMapAggregateFieldFilter<T>(
+		gqlFieldNameKey: string,
+		filterValue: any,
+		entityMetadata: EntityMetadata<T>,
+		parentAlias: Alias,
+		alias: Alias,
+		mappings: Map<string, MappingsType>
+	): boolean {
+		const gqlEntityName = getGQLEntityNameFor(entityMetadata.name ?? '');
+		const aggregateFields = getAggregateFieldsFor(gqlEntityName);
+
+		if (Object.keys(aggregateFields).length === 0) {
+			return false;
+		}
+
+		const numericOps = ['_eq', '_ne', '_gt', '_gte', '_lt', '_lte'] as const;
+		for (const [aggFieldName, aggMeta] of Object.entries(aggregateFields)) {
+			const opSuffix = numericOps.find((k) => gqlFieldNameKey === aggFieldName + k);
+			const capitalizedAggFieldName = aggFieldName[0].toUpperCase() + aggFieldName.slice(1);
+
+			if (opSuffix) {
+				this.applyAggregateFilterOperation(
+					aggMeta,
+					entityMetadata,
+					parentAlias,
+					alias,
+					mappings,
+					opSuffix,
+					filterValue
+				);
+				return true;
+			}
+
+			if (gqlFieldNameKey === aggFieldName && isPrimitive(filterValue)) {
+				this.applyAggregateFilterOperation(
+					aggMeta,
+					entityMetadata,
+					parentAlias,
+					alias,
+					mappings,
+					'_eq',
+					filterValue
+				);
+				return true;
+			}
+
+			if (gqlFieldNameKey === capitalizedAggFieldName && typeof filterValue === 'object') {
+				for (const opKey of keys(filterValue ?? {})) {
+					const matchedOp = numericOps.find((k) => k === opKey);
+					if (matchedOp) {
+						this.applyAggregateFilterOperation(
+							aggMeta,
+							entityMetadata,
+							parentAlias,
+							alias,
+							mappings,
+							matchedOp,
+							(filterValue as any)[opKey]
+						);
+					}
+				}
+				return true;
+			}
+		}
+
+		return false;
+	}
+
+	/**
+	 * Generates a WHERE clause comparing an aggregate subquery against a value.
+	 * SQL: `(SELECT SUM(pages) FROM ... WHERE <join>) <operator> :param`
+	 */
+	protected applyAggregateFilterOperation<T>(
+		aggMeta: AggregateFieldMeta,
+		entityMetadata: EntityMetadata<T>,
+		parentAlias: Alias,
+		alias: Alias,
+		mappings: Map<string, MappingsType>,
+		operation: string,
+		value: any
+	): void {
+		const mapping = QueriesUtils.getMapping(mappings, aggMeta.aggregateFieldName);
+		mapping.alias = alias;
+
+		const aggSubquery = this.buildAggregateSubquerySQL(aggMeta, entityMetadata, parentAlias, alias);
+
+		if (!aggSubquery) {
+			logger.warn(
+				'FilterProcessor - applyAggregateFilterOperation: could not build aggregate subquery for',
+				aggMeta.aggregateFieldName
+			);
+			return;
+		}
+
+		const valueAlias = this.aliasManager.next(AliasType.value, aggMeta.aggregateFieldName);
+		const paramRef = `${this.namedParameterPrefix}${valueAlias.toParamName(1)}`;
+
+		const opFunc = FieldOperations[operation as keyof FieldOperationsType];
+		if (!opFunc) {
+			logger.warn('FilterProcessor - unknown operation for aggregate filter:', operation);
+			return;
+		}
+
+		const { where, value: valOverride } = opFunc([aggSubquery, paramRef], ['', value]);
+		mapping.where.push(where);
+		mapping.values = {
+			...mapping.values,
+			...(valOverride ?? { [valueAlias.toParamName(1)]: value }),
+		};
+
+		logger.log(
+			'FilterProcessor - applyAggregateFilterOperation',
+			aggMeta.aggregateFieldName,
+			operation,
+			value,
+			'where',
+			where
+		);
+	}
+
+	/**
+	 * Builds an aggregate (SUM/AVG/MIN/MAX) correlated subquery for use in WHERE clauses.
+	 * Returns the SQL string (without alias), e.g.:
+	 * `(select sum(e_w1.pages) from "books" as e_w1 where e_w1.author_id = a_1.id)`
+	 */
+	protected buildAggregateSubquerySQL<T>(
+		aggMeta: AggregateFieldMeta,
+		entityMetadata: EntityMetadata<T>,
+		parentAlias: Alias,
+		alias: Alias
+	): string | null {
+		const { relationshipFieldName, relatedEntityName, fn, column } = aggMeta;
+		const relatedName = relatedEntityName();
+
+		if (!this.metadataProvider.exists(relatedName)) {
+			return null;
+		}
+
+		const relatedMetadata = this.metadataProvider.getMetadata<any, EntityMetadata<any>>(
+			relatedName
+		);
+		const fieldProps =
+			entityMetadata.properties[relationshipFieldName as keyof typeof entityMetadata.properties];
+
+		if (!fieldProps) {
+			return null;
+		}
+
+		// Resolve SQL column name
+		const colProps = relatedMetadata.properties[column as keyof typeof relatedMetadata.properties];
+		const sqlColumn = colProps?.fieldNames?.[0] ?? column;
+
+		const aggAlias = this.aliasManager.next(AliasType.entity, 'w');
+
+		// Build the join condition — single source of truth in relation-dispatch.ts
+		// (fixes owning-side 1:1 lumped into the child-side branch, issue #45 class).
+		const { sql: joinCondition } = buildCorrelatedJoinCondition({
+			fieldProps,
+			relatedMetadata,
+			parentPrimaryKeys: entityMetadata.primaryKeys,
+			parentAlias,
+			relatedAlias: aggAlias,
+		});
+
+		if (!joinCondition) {
+			return null;
+		}
+
+		return `(select ${fn}(${aggAlias.toString()}.${sqlColumn}) from "${relatedMetadata.tableName}" as ${aggAlias.toString()} where ${joinCondition})`.replaceAll(
+			/[ \n	]+/gi,
 			' '
 		);
 	}
@@ -1039,11 +1226,10 @@ export class FilterProcessor extends ClassOperations {
 			childAlias.toString()
 		);
 
-		// Handle different relationship types
-		if (
-			fieldProps.reference === ReferenceType.ONE_TO_MANY ||
-			(fieldProps.reference === ReferenceType.ONE_TO_ONE && !fieldProps.inversedBy)
-		) {
+		// Handle different relationship types — dispatch via the shared
+		// ownership rule (relation-dispatch.ts, PR #46).
+		const cardinality = getRelationCardinality(fieldProps);
+		if (cardinality === RelationCardinality.ONE_TO_X) {
 			this.mapFilterOneToX<T>(
 				referenceField,
 				fieldProps,
@@ -1057,10 +1243,7 @@ export class FilterProcessor extends ClassOperations {
 				mapping,
 				_or
 			);
-		} else if (
-			fieldProps.reference === ReferenceType.MANY_TO_ONE ||
-			(fieldProps.reference === ReferenceType.ONE_TO_ONE && fieldProps.inversedBy)
-		) {
+		} else if (cardinality === RelationCardinality.MANY_TO_ONE) {
 			this.mapFilterManyToOne<T>(
 				fieldProps,
 				referenceField,
@@ -1073,7 +1256,7 @@ export class FilterProcessor extends ClassOperations {
 				values,
 				_or
 			);
-		} else if (fieldProps.reference === ReferenceType.MANY_TO_MANY) {
+		} else if (cardinality === RelationCardinality.MANY_TO_MANY) {
 			this.mapFilterManyToMany<T>(
 				fieldProps,
 				primaryKeys,
@@ -1206,30 +1389,46 @@ export class FilterProcessor extends ClassOperations {
 			joinCondition.length > 0 &&
 			(innerJoin.length > 0 || whereWithValues.length > 0 || outerJoin.length > 0 || _or.length > 0)
 		) {
-			const unionAll = SQLBuilder.buildUnionAll(
-				[],
-				refMetadata.tableName,
-				childAlias,
-				innerJoin,
-				outerJoin,
-				joinCondition,
-				whereWithValues,
-				_or,
-				this.buildManyToOneJoin.bind(this)
-			);
+			let subquery: string;
+			if (this.orStrategy === 'or' && _or.length > 0) {
+				// OR strategy: flatten branches into one EXISTS subquery with an
+				// OR-combined WHERE; branch INNER JOINs are merged.
+				const orWhere = SQLBuilder.buildOrCombinedWhere(_or);
+				subquery = this.buildManyToOneJoin(
+					[],
+					childAlias,
+					refMetadata.tableName,
+					[...innerJoin, ..._or.flatMap((o) => o.innerJoin)],
+					outerJoin,
+					joinCondition,
+					orWhere.length > 0 ? [...whereWithValues, `(${orWhere})`] : whereWithValues
+				);
+			} else {
+				const unionAll = SQLBuilder.buildUnionAll(
+					[],
+					refMetadata.tableName,
+					childAlias,
+					innerJoin,
+					outerJoin,
+					joinCondition,
+					whereWithValues,
+					_or,
+					this.buildManyToOneJoin.bind(this)
+				);
 
-			const subquery =
-				unionAll.length > 0
-					? unionAll.map((q: string) => `(${q})`).join(' union all ')
-					: this.buildManyToOneJoin(
-							[],
-							childAlias,
-							refMetadata.tableName,
-							innerJoin,
-							outerJoin,
-							joinCondition,
-							whereWithValues
-						);
+				subquery =
+					unionAll.length > 0
+						? unionAll.map((q: string) => `(${q})`).join(' union all ')
+						: this.buildManyToOneJoin(
+								[],
+								childAlias,
+								refMetadata.tableName,
+								innerJoin,
+								outerJoin,
+								joinCondition,
+								whereWithValues
+							);
+			}
 
 			const existsSQL = `exists (${subquery})`.replaceAll(/[ \n\t]+/gi, ' ');
 
@@ -1472,9 +1671,7 @@ export class FilterProcessor extends ClassOperations {
 		mapping: MappingsType,
 		_or: MappingsType[]
 	): void {
-		const referenceFieldProps = referenceField.properties[
-			fieldProps.mappedBy as keyof typeof referenceField.properties
-		] as EntityProperty;
+		const referenceFieldProps = resolveInverseProperty(fieldProps, referenceField);
 
 		const ons = referenceFieldProps.joinColumns;
 		const entityOns = referenceFieldProps.referencedColumnNames;
@@ -1504,30 +1701,46 @@ export class FilterProcessor extends ClassOperations {
 			whereSQL.length > 0 &&
 			(innerJoin.length > 0 || whereWithValues.length > 0 || outerJoin.length > 0 || _or.length > 0)
 		) {
-			const unionAll = SQLBuilder.buildUnionAll(
-				[],
-				referenceField.tableName,
-				alias,
-				innerJoin,
-				outerJoin,
-				whereSQL,
-				whereWithValues,
-				_or,
-				this.buildOneToXJoin
-			);
+			let subquery: string;
+			if (this.orStrategy === 'or' && _or.length > 0) {
+				// OR strategy: flatten branches into one EXISTS subquery with an
+				// OR-combined WHERE; branch INNER JOINs are merged.
+				const orWhere = SQLBuilder.buildOrCombinedWhere(_or);
+				subquery = this.buildOneToXJoin(
+					[],
+					alias,
+					referenceField.tableName,
+					[...innerJoin, ..._or.flatMap((o) => o.innerJoin)],
+					outerJoin,
+					whereSQL,
+					orWhere.length > 0 ? [...whereWithValues, `(${orWhere})`] : whereWithValues
+				);
+			} else {
+				const unionAll = SQLBuilder.buildUnionAll(
+					[],
+					referenceField.tableName,
+					alias,
+					innerJoin,
+					outerJoin,
+					whereSQL,
+					whereWithValues,
+					_or,
+					this.buildOneToXJoin
+				);
 
-			const subquery =
-				unionAll.length > 0
-					? unionAll.map((q) => `(${q})`).join(' union all ')
-					: this.buildOneToXJoin(
-							[],
-							alias,
-							referenceField.tableName,
-							innerJoin,
-							outerJoin,
-							whereSQL,
-							whereWithValues
-						);
+				subquery =
+					unionAll.length > 0
+						? unionAll.map((q) => `(${q})`).join(' union all ')
+						: this.buildOneToXJoin(
+								[],
+								alias,
+								referenceField.tableName,
+								innerJoin,
+								outerJoin,
+								whereSQL,
+								whereWithValues
+							);
+			}
 
 			const existsSQL = `exists (${subquery})`.replaceAll(/[ \n\t]+/gi, ' ');
 
@@ -1588,32 +1801,48 @@ export class FilterProcessor extends ClassOperations {
 					outerJoin.length > 0 ||
 					_or.length > 0)
 			) {
-				const unionAll = SQLBuilder.buildUnionAll(
-					[],
-					referenceField.tableName,
-					alias,
-					innerJoin,
-					outerJoin,
-					whereSQL,
-					whereWithValues,
-					_or,
-					this.buildManyToOneJoin
-				);
+				let subquery: string;
+				if (this.orStrategy === 'or' && _or.length > 0) {
+					// OR strategy: flatten branches into one EXISTS subquery with an
+					// OR-combined WHERE; branch INNER JOINs are merged.
+					const orWhere = SQLBuilder.buildOrCombinedWhere(_or);
+					subquery = this.buildManyToOneJoin(
+						[],
+						alias,
+						referenceField.tableName,
+						[...innerJoin, ..._or.flatMap((o) => o.innerJoin)],
+						outerJoin,
+						whereSQL,
+						orWhere.length > 0 ? [...whereWithValues, `(${orWhere})`] : whereWithValues
+					);
+				} else {
+					const unionAll = SQLBuilder.buildUnionAll(
+						[],
+						referenceField.tableName,
+						alias,
+						innerJoin,
+						outerJoin,
+						whereSQL,
+						whereWithValues,
+						_or,
+						this.buildManyToOneJoin
+					);
 
-				logger.log('FilterProcessor - mapFilterManyToOne: whereSQL', alias.toString(), unionAll);
+					logger.log('FilterProcessor - mapFilterManyToOne: whereSQL', alias.toString(), unionAll);
 
-				const subquery =
-					unionAll.length > 0
-						? unionAll.map((q) => `(${q})`).join(' union all ')
-						: this.buildManyToOneJoin(
-								[],
-								alias,
-								referenceField.tableName,
-								innerJoin,
-								outerJoin,
-								whereSQL,
-								whereWithValues
-							);
+					subquery =
+						unionAll.length > 0
+							? unionAll.map((q) => `(${q})`).join(' union all ')
+							: this.buildManyToOneJoin(
+									[],
+									alias,
+									referenceField.tableName,
+									innerJoin,
+									outerJoin,
+									whereSQL,
+									whereWithValues
+								);
+				}
 
 				const existsSQL = `exists (${subquery})`.replaceAll(/[ \n\t]+/gi, ' ');
 
@@ -1680,33 +1909,51 @@ export class FilterProcessor extends ClassOperations {
 				.map((c) => ptAlias.toColumnName(c))
 				.join(', ')}) in (${referenceField.primaryKeys
 				.map((c) => alias.toColumnName(c))
-				.join(', ')})`.replaceAll(/[ \n\t]+/gi, ' ');
-
-			const unionAll = SQLBuilder.buildUnionAll(
-				[alias.toColumnName('*')],
-				referenceField.tableName,
-				alias,
-				innerJoin,
-				outerJoin.concat(`inner join ${ptAlias} on ${onSQL}`),
-				'',
-				whereWithValues,
-				_or,
-				this.buildManyToManyPivotTable
-			);
+				.join(', ')})`.replaceAll(/[ \n	]+/gi, ' ');
 
 			const whereSQL = `(${referenceField.primaryKeys.join(', ')}) in (${ptSQL})`;
-			const subquery =
-				unionAll.length > 0
-					? `with ${ptAlias} as (${ptSQL}) ${unionAll.map((q) => `(${q})`).join(' union all ')}`
-					: this.buildManyToManyPivotTable(
-							[alias.toColumnName('*')],
-							alias,
-							referenceField.tableName,
-							innerJoin,
-							outerJoin,
-							whereSQL,
-							whereWithValues
-						);
+			let subquery: string;
+			if (this.orStrategy === 'or' && _or.length > 0) {
+				// OR strategy: flatten branches into one EXISTS subquery with an
+				// OR-combined WHERE; branch INNER JOINs are merged. The pivot-table
+				// CTE wrapper is only needed for the UNION ALL path — use the
+				// plain fallback builder here.
+				const orWhere = SQLBuilder.buildOrCombinedWhere(_or);
+				subquery = this.buildManyToManyPivotTable(
+					[alias.toColumnName('*')],
+					alias,
+					referenceField.tableName,
+					[...innerJoin, ..._or.flatMap((o) => o.innerJoin)],
+					outerJoin.concat(`inner join ${ptAlias} on ${onSQL}`),
+					whereSQL,
+					orWhere.length > 0 ? [...whereWithValues, `(${orWhere})`] : whereWithValues
+				);
+			} else {
+				const unionAll = SQLBuilder.buildUnionAll(
+					[alias.toColumnName('*')],
+					referenceField.tableName,
+					alias,
+					innerJoin,
+					outerJoin.concat(`inner join ${ptAlias} on ${onSQL}`),
+					'',
+					whereWithValues,
+					_or,
+					this.buildManyToManyPivotTable
+				);
+
+				subquery =
+					unionAll.length > 0
+						? `with ${ptAlias} as (${ptSQL}) ${unionAll.map((q) => `(${q})`).join(' union all ')}`
+						: this.buildManyToManyPivotTable(
+								[alias.toColumnName('*')],
+								alias,
+								referenceField.tableName,
+								innerJoin,
+								outerJoin,
+								whereSQL,
+								whereWithValues
+							);
+			}
 
 			const existsSQL = `exists (${subquery})`.replaceAll(/[ \n\t]+/gi, ' ');
 

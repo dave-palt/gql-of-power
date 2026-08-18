@@ -50,6 +50,10 @@ query ProlificAuthors {
     id
     name
     bookCount
+    totalPages
+    avgPages
+    oldestBookYear
+    newestBookYear
     books {
       title
       publishedYear
@@ -57,6 +61,20 @@ query ProlificAuthors {
         name
       }
     }
+  }
+}
+
+# ─────────────────────────────────────────────────────────────────────────────
+# 2b. aggregate-field filter
+#     Author.books also has aggregateFields (sum/avg/min/max on pages &
+#     publishedYear). The filter exposes totalPages_gt / _lte / _eq etc.
+# ─────────────────────────────────────────────────────────────────────────────
+query ProlificAuthorsByPages {
+  authors(filter: { totalPages_gt: 500 }) {
+    id
+    name
+    totalPages
+    avgPages
   }
 }
 
@@ -75,6 +93,38 @@ query ExistsFilters {
   nonCombatants: persons(filter: { _not_exists: { battles: {} } }) {
     id
     name
+  }
+}
+
+# ─────────────────────────────────────────────────────────────────────────────
+# 3b. ORDER BY — flat fields via GraphQL, related columns via the
+#     programmatic API. The generated *OrderBy input exposes flat Sort fields.
+#     Sorting by RELATED columns (nested objects like { author: { name: 'asc' } })
+#     is a SQL-engine feature used via getQueryResultsForInfo/Fields pagination —
+#     see resolvers.ts for the programmatic example in the comment on the pagination arg.
+# ─────────────────────────────────────────────────────────────────────────────
+query OrderedLibrary {
+  booksByTitle: books(pagination: { orderBy: [{ title: ASC }, { publishedYear: DESC }] }) {
+    id
+    title
+    publishedYear
+    author {
+      name
+    }
+  }
+}
+
+# ─────────────────────────────────────────────────────────────────────────────
+# 3c. _or filter — compiled to UNION ALL branches by default. The strategy is a
+#     server-side pagination knob (orStrategy: 'or' flattens to a single query
+#     with a plain OR — see resolvers.ts comment + README "OR Strategy").
+# ─────────────────────────────────────────────────────────────────────────────
+query RingsByPowerOrForgedBy {
+  rings(filter: { _or: [{ power_like: "%corruption%" }, { forgedBy_eq: "Sauron" }] }) {
+    id
+    name
+    power
+    forgedBy
   }
 }
 

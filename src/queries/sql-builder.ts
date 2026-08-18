@@ -39,15 +39,16 @@ export class SQLBuilder {
 		value?: { innerJoin: string } | { where: string },
 		innerOrderBy?: string,
 		innerLimit?: string,
-		innerOffset?: string
+		innerOffset?: string,
+		distinctKeyword: string = ''
 	): string {
-		return `select ${selectFields.join(', ')}
+		return `select ${distinctKeyword}${selectFields.join(', ')}
             from (
 				select ${rawSelect.join(', ')}
 					from ${tableName} as ${alias}
 					${globalInnerJoin.join(' \n')}
 					${value && 'innerJoin' in value ? value.innerJoin : ''}
-				where true 
+				where true
 				${globalWhereJoin.length > 0 ? ` and ( ${globalWhereJoin.join(' and ')} )` : ''}
 				${value && 'where' in value ? `and ${value.where}` : ''}
 				${innerOrderBy ?? ''}
@@ -111,6 +112,18 @@ export class SQLBuilder {
 			})
 			.filter((q): q is string => q !== null);
 	}
+	/**
+	 * Combines UNION-ALL branch WHEREs into a single OR expression for
+	 * `orStrategy: 'or'`. Each branch's conditions are AND-grouped in parens,
+	 * branches joined with `or`. Returns '' when no branch has conditions.
+	 */
+	public static buildOrCombinedWhere(branches: MappingsType[]): string {
+		return branches
+			.map(({ where }) => (where.length > 0 ? `(${where.join(' and ')})` : ''))
+			.filter((c) => c.length > 0)
+			.join(' or ');
+	}
+
 	public static buildInnerBranch(
 		rawSelect: string[],
 		tableName: string,

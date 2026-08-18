@@ -1,6 +1,7 @@
 import {
 	Field,
 	FieldResolver,
+	Float,
 	getMetadataStorage,
 	InputType,
 	Int,
@@ -12,16 +13,22 @@ import {
 import { FieldOperations } from '../operations';
 import {
 	CountFieldMeta,
+	AggregateFieldMeta,
 	CustomFieldsSettings,
 	CustomFieldSettings,
 	FieldSettings,
 	FieldsSettings,
+	GQLOrStrategy,
 	OrderByOptions,
 	RelatedFieldSettings,
 	RequireRelationConfig,
 	Sort,
 } from '../types/sql-types';
-import { GQLEntityFilterInputFieldType, GQLEntityPaginationInputType } from '../types/gql-types';
+import {
+	GQLEntityFilterInputFieldType,
+	GQLEntityPaginationInputType,
+	OrStrategy,
+} from '../types/gql-types';
 import { AccessControlEntry, AccessControlList } from '../types/access-control';
 import { keys } from '../utils/object';
 
@@ -32,6 +39,7 @@ const TypeMap: { [key: string]: any } = {};
 const FieldsOptionsMap: Record<string, Record<string, string>> = {};
 const CustomFieldsMap: Record<string, CustomFieldsSettings<any>> = {};
 const CountFieldsMap: Record<string, Record<string, CountFieldMeta>> = {};
+const AggregateFieldsMap: Record<string, Record<string, AggregateFieldMeta>> = {};
 const MapEnumFieldsMap: Record<string, Record<string, any>> = {};
 
 /**
@@ -154,6 +162,7 @@ function buildFilterFieldParameter(
 let gqlTypesSuffix = '';
 let gqlSortSuffix = '';
 let sortEnumRegistered = false;
+let orStrategyEnumRegistered = false;
 
 /**
  * Global enum output mode.
@@ -167,17 +176,37 @@ let sortEnumRegistered = false;
 let mapEnumOutputGlobal: 'raw' | 'key' =
 	(process.env.GQL_OF_POWER_MAP_ENUM_OUTPUT as 'raw' | 'key') || 'raw';
 
+/**
+ * Global `_or`/`_and` combination strategy.
+ *
+ * Resolved at module load from the `GQL_OF_POWER_OR_STRATEGY` env var.
+ * Per-query `pagination.orStrategy` takes precedence, then this global,
+ * then `'union-all'`.
+ *
+ * - `'union-all'` — each `_or` branch becomes a separate SELECT combined
+ *   with `union all` (historical default).
+ * - `'or'` — branches flatten into one query with `((w1) or (w2))` in the
+ *   WHERE clause (index-friendly single scan; see README for the
+ *   relationship-branch caveat).
+ */
+let orStrategyGlobal: OrStrategy =
+	(process.env.GQL_OF_POWER_OR_STRATEGY as OrStrategy) || 'union-all';
+
 export const setGlobalConfig = (config: {
 	gqlTypesSuffix?: string;
 	gqlSortSuffix?: string;
 	mapEnumOutput?: 'raw' | 'key';
+	orStrategy?: OrStrategy;
 }) => {
 	if (config.gqlTypesSuffix !== undefined) gqlTypesSuffix = config.gqlTypesSuffix;
 	if (config.gqlSortSuffix !== undefined) gqlSortSuffix = config.gqlSortSuffix;
 	if (config.mapEnumOutput !== undefined) mapEnumOutputGlobal = config.mapEnumOutput;
+	if (config.orStrategy !== undefined) orStrategyGlobal = config.orStrategy;
 };
 
 export const getMapEnumOutputGlobal = () => mapEnumOutputGlobal;
+
+export const getOrStrategyGlobal = () => orStrategyGlobal;
 
 // ─── Public accessors ────────────────────────────────────────────────────────
 
@@ -219,6 +248,45 @@ export const registerCountField = (
 export const clearCountFields = (): void => {
 	for (const key of Object.keys(CountFieldsMap)) {
 		delete CountFieldsMap[key];
+	}
+};
+
+/**
+ * Returns the aggregate fields registered for the given GQL entity name.
+ * Keyed by the aggregate field name (e.g. 'totalPages'), value is the aggregate field metadata.
+ */
+export const getAggregateFieldsFor = (name: string): Record<string, AggregateFieldMeta> =>
+	AggregateFieldsMap[name] ?? {};
+
+/**
+ * Manually registers an aggregate field for an entity.
+ * Useful for testing without the @GQLEntityClass decorator.
+ * In production, aggregate fields are auto-registered by the decorator when `aggregateFields` is set.
+ */
+export const registerAggregateField = (
+	gqlEntityName: string,
+	aggregateFieldName: string,
+	fn: 'sum' | 'avg' | 'min' | 'max',
+	column: string,
+	relationshipFieldName: string,
+	relatedEntityName: () => string
+): void => {
+	AggregateFieldsMap[gqlEntityName] = AggregateFieldsMap[gqlEntityName] || {};
+	AggregateFieldsMap[gqlEntityName][aggregateFieldName] = {
+		aggregateFieldName,
+		fn,
+		column,
+		relationshipFieldName,
+		relatedEntityName,
+	};
+};
+
+/**
+ * Clears all registered aggregate fields. Intended for test teardown.
+ */
+export const clearAggregateFields = (): void => {
+	for (const key of Object.keys(AggregateFieldsMap)) {
+		delete AggregateFieldsMap[key];
 	}
 };
 export const getMapEnumFieldsFor = (name: string): Record<string, any> =>
@@ -304,6 +372,19 @@ function ensureSortRegistered() {
 	const suffix = gqlSortSuffix || process.env['D3GOP_SORT_SUFFIX'] || '';
 	registerEnumType(Sort, { name: `Sort${suffix}` });
 	sortEnumRegistered = true;
+}
+
+/**
+ * Registers the GQLOrStrategy enum with type-graphql using the current sort suffix.
+ * Same deferred, idempotent pattern as ensureSortRegistered — call it from any
+ * resolver that exposes `orStrategy` as a GraphQL arg; type-graphql requires the
+ * enum to be registered before the schema references it.
+ */
+export function ensureOrStrategyRegistered() {
+	if (orStrategyEnumRegistered) return;
+	const suffix = gqlSortSuffix || process.env['D3GOP_SORT_SUFFIX'] || '';
+	registerEnumType(GQLOrStrategy, { name: `OrStrategy${suffix}` });
+	orStrategyEnumRegistered = true;
 }
 
 // ─── Static members type ──────────────────────────────────────────────────────
@@ -876,6 +957,9 @@ function _registerFiltersAndPagination<T>(
 
 		@Field(() => [GQLEntityOrderBy], { nullable: true })
 		orderBy?: OrderByOptions[];
+
+		@Field(() => Boolean, { nullable: true })
+		distinct?: boolean;
 	}
 	Object.defineProperty(GQLEntityPaginationInputField, 'name', {
 		value: paginationTypeName,
@@ -1036,6 +1120,126 @@ function _registerCountFields<T>(
 				description: `Filter by ${countFieldName} with operators`,
 				deprecationReason: undefined,
 			});
+		}
+
+		// Register aggregate fields derived from relationship fields with aggregateFields
+		if (fieldOptions.aggregateFields && Array.isArray(fieldOptions.aggregateFields)) {
+			const relatedEntityName = fieldOptions.relatedEntityName as () => string;
+			const relatedGQLEntityName = getGQLEntityNameFor(relatedEntityName());
+
+			for (const { fn, column, fieldName: aggFieldName } of fieldOptions.aggregateFields) {
+				// avg → Float, sum/min/max → Float (consistent, avoids integer-division surprises)
+				metadata.collectClassFieldMetadata({
+					target: GQLEntity,
+					name: aggFieldName,
+					schemaName: aggFieldName,
+					getType: () => Float,
+					typeOptions: { nullable: true },
+					complexity: undefined,
+					description: `${fn.toUpperCase()} of ${column} with optional filter`,
+					deprecationReason: undefined,
+				});
+
+				// Register filter arg on the aggregate field
+				metadata.collectHandlerParamMetadata({
+					kind: 'arg',
+					name: 'filter',
+					description: undefined,
+					methodName: aggFieldName,
+					index: 0,
+					getType: () => TypeMap[relatedGQLEntityName + 'FilterInput'],
+					target: GQLEntity,
+					typeOptions: { nullable: true },
+					deprecationReason: undefined,
+					validateFn: undefined,
+					validateSettings: undefined,
+				});
+
+				// Store in AggregateFieldsMap
+				AggregateFieldsMap[gqlEntityName] = AggregateFieldsMap[gqlEntityName] || {};
+				AggregateFieldsMap[gqlEntityName][aggFieldName] = {
+					aggregateFieldName: aggFieldName,
+					fn,
+					column,
+					relationshipFieldName: fieldNameToUse,
+					relatedEntityName,
+				};
+
+				// Register numeric filter operators on the entity's FilterInput
+				// Supports: totalPages_eq, totalPages_gt, totalPages: 500, TotalPages: { _gt: 500 }
+				const aggFilterOperators: Array<{ key: string }> = [
+					{ key: '_eq' },
+					{ key: '_ne' },
+					{ key: '_gt' },
+					{ key: '_gte' },
+					{ key: '_lt' },
+					{ key: '_lte' },
+				];
+
+				for (const op of aggFilterOperators) {
+					const opFieldName = aggFieldName + op.key;
+					metadata.collectClassFieldMetadata({
+						target: GQLEntityFilterInput,
+						name: opFieldName,
+						schemaName: opFieldName,
+						getType: () => Float,
+						typeOptions: { nullable: true },
+						complexity: undefined,
+						description: `Filter by ${aggFieldName} ${op.key}`,
+						deprecationReason: undefined,
+					});
+				}
+
+				// totalPages: 500 (implicit _eq)
+				metadata.collectClassFieldMetadata({
+					target: GQLEntityFilterInput,
+					name: aggFieldName,
+					schemaName: aggFieldName,
+					getType: () => Float,
+					typeOptions: { nullable: true },
+					complexity: undefined,
+					description: `Filter by ${aggFieldName} (equals)`,
+					deprecationReason: undefined,
+				});
+
+				// TotalPages: { _gt: 500 } (nested object form)
+				const UppercasedAggFieldName = aggFieldName[0].toUpperCase() + aggFieldName.slice(1);
+				const aggFieldFilterTypeName = `${gqlEntityName}_${UppercasedAggFieldName}`;
+
+				@InputType(aggFieldFilterTypeName)
+				class AggregateFieldFilterInput {}
+
+				Object.defineProperty(AggregateFieldFilterInput, 'name', {
+					value: aggFieldFilterTypeName,
+				});
+				TypeMap[aggFieldFilterTypeName] = AggregateFieldFilterInput;
+
+				for (const op of aggFilterOperators) {
+					metadata.collectClassFieldMetadata({
+						target: AggregateFieldFilterInput,
+						name: op.key,
+						schemaName: op.key,
+						getType: () => Float,
+						typeOptions: { nullable: true },
+						complexity: undefined,
+						description: op.key,
+						deprecationReason: undefined,
+					});
+				}
+
+				InputType(aggFieldFilterTypeName)(AggregateFieldFilterInput);
+
+				metadata.collectClassFieldMetadata({
+					target: GQLEntityFilterInput,
+					name: UppercasedAggFieldName,
+					schemaName: UppercasedAggFieldName,
+					getType: () => AggregateFieldFilterInput,
+					typeOptions: { nullable: true },
+					complexity: undefined,
+					description: `Filter by ${aggFieldName} with operators`,
+					deprecationReason: undefined,
+				});
+			}
 		}
 	}
 }

@@ -65,6 +65,28 @@ export enum Sort {
 	// fallow-ignore-next-line unused-enum-member -- members are the values registered with GraphQL via registerEnumType(Sort) in gql-entity.ts
 	DESC = 'desc',
 }
+
+/**
+ * GraphQL-usable form of `OrStrategy`. Enum value names can't contain hyphens,
+ * so `UNION_ALL` maps to the string value `'union-all'` that the SQL mapper
+ * compares against. Registered with type-graphql (deferred, suffix-aware —
+ * same pattern as `Sort`) via `ensureOrStrategyRegistered()`; import it from
+ * the package root to expose `orStrategy` as an optional arg on any query:
+ *
+ * ```typescript
+ * @Arg('orStrategy', () => GQLOrStrategy, { nullable: true })
+ * orStrategy?: GQLOrStrategy,
+ * ```
+ *
+ * The resolved value ('union-all' | 'or') drops straight into
+ * `pagination.orStrategy`.
+ */
+export enum GQLOrStrategy {
+	// fallow-ignore-next-line unused-enum-member -- members are the values registered with GraphQL via registerEnumType(GQLOrStrategy) in gql-entity.ts
+	UNION_ALL = 'union-all',
+	// fallow-ignore-next-line unused-enum-member -- members are the values registered with GraphQL via registerEnumType(GQLOrStrategy) in gql-entity.ts
+	OR = 'or',
+}
 export type OrderByOptions = {
 	[x: string]: Sort;
 };
@@ -182,6 +204,47 @@ export type FieldBaseSettings = {
 			 * }
 			 */
 			countFieldName?: string;
+
+			/**
+			 * When set, generates additional Float/Int fields on the GQL entity that return
+			 * aggregated values (sum, avg, min, max) of a column on the related entities.
+			 * Each entry becomes a field in the GQL schema with an optional `filter` argument.
+			 *
+			 * The generated SQL is a correlated subquery:
+			 * ```sql
+			 * (SELECT SUM(pages) FROM "books" AS e_w1 WHERE e_w1.author_id = a_1.id AND <filter>) AS "totalPages"
+			 * ```
+			 *
+			 * avg/min/max work identically with their respective SQL function.
+			 *
+			 * @example
+			 * const fields = defineFields(Author, {
+			 *   books: {
+			 *     type: () => BookGQL,
+			 *     array: true,
+			 *     relatedEntityName: () => 'Book',
+			 *     aggregateFields: [
+			 *       { fn: 'sum', column: 'pages', fieldName: 'totalPages' },
+			 *       { fn: 'avg', column: 'pages', fieldName: 'avgPages' },
+			 *       { fn: 'min', column: 'publishedYear', fieldName: 'oldestBook' },
+			 *       { fn: 'max', column: 'publishedYear', fieldName: 'newestBook' },
+			 *     ],
+			 *   },
+			 * });
+			 *
+			 * // GQL query:
+			 * query {
+			 *   authors {
+			 *     totalPages(filter: { genre: 'Fantasy' })
+			 *     avgPages
+			 *   }
+			 * }
+			 */
+			aggregateFields?: Array<{
+				fn: AggregateFunction;
+				column: string;
+				fieldName: string;
+			}>;
 	  }
 );
 
@@ -220,7 +283,7 @@ export type RequireRelationConfig = {
 	 * Static pagination to apply to the relationship subquery.
 	 * When `forwardArgs` is true, this serves as a base that GQL args override/extend.
 	 */
-	pagination?: { limit?: number; offset?: number; orderBy?: any[] };
+	pagination?: { limit?: number; offset?: number; orderBy?: any[]; distinct?: boolean };
 	/**
 	 * Forward GQL filter/pagination args from the custom field to this relationship.
 	 * Static config serves as base; GQL args override/add.
@@ -409,6 +472,32 @@ export type CountFieldMeta = {
 	/** The GQL field name for the count (e.g. 'bookCount'). */
 	countFieldName: string;
 	/** The ORM relationship field name that this count derives from (e.g. 'books'). */
+	relationshipFieldName: string;
+	/** Resolves to the related entity's ORM class name (e.g. 'Book'). */
+	relatedEntityName: () => string;
+};
+
+/**
+ * Supported SQL aggregate functions.
+ * - sum: total of all matching values
+ * - avg: arithmetic mean of all matching values
+ * - min: smallest matching value
+ * - max: largest matching value
+ */
+export type AggregateFunction = 'sum' | 'avg' | 'min' | 'max';
+
+/**
+ * Metadata for a single auto-generated aggregate field.
+ * Stored internally in AggregateFieldsMap.
+ */
+export type AggregateFieldMeta = {
+	/** The GQL field name for the aggregate (e.g. 'totalPages'). */
+	aggregateFieldName: string;
+	/** The SQL aggregate function (sum, avg, min, max). */
+	fn: AggregateFunction;
+	/** The ORM property name on the related entity whose column is aggregated (e.g. 'pages'). */
+	column: string;
+	/** The ORM relationship field name that this aggregate derives from (e.g. 'books'). */
 	relationshipFieldName: string;
 	/** Resolves to the related entity's ORM class name (e.g. 'Book'). */
 	relatedEntityName: () => string;

@@ -151,16 +151,17 @@ const fields = defineFields(Book, {
 
 #### Field options
 
-| Option              | Type                | Purpose                                                                               |
-| ------------------- | ------------------- | ------------------------------------------------------------------------------------- |
-| `type`              | `() => GraphQLType` | GraphQL return type (required)                                                        |
-| `generateFilter`    | `boolean`           | Generate filter input fields for this property                                        |
-| `options`           | `FieldOptions`      | type-graphql field options (nullable, description, etc.)                              |
-| `alias`             | `string`            | Override the GQL field name                                                           |
-| `array`             | `true`              | Mark as array return type                                                             |
-| `relatedEntityName` | `() => string`      | ORM entity name for array relation fields (auto-derived when using `@GQLEntityClass`) |
-| `countFieldName`    | `string`            | Generate a count field for this relationship (see [Count Fields](#count-fields))      |
-| `enum`              | `EnumData`          | Register an enum type                                                                 |
+| Option              | Type                     | Purpose                                                                               |
+| ------------------- | ------------------------ | ------------------------------------------------------------------------------------- |
+| `type`              | `() => GraphQLType`      | GraphQL return type (required)                                                        |
+| `generateFilter`    | `boolean`                | Generate filter input fields for this property                                        |
+| `options`           | `FieldOptions`           | type-graphql field options (nullable, description, etc.)                              |
+| `alias`             | `string`                 | Override the GQL field name                                                           |
+| `array`             | `true`                   | Mark as array return type                                                             |
+| `relatedEntityName` | `() => string`           | ORM entity name for array relation fields (auto-derived when using `@GQLEntityClass`) |
+| `countFieldName`    | `string`                 | Generate a count field for this relationship (see [Count Fields](#count-fields))      |
+| `aggregateFields`   | `AggregateFieldConfig[]` | Generate sum/avg/min/max aggregate fields (see [Aggregate Fields](#aggregate-fields)) |
+| `enum`              | `EnumData`               | Register an enum type                                                                 |
 
 ### `@GQLEntityClass(OrmClass, fields, extra?)`
 
@@ -382,32 +383,32 @@ filter: {
 
 ### Filter operations
 
-| Operation      | Meaning                                                 |
-| -------------- | ------------------------------------------------------- |
-| `_eq`          | Equal                                                   |
-| `_ne`          | Not equal                                               |
-| `_in`          | In array                                                |
-| `_nin`         | Not in array                                            |
-| `_like`        | LIKE (case-sensitive contains)                          |
-| `_nlike`       | NOT LIKE                                                |
-| `_ilike`       | ILIKE (case-insensitive contains)                       |
-| `_nilike`      | NOT ILIKE                                               |
-| `_startsWith`  | LIKE prefix (case-sensitive)                            |
-| `_istartsWith` | ILIKE prefix (case-insensitive)                         |
-| `_endsWith`    | LIKE suffix (case-sensitive)                            |
-| `_iendsWith`   | ILIKE suffix (case-insensitive)                         |
-| `_re`          | Regex match (`~`)                                       |
-| `_nre`         | Regex non-match (`!~`)                                  |
-| `_gt` / `_gte` | Greater than / greater than or equal                    |
-| `_lt` / `_lte` | Less than / less than or equal                          |
-| `_between`     | BETWEEN low AND high                                    |
-| `_nbetween`    | NOT BETWEEN low AND high                                |
-| `_is_null`     | IS NULL (true) / IS NOT NULL (false)                    |
-| `_and`         | Logical AND                                             |
-| `_or`          | Logical OR (generates UNION ALL)                        |
-| `_not`         | Negates a conjunction of conditions (NOT (...) wrapper) |
-| `_exists`      | Check related entities exist (AND-combined per key)     |
-| `_not_exists`  | Check no related entities exist (AND-combined per key)  |
+| Operation      | Meaning                                                                                        |
+| -------------- | ---------------------------------------------------------------------------------------------- |
+| `_eq`          | Equal                                                                                          |
+| `_ne`          | Not equal                                                                                      |
+| `_in`          | In array                                                                                       |
+| `_nin`         | Not in array                                                                                   |
+| `_like`        | LIKE (case-sensitive contains)                                                                 |
+| `_nlike`       | NOT LIKE                                                                                       |
+| `_ilike`       | ILIKE (case-insensitive contains)                                                              |
+| `_nilike`      | NOT ILIKE                                                                                      |
+| `_startsWith`  | LIKE prefix (case-sensitive)                                                                   |
+| `_istartsWith` | ILIKE prefix (case-insensitive)                                                                |
+| `_endsWith`    | LIKE suffix (case-sensitive)                                                                   |
+| `_iendsWith`   | ILIKE suffix (case-insensitive)                                                                |
+| `_re`          | Regex match (`~`)                                                                              |
+| `_nre`         | Regex non-match (`!~`)                                                                         |
+| `_gt` / `_gte` | Greater than / greater than or equal                                                           |
+| `_lt` / `_lte` | Less than / less than or equal                                                                 |
+| `_between`     | BETWEEN low AND high                                                                           |
+| `_nbetween`    | NOT BETWEEN low AND high                                                                       |
+| `_is_null`     | IS NULL (true) / IS NOT NULL (false)                                                           |
+| `_and`         | Logical AND                                                                                    |
+| `_or`          | Logical OR (UNION ALL by default; plain `OR` via [`orStrategy`](#or-strategy-union-all-vs-or)) |
+| `_not`         | Negates a conjunction of conditions (NOT (...) wrapper)                                        |
+| `_exists`      | Check related entities exist (AND-combined per key)                                            |
+| `_not_exists`  | Check no related entities exist (AND-combined per key)                                         |
 
 ### Existence Filters (`_exists` / `_not_exists`)
 
@@ -528,6 +529,89 @@ Works for all relationship types (1:m, m:1, m:n). For m:n, the pivot table is in
 
 ---
 
+## Aggregate Fields
+
+Add `aggregateFields` to any relationship field to auto-generate numeric fields that return aggregated values (`sum`, `avg`, `min`, `max`) of a column on the related entities. Each aggregate is computed via a correlated subquery — no JOINs in the outer query.
+
+### Definition
+
+```typescript
+const authorFields = defineFields(Author, {
+	id: { type: () => ID, generateFilter: true },
+	name: { type: () => String, generateFilter: true },
+	books: {
+		type: () => BookGQL,
+		array: true,
+		relatedEntityName: () => 'Book',
+		countFieldName: 'bookCount',
+		aggregateFields: [
+			{ fn: 'sum', column: 'pages', fieldName: 'totalPages' }, // Float
+			{ fn: 'avg', column: 'pages', fieldName: 'avgPages' }, // Float
+			{ fn: 'min', column: 'publishedYear', fieldName: 'oldestBook' }, // Int
+			{ fn: 'max', column: 'publishedYear', fieldName: 'newestBook' }, // Int
+		],
+	},
+});
+```
+
+### Field types
+
+| Function | GQL type | SQL function |
+| -------- | -------- | ------------ |
+| `sum`    | `Float`  | `SUM(col)`   |
+| `avg`    | `Float`  | `AVG(col)`   |
+| `min`    | `Float`  | `MIN(col)`   |
+| `max`    | `Float`  | `MAX(col)`   |
+
+> **Note:** The `column` is the **property name** on the related entity, not the raw SQL column name. The mapper resolves it to the correct DB column via metadata.
+
+### Querying
+
+```graphql
+query {
+	authors {
+		name
+		totalPages
+		avgPages
+		oldestBook
+		newestBook
+	}
+}
+```
+
+### Filtering by Aggregates
+
+Aggregate fields support the same numeric operators as count fields:
+
+```graphql
+# Authors whose total pages exceed 500
+filter: { totalPages_gt: 500 }
+
+# Implicit _eq
+filter: { totalPages: 500 }
+
+# Nested object form (AND-combined)
+filter: { TotalPages: { _gt: 200, _lte: 800 } }
+```
+
+Supported operators: `_eq`, `_ne`, `_gt`, `_gte`, `_lt`, `_lte`.
+
+### Generated SQL
+
+```sql
+-- totalPages (select)
+SELECT ...,
+  (SELECT SUM(page_count) FROM "books" AS e_w1 WHERE e_w1.author_id = a_1.id) AS "totalPages"
+FROM authors AS a_1 ...
+
+-- totalPages_gt (filter)
+WHERE (SELECT SUM(page_count) FROM "books" AS e_w1 WHERE e_w1.author_id = a_1.id) > :v_totalPages1_1
+```
+
+Works for all relationship types (1:m, m:1, m:m). For m:m, the pivot table is included in the subquery.
+
+---
+
 ## Pagination
 
 ```typescript
@@ -535,8 +619,186 @@ pagination: {
   limit: 20,
   offset: 40,
   orderBy: [{ publishedYear: 'desc' }],
+  distinct: true, // emit SELECT DISTINCT on the outermost query
 }
 ```
+
+### Order By Related Columns
+
+You can sort by columns on a related entity using **nested objects** (so
+TypeScript gives you autocomplete at every level):
+
+```typescript
+pagination: {
+  orderBy: [{ author: { name: 'asc' } }], // sort Books by Author name
+}
+```
+
+This generates a correlated subquery:
+
+```sql
+SELECT ... FROM books AS e_a1
+ORDER BY (SELECT e_o.author_name FROM "authors" AS e_o WHERE e_a1.author_id = e_o.id) ASC
+```
+
+Multiple related and flat sort keys can be combined:
+
+```typescript
+pagination: {
+  orderBy: [{ author: { name: 'asc' } }, { title: 'desc' }],
+}
+```
+
+**All cardinalities are supported in the SQL engine.** The relation's join
+direction is resolved through the shared ownership dispatch
+(`src/queries/relation-dispatch.ts`):
+
+- **m:1** and **owning-side 1:1** (`inversedBy` set, FK on this entity): plain
+  scalar subquery — exactly one related row, no aggregation.
+- **1:m** and **inverse-side 1:1** (`mappedBy` set, FK on the related entity):
+  the many related rows are collapsed to a single sortable value via
+  aggregation — **MIN for ascending, MAX for descending** — so ordering stays
+  deterministic. Resolves the child FK through the `mappedBy` property.
+- **m:n**: same MIN/MAX aggregation, joining the related table to the pivot
+  table inside the subquery.
+
+```typescript
+// Books of each Author, oldest first (1:m, aggregated):
+pagination: {
+	orderBy: [{ books: { publishedYear: 'asc' } }];
+}
+// → ORDER BY (SELECT MIN(e_o.published_year) FROM "books" e_o WHERE e_a1.id = e_o.author_id) ASC
+```
+
+Aggregated sorts (1:m / m:n) require a **single-column** related field —
+multi-column is ambiguous under aggregation. An orderBy key that resolves to
+neither a relation nor a scalar field throws a named error instead of silently
+producing broken SQL.
+
+> **GraphQL schema note:** the auto-generated `<Entity>OrderBy` input type
+> currently exposes **flat `Sort` fields only**. Nested related-column orderBy
+> works through the **programmatic pagination API** — pass `pagination` to
+> `getQueryResultsForInfo` / `getQueryResultsForFields` (or your resolver's
+> pagination arg typed as `any`) — the SQL engine handles the nested objects.
+> Exposing nested orderBy in the generated input types is a planned enhancement.
+
+### Distinct
+
+When `pagination.distinct` is `true`, the outermost SELECT is emitted as `SELECT DISTINCT`,
+deduplicating the final user-facing rows. This is useful when relationship JOINs could
+multiply parent rows and you only want unique parents back.
+
+```sql
+SELECT DISTINCT e_a1.id, e_a1.book_title AS "title" FROM ( ... ) AS e_a1
+```
+
+Works alongside `limit`, `offset`, `orderBy`, and `_or`/`_and` filters (the UNION ALL
+path also gets the outer `DISTINCT` — the inner structural `select distinct *` is
+preserved as well).
+
+#### Nested distinct
+
+The `distinct` flag also works on reference-list fields (1:m and m:m relations).
+Pass it via the field's `pagination` argument:
+
+```graphql
+query {
+	authors {
+		id
+		name
+		books(distinct: true) {
+			id
+			title
+		}
+	}
+}
+```
+
+This emits `SELECT DISTINCT` inside the correlated subquery for `books`:
+
+```sql
+SELECT ... COALESCE((
+  SELECT json_agg(row_to_json(e_a2)) FROM (
+    SELECT DISTINCT e_a2.id, e_a2.title
+    FROM "books" AS e_a2 WHERE e_a2.author_id = e_a1.id
+  ) AS e_a2
+), '[]') AS "books"
+FROM authors AS e_a1
+```
+
+Useful when a m:m pivot or a 1:m join fans out duplicate children. Both root and
+nested `distinct` can be used simultaneously.
+
+### OR Strategy (`union-all` vs `or`)
+
+By default, `_or` (and `_and`-combination) filters are compiled into separate
+SELECTs combined with `UNION ALL` — each branch keeps its own INNER JOINs
+isolated. Some workloads prefer a single index-friendly scan with a plain `OR`
+in the WHERE clause instead. Set `orStrategy` to switch:
+
+```typescript
+// Per query (via pagination):
+const rings = await queryManager.getQueryResultsForFields(provider, Ring, fields, filter, {
+	orStrategy: 'or',
+});
+
+// Or globally (also readable from env GQL_OF_POWER_OR_STRATEGY):
+setGlobalConfig({ orStrategy: 'or' });
+```
+
+**Exposing it to clients (optional).** `orStrategy` is server-side by default.
+To let clients pick the strategy per query, add an optional arg using the
+exported `GQLOrStrategy` enum (value names are GraphQL-safe; the values carry
+the raw `'union-all' | 'or'` strings):
+
+```typescript
+import { GQLOrStrategy, ensureOrStrategyRegistered } from '@dav3/gql-of-power';
+
+ensureOrStrategyRegistered(); // idempotent — registers the enum with type-graphql
+
+@Query(() => [RingGQL])
+async rings(
+	@Arg('filter', () => RingGQL.FilterInput, { nullable: true }) filter?: any,
+	@Arg('orStrategy', () => GQLOrStrategy, { nullable: true }) orStrategy?: GQLOrStrategy,
+	@Arg('pagination', () => RingGQL.PaginationInput, { nullable: true }) pagination?: any,
+) {
+	return queryManager.getQueryResultsForInfo(provider, Ring, info, filter, {
+		...pagination,
+		orStrategy, // resolved value drops straight in
+	});
+}
+```
+
+```graphql
+query {
+	rings(
+		orStrategy: OR
+		filter: { _or: [{ power_like: "%corruption%" }, { forgedBy_eq: "Sauron" }] }
+	) {
+		id
+	}
+}
+```
+
+Generated SQL for `filter: { _or: [{ name_eq: 'Frodo' }, { race_eq: 'Elf' }] }`:
+
+```sql
+-- orStrategy: 'or' (default 'union-all' emits one SELECT per branch instead)
+SELECT ... FROM persons AS e_a1
+WHERE ((e_a1.person_name = :v_name_eq1_1) OR (e_a1.race = :v_race_eq1_1))
+```
+
+The strategy applies everywhere `_or` branches are compiled: the root query,
+relationship `EXISTS` subqueries (m:1 / 1:m / m:m / mapped custom-field), and
+count/aggregate correlated subqueries.
+
+**Note on relationship-based `_or` branches.** Relationship filter branches
+compile to self-contained correlated `EXISTS` subqueries (not parent-level
+INNER JOINs), so `'or'` mode is equivalent to UNION ALL for them too —
+verified by PG integration tests covering mixed relationship+scalar branches
+and dual-relationship branches on different tables. Counts and aggregates over
+`_or`-filtered children dedupe on the child's primary keys, so a child
+matching multiple branches is counted/summed exactly once in both modes.
 
 ---
 
@@ -556,14 +818,15 @@ pagination: {
 
 ### Environment Variables
 
-| Variable                       | Purpose                                                                                                   |
-| ------------------------------ | --------------------------------------------------------------------------------------------------------- |
-| `D3GOP_TYPES_SUFFIX`           | Suffix appended to all generated GQL entity type names (e.g. `'V2'` → `BookV2`, `AuthorV2`)               |
-| `D3GOP_SORT_SUFFIX`            | Suffix appended to sort/pagination types only (e.g. `'V2'` → `SortV2`, `BookV2OrderBy`)                   |
-| `D3GOP_LOG_TYPE`               | Logging level: `debug` or `disabled`                                                                      |
-| `D3GOP_DEFAULT_QUERY_LIMIT`    | Default query limit when pagination is not specified (default: `3000`)                                    |
-| `D3GOP_USE_STRING_FOR_JSONB`   | Toggle between JSONB and string concatenation for JSON aggregation                                        |
-| `GQL_OF_POWER_MAP_ENUM_OUTPUT` | Enum output mode: `raw` (default) or `key`. See [mapEnumOutput](#mapenumoutput-sdl-schema-support) below. |
+| Variable                       | Purpose                                                                                                           |
+| ------------------------------ | ----------------------------------------------------------------------------------------------------------------- |
+| `D3GOP_TYPES_SUFFIX`           | Suffix appended to all generated GQL entity type names (e.g. `'V2'` → `BookV2`, `AuthorV2`)                       |
+| `D3GOP_SORT_SUFFIX`            | Suffix appended to sort/pagination types only (e.g. `'V2'` → `SortV2`, `BookV2OrderBy`)                           |
+| `D3GOP_LOG_TYPE`               | Logging level: `debug` or `disabled`                                                                              |
+| `D3GOP_DEFAULT_QUERY_LIMIT`    | Default query limit when pagination is not specified (default: `3000`)                                            |
+| `D3GOP_USE_STRING_FOR_JSONB`   | Toggle between JSONB and string concatenation for JSON aggregation                                                |
+| `GQL_OF_POWER_MAP_ENUM_OUTPUT` | Enum output mode: `raw` (default) or `key`. See [mapEnumOutput](#mapenumoutput-sdl-schema-support) below.         |
+| `GQL_OF_POWER_OR_STRATEGY`     | `_or` combination strategy: `union-all` (default) or `or`. See [OR Strategy](#or-strategy-union-all-vs-or) above. |
 
 > **Type name collision**: If you have both v1 (`createGQLTypes`) and v2 (`@GQLEntityClass`) entities in the same schema, set `D3GOP_TYPES_SUFFIX` so v2 entity names are distinct (e.g. `Hobbit` → `HobbitV2`). Use `D3GOP_SORT_SUFFIX` separately if sort/pagination types also need a suffix. No `setGlobalConfig()` call is required — the env vars are read automatically.
 
@@ -725,6 +988,33 @@ queryManager.getQueryResultsForInfo(provider, PersonGQL, info, {
 
 This is the library's own test-suite pattern.
 
+### Relation metadata errors (`inverse property … not declared` / `missing pivot metadata`)
+
+The JOIN direction for `1:1` relations depends on which side owns the FK — this is
+decided in one place (`src/queries/relation-dispatch.ts`) for every code path
+(selections, top-level filters, count fields, inline filters). Two metadata
+mistakes are reported with named errors:
+
+**`gql-of-power: inverse property "X" (mappedBy of "Y") is not declared in the metadata of …`**
+
+A `1:m` / inverse-`1:1` relation points at `mappedBy: 'X'`, but the related
+entity's metadata does not declare a property named `X` (the one holding the FK).
+Add the FK property to the related entity's `EntityMetadata` so the join columns
+can be resolved.
+
+**`gql-of-power: m:n relation "X" is missing pivot metadata (pivotTable/joinColumns)`**
+
+A `m:n` relation was declared without `pivotTable` / `joinColumns` /
+`inverseJoinColumns`. These live on the **owning** side of the relation. If you
+are querying from the inverse side, either declare the pivot columns explicitly
+or query from the owning side.
+
+Before these guards, both cases crashed with
+`TypeError: Cannot read properties of undefined (reading 'joinColumns')` or
+produced a cryptic column-count mismatch.
+
+---
+
 ### `mapNumericEnum` filter values silently fail inside nested/inline filters
 
 If a `mapNumericEnum` field filters correctly at the **top level** but silently returns no results (or the wrong rows) when placed inside an inline field-argument filter on a nested relation — e.g.:
@@ -800,6 +1090,7 @@ Both modes produce identical JSON output: enum fields come back as string keys (
 ## Known Limitations
 
 - ⚠️ Order by columns on related/joined tables not supported
+- ⚠️ Order BY on 1:m / m:m related columns requires aggregation strategy (MIN/MAX) — only m:1 is supported
 - ⚠️ ACL pending async refactoring
 
 ---

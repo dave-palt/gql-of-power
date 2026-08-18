@@ -102,6 +102,7 @@ For the **exact annotated examples** of each relationship type (field settings +
 | Need                                                   | Feature                   | Where                          | See                               |
 | ------------------------------------------------------ | ------------------------- | ------------------------------ | --------------------------------- |
 | Count of related items as an Int field                 | `countFieldName`          | array relation field settings  | `references/advanced-features.md` |
+| Sum/avg/min/max of a related column as a Float field   | `aggregateFields`         | array relation field settings  | `references/advanced-features.md` |
 | Filter by whether a related row exists                 | `_exists` / `_not_exists` | class-level filter (automatic) | `references/advanced-features.md` |
 | DB stores a number, GQL wants the enum string key      | `mapNumericEnum`          | enum field settings            | `references/advanced-features.md` |
 | Store/retrieve a JSON object column                    | `parseJson`               | field settings                 | `references/advanced-features.md` |
@@ -142,6 +143,8 @@ For each new entity, verify:
 7. **`requires` fetches columns silently.** Fields listed in `requires` are added to the SQL SELECT even if the client didn't request them — needed when your resolver reads a FK the query didn't ask for.
 
 8. **`fieldNames` in metadata are SQL columns, not JS props.** `properties.name.fieldNames: ['person_name']` means the SQL column is `person_name`. Getting this wrong produces wrong SQL that may silently return nulls.
+
+9. **`_or` compiles to UNION ALL by default; `orStrategy: 'or'` switches to plain OR.** Each `_or` branch normally becomes a separate SELECT. Pass `pagination: { orStrategy: 'or' }` (or `setGlobalConfig({ orStrategy: 'or' })` / env `GQL_OF_POWER_OR_STRATEGY=or`) to flatten branches into one `((w1) or (w2))` WHERE — index-friendly. Both modes are verified equivalent by integration tests, including relationship-based branches (they compile to self-contained EXISTS subqueries) and count/aggregate subqueries (they dedupe on child PKs). See `references/advanced-features.md` → "orStrategy" and the README's "OR Strategy" section.
 
 ## Verification
 

@@ -1,4 +1,5 @@
 import { FieldsSettings } from '@dav3/gql-of-power';
+import { GraphQLJSON } from 'graphql-type-json';
 import {
 	ArmyGQL,
 	AuthorGQL,
@@ -102,8 +103,11 @@ export const RingFields: Partial<FieldsSettings<Ring>> = {
 		mapNumericEnum: true,
 	},
 	// jsonb column wrapped with a JSON-parsing expression in SQL.
+	// NOTE: parseJson fields MUST use GraphQLJSON, not `type: () => Object` —
+	// type-graphql's scalar map has no entry for Object and schema build fails
+	// with "Cannot determine GraphQL output type for 'metadata'".
 	metadata: {
-		type: () => Object,
+		type: () => GraphQLJSON,
 		options: { nullable: true },
 		generateFilter: false,
 		parseJson: true,
@@ -281,7 +285,7 @@ export const ArmyFields: Partial<FieldsSettings<Army>> = {
 
 /**
  * Author field configurations
- * Demonstrates 1:m (books) relationship with a count field.
+ * Demonstrates 1:m (books) relationship with a count field and aggregate fields.
  */
 export const AuthorFields: Partial<FieldsSettings<Author>> = {
 	id: { type: () => Number, options: { nullable: false }, generateFilter: true },
@@ -296,6 +300,12 @@ export const AuthorFields: Partial<FieldsSettings<Author>> = {
 		relatedEntityName: () => Book.name,
 		getFilterType: () => Int,
 		countFieldName: 'bookCount',
+		aggregateFields: [
+			{ fn: 'sum', column: 'pages', fieldName: 'totalPages' }, // total pages across all books
+			{ fn: 'avg', column: 'pages', fieldName: 'avgPages' }, // average book length
+			{ fn: 'min', column: 'publishedYear', fieldName: 'oldestBookYear' }, // first publication
+			{ fn: 'max', column: 'publishedYear', fieldName: 'newestBookYear' }, // latest publication
+		],
 	},
 };
 

@@ -11,7 +11,7 @@
  * SQL generation does NOT require PostgreSQL — only execution does.
  * To regenerate: bun tests/regression/generate-sql-snapshots.ts
  */
-import { describe, expect, it } from 'bun:test';
+import { describe, expect, it, beforeAll } from 'bun:test';
 import { GQLtoSQLMapper } from '../../src/queries/gql-to-sql-mapper';
 import { createMockMetadataProvider } from '../fixtures/test-data';
 import {
@@ -23,6 +23,7 @@ import {
 	Person,
 	Ring,
 } from '../fixtures/middle-earth-schema';
+import { registerAggregateField, clearAggregateFields } from '../../src/entities/gql-entity';
 import '../setup';
 
 const normalize = (sql: string) => sql.replace(/\s+/g, ' ').trim();
@@ -138,6 +139,42 @@ const goldenSQL: Record<string, string> = {
 		'select e_a1.id, e_a1.author_name AS "name", null AS "fb", f_rq1.value as "_fb" from ( select e_a1.id, e_a1.author_name from authors as e_a1 where true ) as e_a1 left outer join lateral ( select coalesce(json_agg(row_to_json(f_rq1))::json, \'[]\'::json)::jsonb as value from ( select f_rq1.author_id, f_rq1.id, f_rq1.book_title AS "title" from "books" as f_rq1 where e_a1.id = f_rq1.author_id and ( ((f_rq1.book_title like :v_title_startsWith3_1 || \'%\') or (f_rq1.book_title like \'%\' || :v_title_endsWith1_1)) ) ) as f_rq1 ) as f_rq1 on true',
 	'nested-filter-startswith-mm':
 		'select e_a1.id, e_a1.genre_name AS "name", null AS "fb", f_rq1.value as "_fb" from ( select e_a1.id, e_a1.genre_name from genres as e_a1 where true ) as e_a1 left outer join lateral ( select coalesce(json_agg(row_to_json(f_rq1))::json, \'[]\'::json)::jsonb as value from ( select f_rq1.id, f_rq1.book_title AS "title" from "books" as f_rq1 where (id) in (select book_id from book_genres where e_a1.id = book_genres.genre_id) and ( f_rq1.book_title like :v_title_startsWith4_1 || \'%\' ) ) as f_rq1 ) as f_rq1 on true',
+	// ── ORDER BY related m:1 columns (correlated subquery) ────────────────
+	'orderby-related-author-name':
+		'select e_a1.id, e_a1.book_title AS "title" from ( select e_a1.id, e_a1.book_title, e_a1.author_id from books as e_a1 where true order by (select e_o.author_name from "authors" as e_o where e_a1.author_id = e_o.id) asc limit :limit ) as e_a1 order by (select e_o.author_name from "authors" as e_o where e_a1.author_id = e_o.id) asc',
+	'orderby-related-fellowship-name':
+		'select e_a1.id, e_a1.person_name AS "name" from ( select e_a1.id, e_a1.person_name, e_a1.fellowship_id from persons as e_a1 where true order by (select e_o.fellowship_name from "fellowships" as e_o where e_a1.fellowship_id = e_o.id) desc limit :limit ) as e_a1 order by (select e_o.fellowship_name from "fellowships" as e_o where e_a1.fellowship_id = e_o.id) desc',
+	'orderby-related-mixed':
+		'select e_a1.book_title, e_a1.id, e_a1.book_title AS "title" from ( select e_a1.id, e_a1.book_title, e_a1.author_id from books as e_a1 where true order by (select e_o.author_name from "authors" as e_o where e_a1.author_id = e_o.id) asc, e_a1.book_title desc limit :limit ) as e_a1 order by (select e_o.author_name from "authors" as e_o where e_a1.author_id = e_o.id) asc, e_a1.book_title desc',
+	'agg-author-sum-totalPages':
+		'select e_a1.id, e_a1.author_name AS "name", (select sum(e_w1.page_count) from "books" as e_w1 where e_a1.id = e_w1.author_id) AS "totalPages" from ( select e_a1.id, e_a1.author_name from authors as e_a1 where true ) as e_a1',
+	'agg-author-avg-pages':
+		'select e_a1.id, e_a1.author_name AS "name", (select avg(e_w1.page_count) from "books" as e_w1 where e_a1.id = e_w1.author_id) AS "avgPages" from ( select e_a1.id, e_a1.author_name from authors as e_a1 where true ) as e_a1',
+	'agg-author-min-year':
+		'select e_a1.id, e_a1.author_name AS "name", (select min(e_w1.published_year) from "books" as e_w1 where e_a1.id = e_w1.author_id) AS "oldestBookYear" from ( select e_a1.id, e_a1.author_name from authors as e_a1 where true ) as e_a1',
+	'agg-author-filter-totalPages-gt':
+		'select e_a1.id, e_a1.author_name AS "name" from ( select e_a1.id, e_a1.author_name from authors as e_a1 where true and ( (select sum(e_w8.page_count) from "books" as e_w8 where e_a1.id = e_w8.author_id) > :v_totalPages1_1 ) ) as e_a1',
+
+	// ── ORDER BY related 1:m / m:m columns (MIN/MAX aggregated subquery) ───
+	'orderby-1m-author-books-title-asc':
+		'select e_a1.id, e_a1.author_name AS "name" from ( select e_a1.id, e_a1.author_name from authors as e_a1 where true order by (select min(e_o.book_title) from "books" as e_o where e_a1.id = e_o.author_id) asc limit :limit ) as e_a1 order by (select min(e_o.book_title) from "books" as e_o where e_a1.id = e_o.author_id) asc',
+	'orderby-1m-author-books-pages-desc':
+		'select e_a1.id, e_a1.author_name AS "name" from ( select e_a1.id, e_a1.author_name from authors as e_a1 where true order by (select max(e_o.page_count) from "books" as e_o where e_a1.id = e_o.author_id) desc limit :limit ) as e_a1 order by (select max(e_o.page_count) from "books" as e_o where e_a1.id = e_o.author_id) desc',
+	'orderby-mm-genre-books-title-asc':
+		'select e_a1.id, e_a1.genre_name AS "name" from ( select e_a1.id, e_a1.genre_name from genres as e_a1 where true order by (select min(e_o.book_title) from "books" as e_o inner join "book_genres" as p_o on e_o.id = p_o.book_id where p_o.genre_id = e_a1.id) asc limit :limit ) as e_a1 order by (select min(e_o.book_title) from "books" as e_o inner join "book_genres" as p_o on e_o.id = p_o.book_id where p_o.genre_id = e_a1.id) asc',
+	'orderby-mm-genre-books-published-desc':
+		'select e_a1.id, e_a1.genre_name AS "name" from ( select e_a1.id, e_a1.genre_name from genres as e_a1 where true order by (select max(e_o.published_year) from "books" as e_o inner join "book_genres" as p_o on e_o.id = p_o.book_id where p_o.genre_id = e_a1.id) desc limit :limit ) as e_a1 order by (select max(e_o.published_year) from "books" as e_o inner join "book_genres" as p_o on e_o.id = p_o.book_id where p_o.genre_id = e_a1.id) desc',
+	'orderby-1m-union-all-alias-rewrite':
+		'select e_a1.id, e_a1.author_name AS "name" from ( select distinct * from ((select e_a1.id, e_a1.author_name from authors as e_a1 where true and ( e_a1.author_name = :e_author_name1_author_name )) union all (select e_a1.id, e_a1.author_name from authors as e_a1 where true and ( e_a1.nationality = :e_nationality1_nationality ))) as e_a1_u order by (select min(e_o.book_title) from "books" as e_o where e_a1_u.id = e_o.author_id) asc ) as e_a1 order by (select min(e_o.book_title) from "books" as e_o where e_a1.id = e_o.author_id) asc',
+
+	// ── DISTINCT query flag (outer SELECT DISTINCT) ──────────────────────
+	'distinct-basic':
+		'select distinct e_a1.id, e_a1.power_description AS "power" from ( select e_a1.id, e_a1.power_description from rings as e_a1 where true ) as e_a1',
+	'distinct-union-all':
+		'select distinct e_a1.id, e_a1.power_description AS "power" from ( select distinct * from ((select e_a1.id, e_a1.power_description from rings as e_a1 where true and ( e_a1.power_description = :e_power_description1_power_description )) union all (select e_a1.id, e_a1.power_description from rings as e_a1 where true and ( e_a1.forged_by = :e_forged_by1_forged_by ))) as e_a1_u ) as e_a1',
+	// ── DISTINCT nested in relation subquery ────────────────────────────
+	'distinct-nested-1m':
+		'select e_a1.id, e_a1.author_name AS "name", f_p1.value as "books" from ( select e_a1.id, e_a1.author_name from authors as e_a1 where true ) as e_a1 left outer join lateral ( select coalesce(json_agg(row_to_json(f_p1))::json, \'[]\'::json)::jsonb as value from ( select distinct f_p1.author_id, f_p1.id, f_p1.book_title AS "title" from "books" as f_p1 where e_a1.id = f_p1.author_id ) as f_p1 ) as f_p1 on true',
 };
 
 type Scenario = {
@@ -439,6 +476,29 @@ const scenarios: Scenario[] = [
 	// requires the count field registered via @GQLEntityClass decorators, which
 	// the bare mock-metadata fixture doesn't set up. Covered in count-field.test.ts instead.
 
+	// ── Aggregate fields ─────────────────────────────────────────────────
+	{
+		name: 'agg-author-sum-totalPages',
+		fields: { id: {}, name: {}, totalPages: {} },
+		entity: Author,
+	},
+	{
+		name: 'agg-author-avg-pages',
+		fields: { id: {}, name: {}, avgPages: {} },
+		entity: Author,
+	},
+	{
+		name: 'agg-author-min-year',
+		fields: { id: {}, name: {}, oldestBookYear: {} },
+		entity: Author,
+	},
+	{
+		name: 'agg-author-filter-totalPages-gt',
+		fields: { id: {}, name: {} },
+		entity: Author,
+		filter: { totalPages_gt: 500 } as any,
+	},
+
 	// ── Pagination ────────────────────────────────────────────────────────
 	{
 		name: 'pagination-limit-offset',
@@ -559,11 +619,112 @@ const scenarios: Scenario[] = [
 			},
 		} as any,
 	},
+	// ── ORDER BY related m:1 columns ──────────────────────────────────────
+	{
+		name: 'orderby-related-author-name',
+		fields: { id: {}, title: {} },
+		entity: Book,
+		pagination: { limit: 10, orderBy: [{ author: { name: 'asc' } }] as any },
+	},
+	{
+		name: 'orderby-related-fellowship-name',
+		fields: { id: {}, name: {} },
+		entity: Person,
+		pagination: { limit: 10, orderBy: [{ fellowship: { name: 'desc' } }] as any },
+	},
+	{
+		name: 'orderby-related-mixed',
+		fields: { id: {}, title: {} },
+		entity: Book,
+		pagination: { limit: 10, orderBy: [{ author: { name: 'asc' } }, { title: 'desc' }] as any },
+	},
+	// ── ORDER BY related 1:m / m:m columns (MIN/MAX aggregated subquery) ───
+	{
+		name: 'orderby-1m-author-books-title-asc',
+		fields: { id: {}, name: {} },
+		entity: Author,
+		pagination: { limit: 10, orderBy: [{ books: { title: 'asc' } }] as any },
+	},
+	{
+		name: 'orderby-1m-author-books-pages-desc',
+		fields: { id: {}, name: {} },
+		entity: Author,
+		pagination: { limit: 10, orderBy: [{ books: { pages: 'desc' } }] as any },
+	},
+	{
+		name: 'orderby-mm-genre-books-title-asc',
+		fields: { id: {}, name: {} },
+		entity: Genre,
+		pagination: { limit: 10, orderBy: [{ books: { title: 'asc' } }] as any },
+	},
+	{
+		name: 'orderby-mm-genre-books-published-desc',
+		fields: { id: {}, name: {} },
+		entity: Genre,
+		pagination: { limit: 10, orderBy: [{ books: { publishedYear: 'desc' } }] as any },
+	},
+	{
+		name: 'orderby-1m-union-all-alias-rewrite',
+		fields: { id: {}, name: {} },
+		entity: Author,
+		filter: { _or: [{ name: 'Tolkien' }, { nationality: 'British' }] },
+		pagination: { orderBy: [{ books: { title: 'asc' } }] as any },
+	},
+
+	// ── DISTINCT query flag ──────────────────────────────────────────────
+	{
+		name: 'distinct-basic',
+		fields: { id: {}, power: {} },
+		entity: Ring,
+		pagination: { distinct: true },
+	},
+	{
+		name: 'distinct-union-all',
+		fields: { id: {}, power: {} },
+		entity: Ring,
+		filter: { _or: [{ power: 'high' }, { forgedBy: 'Sauron' }] },
+		pagination: { distinct: true },
+	},
+	// ── DISTINCT nested in relation subquery ────────────────────────────
+	{
+		name: 'distinct-nested-1m',
+		fields: {
+			id: {},
+			name: {},
+			books: {
+				args: { pagination: { distinct: true } },
+				fieldsByTypeName: { Book: { id: {}, title: {} } },
+			},
+		},
+		entity: Author,
+	},
 ];
 
 describe('SQL regression — golden snapshots', () => {
 	const provider = createMockMetadataProvider();
 	const mapper = new GQLtoSQLMapper(provider);
+
+	beforeAll(() => {
+		clearAggregateFields();
+		registerAggregateField('Author', 'totalPages', 'sum', 'pages', 'books', () => 'Book');
+		registerAggregateField('Author', 'avgPages', 'avg', 'pages', 'books', () => 'Book');
+		registerAggregateField(
+			'Author',
+			'oldestBookYear',
+			'min',
+			'publishedYear',
+			'books',
+			() => 'Book'
+		);
+		registerAggregateField(
+			'Author',
+			'newestBookYear',
+			'max',
+			'publishedYear',
+			'books',
+			() => 'Book'
+		);
+	});
 
 	for (const s of scenarios) {
 		it(`generate identical SQL for ${s.name}`, () => {
