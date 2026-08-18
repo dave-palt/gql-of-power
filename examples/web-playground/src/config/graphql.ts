@@ -115,6 +115,20 @@ query OrderedLibrary {
 }
 
 # ─────────────────────────────────────────────────────────────────────────────
+# 3c. _or filter — compiled to UNION ALL branches by default. The strategy is a
+#     server-side pagination knob (orStrategy: 'or' flattens to a single query
+#     with a plain OR — see resolvers.ts comment + README "OR Strategy").
+# ─────────────────────────────────────────────────────────────────────────────
+query RingsByPowerOrForgedBy {
+  rings(filter: { _or: [{ power_like: "%corruption%" }, { forgedBy_eq: "Sauron" }] }) {
+    id
+    name
+    power
+    forgedBy
+  }
+}
+
+# ─────────────────────────────────────────────────────────────────────────────
 # 4. mapNumericEnum + excludeFromInput + parseJson
 #    Ring.status is stored in the DB as 100/200/300 but exposed as the
 #    RingStatus enum. forgedDate is excluded from the Input type but readable
