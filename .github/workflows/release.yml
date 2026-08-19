@@ -167,7 +167,12 @@ jobs:
           # -dev). Non-conflicting changes from main still flow through. A plain
           # `git merge main --no-edit` conflicts on the version line every release.
           git merge --squash main -X ours
-          git commit -m "chore: sync main into develop after release"
+          # The squash can be empty when develop is already content-synced with
+          # main (e.g. hotfixes released before their develop PR landed). `git
+          # commit` then exits 1 with "nothing to commit" and would kill the
+          # release job before the version bump below — so tolerate it.
+          git commit -m "chore: sync main into develop after release" || \
+            echo "develop already in sync — nothing to commit"
           git push origin develop
 
       - name: Bump develop to next -dev version
