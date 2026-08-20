@@ -165,6 +165,21 @@ select ... where ((name = :v1) or (race = :v2))
 Applies at every `_or` compilation site: root query, relationship `EXISTS`
 subqueries, and count/aggregate correlated subqueries.
 
+**Per-branch selection (v1.11+).** `orStrategy` is a native field on the
+generated `PaginationInput`, so a relation field's own pagination selects the
+strategy for that branch only — `books(pagination: { orStrategy: OR })`.
+Nearest-wins inheritance: a child without its own value inherits the root's,
+which itself falls back to the global. Sibling branches are isolated.
+Precedence (highest first): explicit `buildQueryAndBindingsFor({ orStrategy })`
+argument (query-wide hard override that ignores root AND child pagination
+values, warning per override — filter logs with `D3GOP_LOG_TYPE=orStrategy`) >
+branch pagination > root pagination > `setGlobalConfig`/env > `'union-all'`.
+The trailing `orStrategy` param on `getQueryResultsForFields` /
+`getQueryResultsForInfo` is the same hard override at the manager level.
+One invariant: inline scalar `_or` inside a lateral `json_agg` (children
+collections) always compiles to plain OR regardless of strategy — union-all
+there would duplicate children matching 2+ branches.
+
 **Note on relationship branches:** relationship filter branches compile to
 self-contained correlated `EXISTS` subqueries (not parent-level INNER JOINs),
 so both strategies are semantically equivalent for them — verified by PG

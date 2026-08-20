@@ -746,8 +746,39 @@ const rings = await queryManager.getQueryResultsForFields(provider, Ring, fields
 setGlobalConfig({ orStrategy: 'or' });
 ```
 
-**Exposing it to clients (optional).** `orStrategy` is server-side by default.
-To let clients pick the strategy per query, add an optional arg using the
+**Exposing it to clients.** `orStrategy` is a native field on the generated
+`PaginationInput` (registered via `ensureOrStrategyRegistered()`), so clients
+can pick the strategy per query — and **per sub-branch** — through the
+pagination argument. A relation field's own pagination selects the strategy
+for that branch only (nearest-wins inheritance; siblings are isolated):
+
+```graphql
+query {
+	authors {
+		id
+		books(
+			pagination: { orStrategy: OR }
+			filter: { characters: { _or: [{ name_eq: "Frodo" }, { name_eq: "Gandalf" }] } }
+		) { id title }
+		genres { id name } # sibling: unaffected, keeps the inherited/default strategy
+	}
+}
+```
+
+Precedence, highest first:
+
+1. **Explicit query-building argument** — `buildQueryAndBindingsFor({ orStrategy })`
+   or the trailing `orStrategy` param on `getQueryResultsForFields` /
+   `getQueryResultsForInfo`: a query-wide hard override that **ignores every
+   pagination-carried value (root and child)** and logs a warning per
+   overridden value (`D3GOP_LOG_TYPE=orStrategy` filters them) — for backend
+   code that must force a strategy regardless of client input.
+2. **Branch pagination** — the field's own `pagination.orStrategy`.
+3. **Root pagination** — the query-level `pagination.orStrategy`.
+4. **Global** — `setGlobalConfig({ orStrategy })` / `GQL_OF_POWER_OR_STRATEGY`.
+5. Default `'union-all'`.
+
+For finer resolver-level control you can still add a dedicated arg using the
 exported `GQLOrStrategy` enum (value names are GraphQL-safe; the values carry
 the raw `'union-all' | 'or'` strings):
 
@@ -765,7 +796,7 @@ async rings(
 	return queryManager.getQueryResultsForInfo(provider, Ring, info, filter, {
 		...pagination,
 		orStrategy, // resolved value drops straight in
-	});
+	}, orStrategy); // explicit hard override — beats every pagination value above
 }
 ```
 

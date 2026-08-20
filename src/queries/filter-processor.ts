@@ -1916,15 +1916,17 @@ export class FilterProcessor extends ClassOperations {
 			if (this.orStrategy === 'or' && _or.length > 0) {
 				// OR strategy: flatten branches into one EXISTS subquery with an
 				// OR-combined WHERE; branch INNER JOINs are merged. The pivot-table
-				// CTE wrapper is only needed for the UNION ALL path — use the
-				// plain fallback builder here.
+				// CTE wrapper is only needed for the UNION ALL path — `whereSQL`
+				// already correlates the pivot table inline, so unlike the UNION ALL
+				// path there must be NO `inner join ${ptAlias}` (that alias only
+				// exists inside the `with ${ptAlias} as (...)` wrapper).
 				const orWhere = SQLBuilder.buildOrCombinedWhere(_or);
 				subquery = this.buildManyToManyPivotTable(
 					[alias.toColumnName('*')],
 					alias,
 					referenceField.tableName,
 					[...innerJoin, ..._or.flatMap((o) => o.innerJoin)],
-					outerJoin.concat(`inner join ${ptAlias} on ${onSQL}`),
+					outerJoin,
 					whereSQL,
 					orWhere.length > 0 ? [...whereWithValues, `(${orWhere})`] : whereWithValues
 				);
