@@ -941,6 +941,10 @@ function _registerFiltersAndPagination<T>(
 ): any {
 	InputType(gqlEntityName + 'OrderBy')(GQLEntityOrderBy);
 
+	// PaginationInput now exposes orStrategy — the enum must be registered
+	// before the schema references it (idempotent, deferred pattern).
+	ensureOrStrategyRegistered();
+
 	const paginationTypeName = `${gqlEntityName}PaginationInput`;
 
 	@InputType(paginationTypeName)
@@ -960,6 +964,16 @@ function _registerFiltersAndPagination<T>(
 
 		@Field(() => Boolean, { nullable: true })
 		distinct?: boolean;
+
+		/**
+		 * Strategy for combining `_or`/`_and` branches in subqueries generated
+		 * for THIS element: the root query (root pagination) or a relation
+		 * field's own sub-branch (`books(pagination: { orStrategy: OR })`).
+		 * Nearest-wins inheritance; overridden by an explicit
+		 * `buildQueryAndBindingsFor({ orStrategy })` argument.
+		 */
+		@Field(() => GQLOrStrategy, { nullable: true })
+		orStrategy?: OrStrategy;
 	}
 	Object.defineProperty(GQLEntityPaginationInputField, 'name', {
 		value: paginationTypeName,
