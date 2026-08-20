@@ -1245,7 +1245,10 @@ describe('GQLtoSQLMapper - Relationship Integration Tests', () => {
 			expect(result.bindings).toBeDefined();
 		});
 
-		it.skip('should filter reference list with OR conditions', () => {
+		// Unskipped 2026-08: inline _or on relation fields was fixed by PR #59;
+		// this test was skipped since Oct 2025 because that path never worked.
+		// Probe-verified green before unskipping (filter present in SQL, both bindings).
+		it('should filter reference list with OR conditions', () => {
 			const fields: FieldSelection<Fellowship> = {
 				id: {},
 				name: {},

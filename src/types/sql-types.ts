@@ -1,7 +1,7 @@
 import { Knex } from 'knex';
 import { Field, FieldResolver, registerEnumType } from 'type-graphql';
 import { FieldOperations } from '../field-operations';
-import { GQLEntityFilterInputFieldType, GQLEntityPaginationInputType } from './gql-types';
+import { GQLEntityFilterInputFieldType, GQLEntityPaginationInputType, OrStrategy } from './gql-types';
 import { ExtractArrayType } from './utils';
 
 export enum ReferenceType {
@@ -283,7 +283,7 @@ export type RequireRelationConfig = {
 	 * Static pagination to apply to the relationship subquery.
 	 * When `forwardArgs` is true, this serves as a base that GQL args override/extend.
 	 */
-	pagination?: { limit?: number; offset?: number; orderBy?: any[]; distinct?: boolean };
+	pagination?: { limit?: number; offset?: number; orderBy?: any[]; distinct?: boolean; orStrategy?: OrStrategy };
 	/**
 	 * Forward GQL filter/pagination args from the custom field to this relationship.
 	 * Static config serves as base; GQL args override/add.

@@ -1,6 +1,6 @@
 import { Alias } from '../queries/alias';
 import { keys } from '../utils/object';
-import { GQLEntityOrderByInputType } from './gql-types';
+import { GQLEntityOrderByInputType, OrStrategy } from './gql-types';
 
 export type MappingsType = {
 	select: Set<string>;
@@ -16,6 +16,15 @@ export type MappingsType = {
 	offset?: number;
 	orderBy: GQLEntityOrderByInputType<any>[];
 	distinct?: boolean;
+	/**
+	 * orStrategy selected for this sub-branch via its `pagination` argument
+	 * (`books(pagination: { orStrategy: OR })`). Set by `handleFieldArguments`;
+	 * the mapper applies it scoped to the branch (nearest-wins inheritance:
+	 * branch value > query-level pagination.orStrategy > global config >
+	 * 'union-all'). An explicit `buildQueryAndBindingsFor({ orStrategy })`
+	 * argument ignores branch values entirely.
+	 */
+	orStrategy?: OrStrategy;
 	alias?: Alias;
 	_or: MappingsType[];
 	_and: MappingsType[];

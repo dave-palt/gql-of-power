@@ -14,6 +14,7 @@ import {
 import { GQLtoSQLMapper } from './queries/gql-to-sql-mapper';
 import { convertFilterEnumValues } from './queries/enum-filter-converter';
 import { DatabaseDriver, FieldSelection, MetadataProviderType } from './types/sql-types';
+import { OrStrategy } from './types/gql-types';
 import {
 	GQLEntityFilterInputFieldType,
 	GQLEntityOrderByInputType,
@@ -57,7 +58,9 @@ export class GQLQueryManager {
 		entity: new () => T,
 		info: GraphQLResolveInfo,
 		filter?: GQLEntityFilterInputFieldType<FilterT>,
-		pagination?: Partial<GQLEntityPaginationInputType<FilterT>>
+		pagination?: Partial<GQLEntityPaginationInputType<FilterT>>,
+		/** Query-wide orStrategy override; beats any pagination.orStrategy (root and child). */
+		orStrategy?: OrStrategy
 	): Promise<K[]> {
 		const { fields, entityName } = this.resolveInfoFields<T>(provider, entity, info);
 		return this.getQueryResultsForFields<T, FilterT, K>(
@@ -66,7 +69,8 @@ export class GQLQueryManager {
 			fields,
 			filter,
 			pagination,
-			entityName
+			entityName,
+			orStrategy
 		);
 	}
 
@@ -99,7 +103,13 @@ export class GQLQueryManager {
 		fields: FieldSelection<T>,
 		filter?: GQLEntityFilterInputFieldType<FilterT>,
 		pagination?: Partial<GQLEntityPaginationInputType<FilterT>>,
-		entityNameOverride?: string
+		entityNameOverride?: string,
+		/**
+		 * Explicit query-wide orStrategy — hard override that ignores any
+		 * pagination.orStrategy (root AND child/forwarded). Warns when it forces
+		 * a different value than a pagination carried. See gql-to-sql-mapper.
+		 */
+		orStrategy?: OrStrategy
 	): Promise<K[]> {
 		if (!entity?.name) {
 			throw new Error(`Entity not provided`);
@@ -138,6 +148,7 @@ export class GQLQueryManager {
 				entity: entityForMapper,
 				filter: convertedFilter,
 				pagination: pagination as Partial<GQLEntityPaginationInputType<T>>,
+				orStrategy,
 			});
 
 			logger.timeLog(logName, 'query built', querySQL, bindings);
