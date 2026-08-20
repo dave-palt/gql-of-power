@@ -1482,8 +1482,42 @@ export class GQLtoSQLMapper {
 				offset,
 				orderBy,
 				distinct,
+				_or: refOr,
+				_and: refAnd,
 				...rest
 			} = QueriesUtils.mappingsReducer(newMappings, newMapping);
+
+			// Class-level logical operators (_and, _or) from the CHILD's reduced
+			// mapping — including its inline filter (`books(filter: { _or: ... })`)
+			// — must be flattened into the child's WHERE clause. The relationship
+			// handlers below build lateral-join subqueries (not UNION ALL), so the
+			// root-level _or/_and UNION-ALL splitting doesn't apply here. Without
+			// this flattening the operators fall into `rest` above and are
+			// silently dropped from the generated SQL (while their bindings still
+			// leak into the query via the reducer's values merge).
+			//
+			// _not already pushes 'NOT (...)' conditions into `where`, so only
+			// _and and _or entries need explicit flattening. Mirrors the
+			// custom-field requiresRelations path below (~988-1006).
+			const childWhere = [...whereWithValues];
+			const childValues = { ...values };
+			for (const andEntry of refAnd) {
+				childWhere.push(...andEntry.where);
+				Object.assign(childValues, andEntry.values);
+			}
+			if (refOr.length > 0) {
+				// OR entries are combined into a single '(w1 OR w2 ...)' clause
+				const orClauses: string[] = [];
+				for (const orEntry of refOr) {
+					if (orEntry.where.length > 0) {
+						orClauses.push(`(${orEntry.where.join(' and ')})`);
+						Object.assign(childValues, orEntry.values);
+					}
+				}
+				if (orClauses.length > 0) {
+					childWhere.push(`(${orClauses.join(' or ')})`);
+				}
+			}
 
 			logger.log(
 				'NEW MAPPING reduced:',
@@ -1499,6 +1533,8 @@ export class GQLtoSQLMapper {
 						limit,
 						offset,
 						orderBy,
+						_or: refOr,
+						_and: refAnd,
 						...rest,
 					},
 					true
@@ -1529,8 +1565,8 @@ export class GQLtoSQLMapper {
 					mapping,
 					alias,
 					childAlias,
-					whereWithValues,
-					values,
+					childWhere,
+					childValues,
 					limit,
 					offset,
 					orderBy,
@@ -1557,8 +1593,8 @@ export class GQLtoSQLMapper {
 					alias,
 					childAlias,
 					mapping,
-					whereWithValues,
-					values,
+					childWhere,
+					childValues,
 					innerJoin,
 					limit,
 					offset,
@@ -1576,12 +1612,12 @@ export class GQLtoSQLMapper {
 					alias,
 					childAlias,
 					select,
-					whereWithValues,
+					childWhere,
 					outerJoin,
 					json,
 					mapping,
 					gqlFieldName,
-					values,
+					childValues,
 					limit,
 					offset,
 					orderBy,
