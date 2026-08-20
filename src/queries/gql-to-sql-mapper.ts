@@ -64,9 +64,19 @@ export class GQLtoSQLMapper {
 	/**
 	 * Effective `_or`/`_and` combination strategy for the current query.
 	 * Resolved per `buildQueryAndBindingsFor` call:
-	 * `pagination.orStrategy` > global `setGlobalConfig({ orStrategy })` > 'union-all'.
+	 * 1. explicit `orStrategy` argument — hard override, ignores any
+	 *    pagination-carried strategy (root AND child paginations) and warns
+	 *    when it overrides a requested value
+	 * 2. `pagination.orStrategy` > global `setGlobalConfig({ orStrategy })` > 'union-all'.
 	 */
 	private orStrategy: OrStrategy = 'union-all';
+	/**
+	 * True when an explicit `orStrategy` argument was passed to
+	 * `buildQueryAndBindingsFor` — a hard query-wide lock. While set, ALL
+	 * pagination-carried strategies (root and every child/field pagination)
+	 * are ignored, and each overridden child emits one warning.
+	 */
+	private orStrategyExplicit = false;
 
 	constructor(
 		metadataProvider: MetadataProviderType,
@@ -91,20 +101,42 @@ export class GQLtoSQLMapper {
 		customFields,
 		entity,
 		pagination,
+		orStrategy,
 	}: {
 		fields: FieldSelection<T>;
 		customFields: CustomFieldsSettings<T>;
 		entity: new () => T;
 		filter?: GQLEntityFilterInputFieldType<T>;
 		pagination?: Partial<GQLEntityPaginationInputType<T>>;
+		/**
+		 * Explicit programmatic strategy. When provided it is applied to the
+		 * whole query, IGNORING any strategy carried on pagination (root and
+		 * child paginations alike); a warning highlights the override.
+		 */
+		orStrategy?: OrStrategy;
 	}): QueryAndBindings {
 		const logName = 'GQLtoSQLMapper - ' + entity.name;
 		logger.time(logName);
 		logger.timeLog(logName);
 
-		// Resolve the effective _or/_and combination strategy for this query:
-		// per-query pagination override > global config > default 'union-all'.
-		this.orStrategy = pagination?.orStrategy ?? getOrStrategyGlobal();
+		// Resolve the effective _or/_and combination strategy for this query.
+		// An explicit argument is a hard override: pagination-carried values
+		// (root AND child) are ignored entirely, with a warning when they
+		// disagree. Otherwise pagination > global config > default.
+		if (orStrategy !== undefined) {
+			const requestedRoot = pagination?.orStrategy;
+			if (requestedRoot !== undefined && requestedRoot !== orStrategy) {
+				logger.warn(
+					`orStrategy: explicit orStrategy argument "${orStrategy}" overrides pagination.orStrategy "${requestedRoot}" — ` +
+						`pagination-carried strategies (root and child) are ignored for this query`
+				);
+			}
+			this.orStrategy = orStrategy;
+			this.orStrategyExplicit = true;
+		} else {
+			this.orStrategy = pagination?.orStrategy ?? getOrStrategyGlobal();
+			this.orStrategyExplicit = false;
+		}
 		this.filterProcessor.orStrategy = this.orStrategy;
 
 		this.Alias = new AliasManager();
@@ -947,6 +979,25 @@ export class GQLtoSQLMapper {
 			relationPagination = { ...config.pagination, ...args.pagination };
 		}
 
+		// Branch-scoped orStrategy via the forwarded pagination argument —
+		// same nearest-wins scoping as plain relation fields (mapField). An
+		// explicit buildQueryAndBindingsFor argument locks the whole query:
+		// branch values are IGNORED, with one warning per overridden child.
+		const prevStrategy = this.filterProcessor.orStrategy;
+		if (this.orStrategyExplicit) {
+			if (
+				relationPagination?.orStrategy !== undefined &&
+				relationPagination.orStrategy !== this.orStrategy
+			) {
+				logger.warn(
+					`orStrategy: explicit orStrategy argument "${this.orStrategy}" overrides ` +
+						`field pagination orStrategy "${relationPagination.orStrategy}" on "${relationFieldName}" — ` +
+						`pagination-carried strategies (root and child) are ignored for this query`
+				);
+			}
+		} else if (relationPagination?.orStrategy !== undefined) {
+			this.filterProcessor.orStrategy = relationPagination.orStrategy;
+		}
 		const newMappings = this.recursiveMap({
 			entityMetadata: refMetadata,
 			fields: subFields,
@@ -954,6 +1005,7 @@ export class GQLtoSQLMapper {
 			alias: childAlias,
 			gqlFilters: relationFilter ? [relationFilter] : undefined,
 		});
+		this.filterProcessor.orStrategy = prevStrategy;
 
 		const newMapping = QueriesUtils.newMappings();
 		if (relationPagination?.limit) newMapping.limit = relationPagination.limit;
@@ -1438,6 +1490,25 @@ export class GQLtoSQLMapper {
 				subFields
 			);
 
+			// Branch-scoped orStrategy: apply the branch's selected strategy to
+			// the child recursiveMap ONLY (its inline filters and nested
+			// relation filters), restoring the parent's effective strategy
+			// afterwards — siblings keep their own (or inherited) values and
+			// the root is unaffected. An explicit buildQueryAndBindingsFor
+			// argument locks the whole query: branch values are IGNORED, with
+			// one warning per overridden child.
+			const prevStrategy = this.filterProcessor.orStrategy;
+			if (this.orStrategyExplicit) {
+				if (mapping.orStrategy !== undefined && mapping.orStrategy !== this.orStrategy) {
+					logger.warn(
+						`orStrategy: explicit orStrategy argument "${this.orStrategy}" overrides ` +
+							`field pagination orStrategy "${mapping.orStrategy}" on "${gqlFieldName ?? parentGqlFieldNameKey}" — ` +
+							`pagination-carried strategies (root and child) are ignored for this query`
+					);
+				}
+			} else if (mapping.orStrategy !== undefined) {
+				this.filterProcessor.orStrategy = mapping.orStrategy;
+			}
 			const newMappings = this.recursiveMap({
 				entityMetadata: referenceField,
 				fields: subFields,
@@ -1449,6 +1520,7 @@ export class GQLtoSQLMapper {
 				// lateral join subquery — child-row filtering, NOT EXISTS on parent.
 				gqlFilters: mapping.inlineFilter ? [mapping.inlineFilter] : undefined,
 			});
+			this.filterProcessor.orStrategy = prevStrategy;
 
 			logger.log(
 				'NEW MAPPING:',
@@ -1470,6 +1542,11 @@ export class GQLtoSQLMapper {
 			}
 			if (mapping.distinct) {
 				newMapping.distinct = mapping.distinct;
+			}
+			// Branch-selected orStrategy rides the same path as distinct —
+			// nearest-wins scoping happens in the save/restore below.
+			if (mapping.orStrategy !== undefined) {
+				newMapping.orStrategy = mapping.orStrategy;
 			}
 			const {
 				select,
@@ -1699,6 +1776,13 @@ export class GQLtoSQLMapper {
 			mapping.limit = pagination?.limit;
 			mapping.offset = pagination?.offset;
 			mapping.distinct = pagination?.distinct;
+			// Branch-scoped orStrategy from this field's pagination argument —
+			// applied by mapField around the child recursiveMap call
+			// (nearest-wins; explicit buildQueryAndBindingsFor({ orStrategy })
+			// ignores branch values entirely).
+			if (pagination?.orStrategy !== undefined) {
+				mapping.orStrategy = pagination.orStrategy;
+			}
 			mapping.orderBy.push(...(pagination?.orderBy ?? []));
 			logger.log(
 				'GQLtoSQLMapper - handleFieldArguments - processed',
