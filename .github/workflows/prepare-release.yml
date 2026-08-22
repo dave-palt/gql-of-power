@@ -10,6 +10,11 @@ on:
         options:
           - minor
           - major
+      force_release:
+        description: 'Create the release PR even if only non-shippable files (docs, CI, tests…) changed'
+        required: false
+        type: boolean
+        default: false
 
 jobs:
   prepare:
@@ -54,17 +59,95 @@ jobs:
           echo "next_dev=$NEXT_DEV" >> $GITHUB_OUTPUT
           echo "bump_type=$BUMP" >> $GITHUB_OUTPUT
 
+      - name: Check for shippable changes since last release
+        id: shippable
+        env:
+          FORCE_RELEASE: ${{ github.event.inputs.force_release }}
+        run: |
+          # Skip the release when NOTHING that ships to npm changed since the
+          # last tag. Fail-safe: only skip when 100% of changed files are known
+          # non-shippable paths (docs, CI, tests, examples, agent tooling…).
+          # Any file outside that list (src/, tsconfig, lockfile, scripts/…)
+          # forces a release. package.json needs special handling: develop's
+          # "version" line ALWAYS differs from the tag (the -dev suffix), so it
+          # only counts as shippable when a line other than "version" changed.
+          if [ "$FORCE_RELEASE" = "true" ]; then
+            echo "force_release=true — skipping the shippable-changes check"
+            echo "shippable=true" >> $GITHUB_OUTPUT
+            exit 0
+          fi
+
+          LAST_TAG=$(git tag --sort=-creatordate | grep '^v' | head -1 || echo "")
+          echo "last_tag=$LAST_TAG" >> $GITHUB_OUTPUT
+          if [ -z "$LAST_TAG" ]; then
+            echo "No previous release tag found — treating everything as shippable."
+            echo "shippable=true" >> $GITHUB_OUTPUT
+            exit 0
+          fi
+
+          CHANGED=$(git diff --name-only "$LAST_TAG"..HEAD)
+          if [ -z "$CHANGED" ]; then
+            echo "No changes at all since $LAST_TAG — nothing to release."
+            echo "shippable=false" >> $GITHUB_OUTPUT
+            exit 0
+          fi
+
+          # Load the file list into an array, one entry per changed file.
+          # (while-read instead of mapfile: mapfile needs bash 4+, not everywhere available.)
+          FILES=()
+          while IFS= read -r FILE; do
+            [ -n "$FILE" ] && FILES+=("$FILE")
+          done < <(git diff --name-only "$LAST_TAG"..HEAD)
+          echo "Changed files since $LAST_TAG:"
+          printf '  %s\n' "${FILES[@]:-(none)}"
+
+          SHIPPABLE_COUNT=0
+          SHIPPABLE_LIST=""
+          for FILE in "${FILES[@]}"; do
+            [ -z "$FILE" ] && continue
+            case "$FILE" in
+              *.md|LICENSE|.github/**|tests/**|examples/**|scripts/**|agents/**|fallow-baselines/**|.fallow*|.prettier*|.npmignore|.gitignore|bunfig.toml|AGENTS.md|CLAUDE.md|EXAMPLES.md|TODO.md|WARP.md)
+                ;; # non-shippable
+              package.json)
+                # develop's version line always differs (the -dev suffix);
+                # package.json only counts when another line changed.
+                if git diff "$LAST_TAG"..HEAD -- package.json | grep -E '^[+-][^+-]' | grep -Ev '^[+-]\s*"version":' | grep -q .; then
+                  SHIPPABLE_COUNT=$((SHIPPABLE_COUNT+1))
+                  SHIPPABLE_LIST="$SHIPPABLE_LIST
+          $FILE (non-version package.json change)"
+                fi
+                ;;
+              *)
+                SHIPPABLE_COUNT=$((SHIPPABLE_COUNT+1))
+                SHIPPABLE_LIST="$SHIPPABLE_LIST
+          $FILE"
+                ;;
+            esac
+            done
+
+          if [ "$SHIPPABLE_COUNT" -gt 0 ]; then
+            echo "Shippable changes detected:"
+            echo "$SHIPPABLE_LIST"
+            echo "shippable=true" >> $GITHUB_OUTPUT
+          else
+            echo "Only non-shippable files changed since $LAST_TAG — skipping release."
+            echo "shippable=false" >> $GITHUB_OUTPUT
+          fi
+
       - name: Create release branch
+        if: steps.shippable.outputs.shippable == 'true'
         run: |
           BRANCH_NAME="release/${{ steps.versions.outputs.release }}"
           git checkout -b "$BRANCH_NAME"
           echo "branch=$BRANCH_NAME" >> $GITHUB_ENV
 
       - name: Update package.json to release version
+        if: steps.shippable.outputs.shippable == 'true'
         run: |
           bun run scripts/update-version.ts ${{ steps.versions.outputs.release }}
 
       - name: Commit release version
+        if: steps.shippable.outputs.shippable == 'true'
         run: |
           git add package.json
           git commit -m "chore: bump version to ${{ steps.versions.outputs.release }}"
@@ -72,6 +155,7 @@ jobs:
 
       - name: Gather changes since last release
         id: changes
+        if: steps.shippable.outputs.shippable == 'true'
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
@@ -108,6 +192,7 @@ jobs:
 
       - name: Create Pull Request to main
         id: create_pr
+        if: steps.shippable.outputs.shippable == 'true'
         uses: actions/github-script@v9
         env:
           RELEASE_VERSION: ${{ steps.versions.outputs.release }}
@@ -166,6 +251,14 @@ jobs:
 
       - name: Output summary
         run: |
+          echo "## Release Preparation" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          if [ "${{ steps.shippable.outputs.shippable }}" != "true" ]; then
+            echo "⏭️ Nothing to release — only non-shippable files (docs, CI, tests…) changed since ${{ steps.shippable.outputs.last_tag }}." >> $GITHUB_STEP_SUMMARY
+            echo "" >> $GITHUB_STEP_SUMMARY
+            echo "No release PR was created; npm was not touched. Re-run with **force_release** if you want one anyway." >> $GITHUB_STEP_SUMMARY
+            exit 0
+          fi
           echo "## Release Preparation Complete ✅" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
           echo "- **Release Version**: ${{ steps.versions.outputs.release }}" >> $GITHUB_STEP_SUMMARY

@@ -43,13 +43,22 @@ From the GitHub Actions tab, run the **"Prepare Release"** workflow:
    - **patch**: Bug fixes, small changes (e.g., `1.0.0` → `1.0.1`)
    - **minor**: New features, backward-compatible (e.g., `1.0.0` → `1.1.0`)
    - **major**: Breaking changes (e.g., `1.0.0` → `2.0.0`)
-4. Click "Run workflow"
+4. Optionally tick **force_release** to cut a release PR even when only non-shippable files changed (see below)
+5. Click "Run workflow"
 
 This will:
 
 - Create a release branch from develop (e.g., `release/1.2.0`)
 - Update `package.json` to the release version (stripping `-dev` and bumping)
 - Create a PR to `main` with the `release:<type>` label
+
+#### Skipping releases with nothing to ship
+
+The workflow first checks whether anything that actually ships to npm changed since the last release tag. If only non-shippable files changed — docs (`.md`), CI (`.github/`), tests, examples, `scripts/`, agent tooling, lint config — it stops without creating a release PR or touching npm. The run summary explains the skip.
+
+The check is deliberately **fail-safe**: it only skips when *every* changed file is on the known non-shippable list. Anything else (a file under `src/`, `tsconfig.json`, the lockfile, a dependency change in `package.json`) forces a release. `package.json` itself only counts when a line other than `"version"` changed, since develop's version always carries the `-dev` suffix.
+
+Merging a PR to `main` without a `release:*` label never triggers a publish either (the Release workflow is label-gated), so doc-only merges stay release-free end to end.
 
 ### 2. Review and Merge
 
