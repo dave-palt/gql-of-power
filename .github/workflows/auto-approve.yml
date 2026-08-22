@@ -6,7 +6,10 @@ on:
 
 jobs:
   auto-approve:
-    if: github.actor == 'dave-palt'
+    # Skip bot-authored PRs: github-actions[bot] cannot approve its own PR —
+    # the action would fail with "Review Can not approve your own pull request"
+    # (seen on release PR #62). Bot PRs (release/sync) need a human approval.
+    if: github.actor == 'dave-palt' && github.event.pull_request.user.login != 'github-actions[bot]'
     runs-on: ubuntu-latest
     permissions:
       pull-requests: write
