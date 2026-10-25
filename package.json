@@ -1,7 +1,7 @@
 {
 	"name": "@dav3/gql-of-power",
 	"version": "1.11.0",
-	"description": "Generate a single optimized SQL query from GraphQL operations — eliminate N+1 with recursive field-to-SQL mapping. Ships with agent skill for AI coding assistants.",
+	"description": "Generate a single optimized SQL query from GraphQL operations \u2014 eliminate N+1 with recursive field-to-SQL mapping. Ships with agent skill for AI coding assistants.",
 	"main": "dist/index.js",
 	"types": "dist/index.d.ts",
 	"module": "esnext",
@@ -53,16 +53,20 @@
 		"fallow": "^3.6.0",
 		"graphql-yoga": "^5.21.0",
 		"reflect-metadata": "^0.2.2",
-		"typescript": "^5.9.3"
+		"typescript": "^5.9.3",
+		"type-graphql": "^2.0.0-rc.4",
+		"graphql": "^16.14.0"
 	},
 	"dependencies": {
-		"graphql": "^16.14.0",
 		"graphql-fields": "^2.0.3",
 		"graphql-parse-resolve-info": "^4.14.1",
-		"knex": "^3.2.10",
-		"type-graphql": "^2.0.0-rc.4"
+		"knex": "^3.2.10"
 	},
 	"workspaces": [
 		"examples/*"
-	]
+	],
+	"peerDependencies": {
+		"graphql": ">=16.8.0 <17",
+		"type-graphql": "^2.0.0-rc.4"
+	}
 }
