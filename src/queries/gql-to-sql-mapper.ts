@@ -33,6 +33,7 @@ import {
 	OrStrategy,
 } from '../types/gql-types';
 import { MappingsType, mappingsTypeToString } from '../types/gql-to-sql-types';
+import { normalizeOrderBy } from './normalize-orderby';
 import { keys } from '../utils/object';
 import { logger } from '../variables';
 import { Alias, AliasManager, AliasType } from './alias';
@@ -143,6 +144,20 @@ export class GQLtoSQLMapper {
 		const alias = this.Alias.start('a');
 		const metadata = this.getMetadata(entity.name) as EntityMetadata<T>;
 
+		// Normalize string-form orderBy entries ("author.name desc") into the
+		// nested-object form the pipeline below consumes. Object entries pass
+		// through untouched (programmatic API compatibility). Applied once here
+		// so every consumer (field projection + SQL builder) sees plain objects.
+		const normalizedOrderBy = normalizeOrderBy(pagination?.orderBy as any);
+		const normalizedPagination = (
+			normalizedOrderBy !== undefined
+				? {
+						...pagination,
+						orderBy: normalizedOrderBy as GQLEntityOrderByInputType<any>[],
+					}
+				: pagination
+		) as Partial<GQLEntityPaginationInputType<T>>;
+
 		const allFilters = filter ? [filter] : [];
 
 		logger.log(
@@ -152,7 +167,7 @@ export class GQLtoSQLMapper {
 			'fields',
 			fields,
 			'orderBy',
-			pagination?.orderBy
+			normalizedPagination?.orderBy
 		);
 
 		const recursiveMapResults = this.recursiveMap<T>({
@@ -173,7 +188,10 @@ export class GQLtoSQLMapper {
 		);
 
 		// Resolve orderBy fields, including nested-object related columns for m:1 relations
-		const orderByFields = (pagination?.orderBy ?? [])
+		// (normalization above guarantees plain-object entries here)
+		const orderByFields = (
+			(normalizedPagination?.orderBy ?? []) as GQLEntityOrderByInputType<any>[]
+		)
 			.map((obs) =>
 				keys(obs)
 					.map((ob) => {
@@ -246,8 +264,12 @@ export class GQLtoSQLMapper {
 		const unionAllEntries = [..._or, ..._and];
 
 		// Build orderBy SQL — use a custom field mapper that handles related dot-notation
-		const orderBySQL = pagination?.orderBy
-			? this.buildOrderBySQLWithRelated(metadata, alias, pagination.orderBy)
+		const orderBySQL = normalizedPagination?.orderBy
+			? this.buildOrderBySQLWithRelated(
+					metadata,
+					alias,
+					normalizedPagination.orderBy as GQLEntityOrderByInputType<any>[]
+				)
 			: '';
 		const innerLimitSQL = pagination?.limit ? `limit ${this.namedParameterPrefix}limit` : '';
 		const innerOffsetSQL = pagination?.offset ? `offset ${this.namedParameterPrefix}offset` : '';

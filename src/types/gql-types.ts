@@ -141,7 +141,7 @@ export type GQLEntityOrderByInputType<T> = Partial<{
 export type GQLEntityPaginationInputType<T> = {
 	limit?: number;
 	offset?: number;
-	orderBy?: GQLEntityOrderByInputType<T>[];
+	orderBy?: (GQLEntityOrderByInputType<T> | string)[];
 	/**
 	 * When true, the outermost SELECT is emitted as `SELECT DISTINCT`, deduplicating
 	 * the final user-facing rows. Useful when relationship JOINs could multiply parent
