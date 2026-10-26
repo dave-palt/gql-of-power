@@ -27,8 +27,18 @@ jobs:
     steps:
       - name: Check if push came from a release PR
         id: check
+        env:
+          # Never interpolate the commit message straight into the shell:
+          # squash-merge bodies contain markdown with backticks/$(...) which
+          # the shell would execute (script injection — broke release v1.12.0's
+          # check step). Env indirection keeps it a plain string.
+          HEAD_COMMIT_MESSAGE: ${{ github.event.head_commit.message }}
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          PR_NUMBER=$(echo "${{ github.event.head_commit.message }}" | grep -oP '#\K\d+' | head -1)
+          # Match the PR number in the FIRST LINE only (the squash title,
+          # e.g. "Release v1.12.0 (#72)"). Bodies list changelog PRs (#63…)
+          # which would otherwise shadow the real release PR number.
+          PR_NUMBER=$(printf '%s\n' "$HEAD_COMMIT_MESSAGE" | head -1 | grep -oP '#\K\d+' | head -1)
           if [ -z "$PR_NUMBER" ]; then
             echo "No merged PR detected in commit message. Skipping."
             echo "should_release=false" >> $GITHUB_OUTPUT
@@ -52,8 +62,6 @@ jobs:
 
           echo "should_release=true" >> $GITHUB_OUTPUT
           echo "bump_type=$BUMP" >> $GITHUB_OUTPUT
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
   release:
     needs: check-release
