@@ -12,7 +12,7 @@ This document describes the automated release process for `@dav3/gql-of-power`.
 The release process uses two GitHub Actions workflows:
 
 1. **prepare-release.yml** — Initiates a release by creating a PR to main
-2. **release.yml** — Publishes the release, merges back to develop, and bumps the dev version
+2. **release.yml** — Publishes the release, then opens a sync PR back to develop (merge-back + next `-dev` bump)
 
 ## Version Strategy
 
@@ -64,8 +64,10 @@ Once merged to `main`, the **Release** workflow automatically:
 1. Checks out `main` and runs build + tests
 2. Publishes to npm
 3. Creates a git tag and GitHub Release (with **auto-generated release notes** — GitHub compiles the PR/commit list since the last tag, plus new contributors)
-4. Merges `main` back into `develop`
-5. Bumps `develop` to the next `-dev` version (minor/major only; patch leaves develop as-is)
+4. Opens a **sync PR to `develop`** (`chore/sync-main-v…`) containing the merge-back and the next `-dev` version bump, with auto-merge (squash) enabled
+   - `develop`'s branch protection requires PRs, so the workflow cannot push directly
+   - a bot cannot approve its own PR — **one code-owner approval** lets auto-merge complete it once checks pass
+   - patch releases leave the develop version unchanged (sync PR then only carries the merge-back, and is skipped entirely if develop is already in sync)
 
 ### Manual Release (Hotfix)
 
@@ -167,9 +169,9 @@ You can also trigger the release workflow manually:
 
 ### Develop version bump PR conflicts
 
-- This can happen if develop has diverged significantly
-- Manually resolve conflicts and merge
-- The version in `package.json` should reflect the next version with `-dev` suffix
+- The sync PR squashes `main` into `develop` with `-X ours` for the version line — conflicts should be rare
+- If the sync PR shows conflicts, resolve them on its `chore/sync-main-v…` branch; the version in `package.json` should reflect the next version with `-dev` suffix
+- If a previous sync PR is still open, the next release reuses it (same branch name per version)
 
 ### Wrong version bump type used
 
