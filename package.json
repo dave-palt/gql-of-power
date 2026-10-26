@@ -15,8 +15,8 @@
 		"watch": "tsc --watch",
 		"prepublishOnly": "bun run build",
 		"test": "D3GOP_LOG_TYPE=\"disabled\" bun test",
-		"test:unit": "D3GOP_LOG_TYPE=\"disabled\" bun test --filter='unit'",
-		"test:integration": "D3GOP_LOG_TYPE=\"disabled\" bun test --filter='integration'",
+		"test:unit": "D3GOP_LOG_TYPE=\"disabled\" bun test tests/unit tests/regression",
+		"test:integration": "D3GOP_LOG_TYPE=\"disabled\" bun test tests/integration",
 		"test:watch": "D3GOP_LOG_TYPE=\"disabled\" bun test --watch",
 		"test:coverage": "D3GOP_LOG_TYPE=\"disabled\" bun test --coverage",
 		"format": "bunx prettier --write .",
@@ -53,16 +53,23 @@
 		"fallow": "^3.6.0",
 		"graphql-yoga": "^5.21.0",
 		"reflect-metadata": "^0.2.2",
-		"typescript": "^5.9.3"
+		"typescript": "^5.9.3",
+		"type-graphql": "^2.0.0-rc.4",
+		"graphql": "^16.14.0"
 	},
 	"dependencies": {
-		"graphql": "^16.14.0",
 		"graphql-fields": "^2.0.3",
 		"graphql-parse-resolve-info": "^4.14.1",
-		"knex": "^3.2.10",
-		"type-graphql": "^2.0.0-rc.4"
+		"knex": "^3.2.10"
 	},
 	"workspaces": [
 		"examples/*"
-	]
+	],
+	"peerDependencies": {
+		"graphql": ">=16.8.0 <17",
+		"type-graphql": "^2.0.0-rc.4"
+	},
+	"resolutions": {
+		"@graphql-tools/utils": "^12.0.2"
+	}
 }

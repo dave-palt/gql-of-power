@@ -31,6 +31,7 @@ import {
 } from '../types/gql-types';
 import { AccessControlEntry, AccessControlList } from '../types/access-control';
 import { keys } from '../utils/object';
+import { GQLOrderBySpecScalar } from '../queries/normalize-orderby';
 
 // ─── Internal registries ────────────────────────────────────────────────────
 
@@ -959,8 +960,8 @@ function _registerFiltersAndPagination<T>(
 		})
 		offset?: number;
 
-		@Field(() => [GQLEntityOrderBy], { nullable: true })
-		orderBy?: OrderByOptions[];
+		@Field(() => [GQLOrderBySpecScalar], { nullable: true })
+		orderBy?: (OrderByOptions | string)[];
 
 		@Field(() => Boolean, { nullable: true })
 		distinct?: boolean;
