@@ -55,7 +55,7 @@
 		"reflect-metadata": "^0.2.2",
 		"typescript": "^5.9.3",
 		"type-graphql": "^2.0.0-rc.4",
-		"graphql": "^16.14.0"
+		"graphql": "^17.1.0"
 	},
 	"dependencies": {
 		"graphql-fields": "^2.0.3",
